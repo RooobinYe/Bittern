@@ -1,13 +1,232 @@
+/* ── 全局重置 ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
   height: 100vh;
   width: 100vw;
+  overflow: hidden;
+}
+
+/* ── 背景 & 光斑 ── */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  transition: background 0.5s ease;
+}
+
+/* 暗色背景 */
+.app-bg.dark {
+  background: linear-gradient(135deg, #0d0e1c 0%, #111228 40%, #0a1628 70%, #0d1420 100%);
+}
+
+/* 亮色背景 */
+.app-bg.light {
+  background: linear-gradient(135deg, #e8f4fd 0%, #f0f6ff 40%, #faf5ff 70%, #fff8f0 100%);
+}
+
+/* 光斑 – 暗色 */
+.app-bg.dark .orb-1 {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  top: -100px;
+  left: -100px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(120, 80, 220, 0.3) 0%, transparent 70%);
+  filter: blur(80px);
+  animation: floatOrb 12s ease-in-out infinite;
+}
+
+.app-bg.dark .orb-2 {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  bottom: -150px;
+  right: -150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 200, 220, 0.2) 0%, transparent 70%);
+  filter: blur(100px);
+  animation: floatOrb 16s ease-in-out infinite reverse;
+}
+
+.app-bg.dark .orb-3 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  top: 40%;
+  left: 50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(80, 120, 240, 0.15) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatOrb 20s ease-in-out infinite 3s;
+}
+
+/* 光斑 – 亮色 */
+.app-bg.light .orb-1 {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  top: -100px;
+  left: -100px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 180, 100, 0.35) 0%, transparent 70%);
+  filter: blur(80px);
+  animation: floatOrb 12s ease-in-out infinite;
+}
+
+.app-bg.light .orb-2 {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  bottom: -150px;
+  right: -150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(100, 180, 255, 0.35) 0%, transparent 70%);
+  filter: blur(100px);
+  animation: floatOrb 16s ease-in-out infinite reverse;
+}
+
+.app-bg.light .orb-3 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  top: 40%;
+  left: 50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 120, 255, 0.2) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatOrb 20s ease-in-out infinite 3s;
+}
+
+@keyframes floatOrb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(30px, -20px) scale(1.05); }
+  66%       { transform: translate(-20px, 15px) scale(0.96); }
+}
+
+/* ── Shell 容器 ── */
+.app-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── 玻璃卡片基础样式 ── */
+.glass-card {
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-radius: 16px;
+}
+
+/* 暗色玻璃 */
+.dark .glass-card,
+.dark .n-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 亮色玻璃 */
+.light .glass-card,
+.light .n-card {
+  background: rgba(255, 255, 255, 0.55) !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ── 全局 n-card 圆角 ── */
+.n-card {
+  border-radius: 16px !important;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+
+/* ── 按钮 hover 微缩放 ── */
+.n-button {
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.n-button:hover:not(:disabled) {
+  transform: scale(1.03);
+}
+
+.n-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ── 页面进入动画 ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stagger-enter {
+  animation: fadeSlideUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* tab 面板淡入 */
+.tab-fade-enter-active,
+.tab-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.tab-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.tab-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ── 内容区滚动 ── */
+.app-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+  scroll-behavior: smooth;
+}
+
+.app-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-content::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+}
+
+.dark .app-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.light .app-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* ── 最大宽度居中 ── */
+.content-inner {
+  max-width: 960px;
+  margin: 0 auto;
 }
