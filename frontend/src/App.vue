@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, markRaw } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { LockClosedOutline, LockOpenOutline, KeyOutline, SpeedometerOutline, MoonOutline, SunnyOutline, ContrastOutline, LogoGithub } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
@@ -15,7 +15,6 @@ const themeMode = ref(['auto', 'light', 'dark'].includes(savedMode) ? savedMode 
 const systemDark = ref(false)
 const activeTab = ref('encrypt')
 const mounted = ref(false)
-const contentRef = ref(null)
 
 let mediaQuery = null
 const handleSystemThemeChange = (e) => { systemDark.value = e.matches }
@@ -32,11 +31,6 @@ onUnmounted(() => {
 })
 
 watch(themeMode, (val) => { localStorage.setItem(STORAGE_KEY, val) })
-
-watch(activeTab, async () => {
-  await nextTick()
-  if (contentRef.value) contentRef.value.scrollTop = 0
-})
 
 const isDark = computed(() =>
   themeMode.value === 'auto' ? systemDark.value : themeMode.value === 'dark'
@@ -69,15 +63,17 @@ const themeOverrides = computed(() => ({
 }))
 
 const tabs = [
-  { name: 'encrypt',   label: '加密',     icon: LockClosedOutline  },
-  { name: 'decrypt',   label: '解密',     icon: LockOpenOutline    },
-  { name: 'key',       label: '密钥管理', icon: KeyOutline         },
-  { name: 'benchmark', label: '效率对比', icon: SpeedometerOutline  },
+  { name: 'encrypt',   label: '加密',     icon: LockClosedOutline,  component: markRaw(EncryptPanel)   },
+  { name: 'decrypt',   label: '解密',     icon: LockOpenOutline,    component: markRaw(DecryptPanel)   },
+  { name: 'key',       label: '密钥管理', icon: KeyOutline,         component: markRaw(KeyManager)     },
+  { name: 'benchmark', label: '效率对比', icon: SpeedometerOutline, component: markRaw(BenchmarkPanel) },
 ]
 
 const activeTabIndex = computed(() =>
   Math.max(0, tabs.findIndex(tab => tab.name === activeTab.value))
 )
+
+const currentPanel = computed(() => tabs[activeTabIndex.value].component)
 </script>
 
 <template>
@@ -179,20 +175,12 @@ const activeTabIndex = computed(() =>
             </div>
 
             <!-- 内容区 -->
-            <main ref="contentRef" class="app-content">
+            <main class="app-content">
               <div class="content-inner">
-                <Transition name="tab-fade" mode="out-in">
-                  <div
-                    :key="activeTab"
-                    class="tab-content"
-                    :class="mounted ? 'stagger-enter' : ''"
-                    style="animation-delay: 140ms"
-                  >
-                    <EncryptPanel   v-if="activeTab === 'encrypt'"   />
-                    <DecryptPanel   v-if="activeTab === 'decrypt'"   />
-                    <KeyManager     v-if="activeTab === 'key'"       />
-                    <BenchmarkPanel v-if="activeTab === 'benchmark'" />
-                  </div>
+                <Transition name="tab-fade">
+                  <KeepAlive>
+                    <component :is="currentPanel" />
+                  </KeepAlive>
                 </Transition>
               </div>
             </main>
@@ -617,8 +605,4 @@ const activeTabIndex = computed(() =>
   color: rgba(0, 0, 0, 0.7);
 }
 
-/* ── 内容区 ── */
-.tab-content {
-  padding-top: 0;
-}
 </style>

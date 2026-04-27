@@ -184,17 +184,23 @@ html, body {
 /* tab 面板淡入 */
 .tab-fade-enter-active,
 .tab-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 .tab-fade-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px);
 }
 
 .tab-fade-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateY(-4px);
+}
+
+/* 离开的 panel 绝对定位，避免与进入的 panel 同时占据流式布局 */
+.tab-fade-leave-active {
+  position: absolute;
+  inset: 0;
 }
 
 /* ── 内容区滚动 ── */
@@ -228,6 +234,7 @@ html, body {
 
 /* ── 最大宽度居中 ── */
 .content-inner {
+  position: relative;
   max-width: 960px;
   margin: 0 auto;
 }
