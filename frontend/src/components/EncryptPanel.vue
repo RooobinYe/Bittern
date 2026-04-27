@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   DocumentOutline, KeyOutline, LockClosedOutline, FolderOpenOutline,
   RefreshOutline, CopyOutline, EyeOutline, EyeOffOutline, CheckmarkCircleOutline,
-  CloudUploadOutline,
+  CloudUploadOutline, LibraryOutline,
 } from '@vicons/ionicons5'
+import { keys, addKey, findByHex } from '../stores/keyStore'
 
 const message = useMessage()
 
@@ -92,14 +93,59 @@ function setInputFromPath(path) {
 }
 
 // ── 密钥操作 ──
+const selectedKeyId = ref(null)
+
+const keyOptions = computed(() =>
+  keys.value.map(k => ({
+    label: k.name,
+    value: k.id,
+    hex: k.hex,
+  }))
+)
+
+function renderKeyOption(option) {
+  if (!option) return null
+  return h('div', { style: 'display:flex;flex-direction:column;gap:2px;padding:2px 0;' }, [
+    h('span', { style: 'font-size:13px;font-weight:600;' }, option.label),
+    h('span', {
+      style: 'font-family:monospace;font-size:11px;color:rgba(128,128,128,0.7);letter-spacing:0.04em;'
+    }, option.hex),
+  ])
+}
+
+function onSelectLibKey(id) {
+  if (!id) return
+  const item = keys.value.find(k => k.id === id)
+  if (item) {
+    key.value = item.hex
+    message.info(`已载入密钥：${item.name}`)
+  }
+}
+
+// 密钥手动编辑后，若与已选条目不再一致，清除选择
+function onKeyInput() {
+  if (!selectedKeyId.value) return
+  const item = keys.value.find(k => k.id === selectedKeyId.value)
+  if (!item || item.hex.toLowerCase() !== key.value.toLowerCase()) {
+    selectedKeyId.value = null
+  }
+}
+
 async function handleGenerateKey() {
+  let hex
   try {
-    const k = await GenerateKey()
-    key.value = k
+    hex = await GenerateKey()
   } catch {
     const bytes = new Uint8Array(16)
     crypto.getRandomValues(bytes)
-    key.value = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+    hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+  key.value = hex
+  // 自动入库（默认按时间命名），方便解密时直接选到
+  const item = addKey(hex)
+  if (item) {
+    selectedKeyId.value = item.id
+    message.success(`已生成并保存到密钥库：${item.name}`)
   }
 }
 
@@ -107,6 +153,28 @@ function copyKey() {
   if (!key.value) return
   navigator.clipboard?.writeText(key.value)
   message.success('密钥已复制到剪贴板')
+}
+
+function saveCurrentKey() {
+  if (!key.value) {
+    message.warning('请先输入或生成密钥')
+    return
+  }
+  if (!/^[0-9a-fA-F]{32}$/.test(key.value)) {
+    message.error('密钥格式无效，应为 32 位十六进制')
+    return
+  }
+  const exist = findByHex(key.value)
+  if (exist) {
+    selectedKeyId.value = exist.id
+    message.info(`该密钥已在库中：${exist.name}`)
+    return
+  }
+  const item = addKey(key.value)
+  if (item) {
+    selectedKeyId.value = item.id
+    message.success(`已保存到密钥库：${item.name}`)
+  }
 }
 
 // ── 进度事件 + Wails 文件拖拽 ──
@@ -214,6 +282,28 @@ const modeCards = [
           <n-icon :component="KeyOutline" :size="14" />
           <span>SM4 密钥（128 bit / 16 字节）</span>
         </div>
+
+        <!-- 密钥库下拉选择 -->
+        <div class="key-row" v-if="keyOptions.length">
+          <n-select
+            v-model:value="selectedKeyId"
+            :options="keyOptions"
+            :render-label="renderKeyOption"
+            placeholder="从密钥库选择已保存的密钥…"
+            clearable
+            @update:value="onSelectLibKey"
+            class="key-input"
+          />
+          <n-tooltip content="保存当前密钥到密钥库">
+            <template #trigger>
+              <button class="key-btn" @click="saveCurrentKey" :disabled="!key">
+                <n-icon :component="LibraryOutline" :size="16" />
+              </button>
+            </template>
+            保存到密钥库
+          </n-tooltip>
+        </div>
+
         <div class="key-row">
           <n-input
             v-model:value="key"
@@ -221,15 +311,16 @@ const modeCards = [
             placeholder="输入或随机生成 SM4 密钥"
             class="key-input"
             :input-props="{ style: 'font-family: monospace' }"
+            @input="onKeyInput"
           />
           <div class="key-actions">
-            <n-tooltip content="随机生成">
+            <n-tooltip content="随机生成（自动入库）">
               <template #trigger>
                 <button class="key-btn" @click="handleGenerateKey">
                   <n-icon :component="RefreshOutline" :size="16" />
                 </button>
               </template>
-              随机生成
+              随机生成（自动入库）
             </n-tooltip>
             <n-tooltip>
               <template #trigger>

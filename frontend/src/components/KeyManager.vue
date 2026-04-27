@@ -1,11 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useMessage } from 'naive-ui'
+import { useMessage, useDialog } from 'naive-ui'
 import {
   KeyOutline, RefreshOutline, CopyOutline, TrashOutline, ShieldCheckmarkOutline,
+  SaveOutline, CreateOutline, CheckmarkOutline, CloseOutline,
 } from '@vicons/ionicons5'
+import { keys, addKey, removeKey, renameKey, findByHex } from '../stores/keyStore'
 
 const message = useMessage()
+const dialog  = useDialog()
 
 // ── Wails 容错导入 ──
 let GenerateKey = async () => { throw new Error('后端未就绪') }
@@ -15,8 +18,10 @@ let GenerateKey = async () => { throw new Error('后端未就绪') }
 
 // ── 状态 ──
 const currentKey  = ref('')
-const history     = ref([])    // [{ hex, time }]
+const currentName = ref('')
 const generating  = ref(false)
+const editingId   = ref('')
+const editingName = ref('')
 
 // 分4段展示
 const keySegments = computed(() => {
@@ -29,6 +34,8 @@ const keySegments = computed(() => {
   ]
 })
 
+const currentInLib = computed(() => !!findByHex(currentKey.value))
+
 async function handleGenerateKey() {
   generating.value = true
   try {
@@ -40,9 +47,7 @@ async function handleGenerateKey() {
     currentKey.value = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
   } finally {
     generating.value = false
-    // 保存历史（最多5条）
-    history.value.unshift({ hex: currentKey.value, time: new Date().toLocaleTimeString() })
-    if (history.value.length > 5) history.value.pop()
+    currentName.value = ''
   }
 }
 
@@ -52,18 +57,76 @@ function copyKey() {
   message.success('密钥已复制到剪贴板')
 }
 
-function copyHistoryKey(hex) {
+function copyHex(hex) {
   navigator.clipboard?.writeText(hex)
-  message.success('历史密钥已复制')
+  message.success('密钥已复制')
 }
 
 function clearKey() {
   currentKey.value = ''
+  currentName.value = ''
 }
 
-function useHistoryKey(hex) {
-  currentKey.value = hex
-  message.info('已载入历史密钥')
+function saveCurrentToLib() {
+  if (!currentKey.value) return
+  if (!/^[0-9a-fA-F]{32}$/.test(currentKey.value)) {
+    message.error('密钥格式无效，应为 32 位十六进制')
+    return
+  }
+  const exist = findByHex(currentKey.value)
+  if (exist) {
+    message.info(`该密钥已在库中：${exist.name}`)
+    return
+  }
+  const item = addKey(currentKey.value, currentName.value)
+  if (item) {
+    message.success(`已保存到密钥库：${item.name}`)
+    currentName.value = ''
+  }
+}
+
+function useLibKey(item) {
+  currentKey.value = item.hex
+  currentName.value = item.name
+  message.info('已载入密钥')
+}
+
+function startRename(item) {
+  editingId.value = item.id
+  editingName.value = item.name
+}
+
+function commitRename() {
+  if (editingId.value) {
+    renameKey(editingId.value, editingName.value)
+    message.success('已重命名')
+  }
+  editingId.value = ''
+  editingName.value = ''
+}
+
+function cancelRename() {
+  editingId.value = ''
+  editingName.value = ''
+}
+
+function confirmDelete(item) {
+  dialog.warning({
+    title: '删除密钥',
+    content: `确定删除「${item.name}」？删除后无法用此密钥解密之前加密的文件。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      removeKey(item.id)
+      message.success('已删除')
+    }
+  })
+}
+
+function formatTime(ts) {
+  const d = new Date(ts)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 
@@ -80,7 +143,7 @@ function useHistoryKey(hex) {
 
       <!-- 说明 Alert -->
       <n-alert type="warning" :show-icon="true" class="info-alert">
-        SM4 密钥固定为 128 bit（16 字节）。这里以十六进制展示，方便复制粘贴。
+        SM4 密钥固定为 128 bit（16 字节）。这里以十六进制展示。生成后保存到密钥库，可在加密 / 解密页面下拉选择。
       </n-alert>
 
       <!-- 密钥大展示区 -->
@@ -157,37 +220,85 @@ function useHistoryKey(hex) {
         </n-button>
       </div>
 
-      <!-- 历史记录 -->
-      <template v-if="history.length">
-        <n-divider title-placement="left">
-          <span class="divider-title">本次会话历史（最近 {{ history.length }} 条）</span>
-        </n-divider>
-        <div class="history-list">
-          <div
-            v-for="(item, i) in history"
-            :key="i"
-            class="history-item"
-            :class="{ 'history-current': item.hex === currentKey }"
-          >
-            <div class="history-hex">{{ item.hex }}</div>
-            <div class="history-meta">
-              <span class="history-time">{{ item.time }}</span>
-              <div class="history-actions">
-                <n-button
-                  text
-                  size="tiny"
-                  @click="useHistoryKey(item.hex)"
-                  :disabled="item.hex === currentKey"
-                >使用</n-button>
-                <n-button text size="tiny" @click="copyHistoryKey(item.hex)">复制</n-button>
-              </div>
-            </div>
+      <!-- 保存到密钥库 -->
+      <div v-if="currentKey" class="save-row">
+        <n-input
+          v-model:value="currentName"
+          placeholder="为该密钥起个名字（可选）"
+          :disabled="currentInLib"
+          class="save-name-input"
+        />
+        <n-button
+          type="info"
+          :disabled="currentInLib"
+          @click="saveCurrentToLib"
+        >
+          <template #icon>
+            <n-icon :component="SaveOutline" />
+          </template>
+          {{ currentInLib ? '已在库中' : '保存到密钥库' }}
+        </n-button>
+      </div>
+
+      <!-- 密钥库 -->
+      <n-divider title-placement="left">
+        <span class="divider-title">密钥库（{{ keys.length }}）</span>
+      </n-divider>
+
+      <div v-if="!keys.length" class="empty-lib">
+        <n-icon :component="KeyOutline" :size="28" class="empty-icon" />
+        <div class="empty-text">暂无已保存密钥</div>
+        <div class="empty-sub">生成密钥后点击「保存到密钥库」</div>
+      </div>
+
+      <div v-else class="lib-list">
+        <div
+          v-for="item in keys"
+          :key="item.id"
+          class="lib-item"
+          :class="{ 'lib-current': item.hex === currentKey }"
+        >
+          <div class="lib-head">
+            <template v-if="editingId === item.id">
+              <n-input
+                v-model:value="editingName"
+                size="small"
+                class="rename-input"
+                @keydown.enter="commitRename"
+                @keydown.esc="cancelRename"
+                autofocus
+              />
+              <n-button text size="small" @click="commitRename">
+                <template #icon><n-icon :component="CheckmarkOutline" /></template>
+              </n-button>
+              <n-button text size="small" @click="cancelRename">
+                <template #icon><n-icon :component="CloseOutline" /></template>
+              </n-button>
+            </template>
+            <template v-else>
+              <span class="lib-name">{{ item.name }}</span>
+              <n-button text size="tiny" @click="startRename(item)" class="lib-rename">
+                <template #icon><n-icon :component="CreateOutline" :size="13" /></template>
+              </n-button>
+            </template>
+            <span class="lib-time">{{ formatTime(item.createdAt) }}</span>
+          </div>
+          <div class="lib-hex">{{ item.hex }}</div>
+          <div class="lib-actions">
+            <n-button
+              text
+              size="tiny"
+              @click="useLibKey(item)"
+              :disabled="item.hex === currentKey"
+            >使用</n-button>
+            <n-button text size="tiny" @click="copyHex(item.hex)">复制</n-button>
+            <n-button text size="tiny" type="error" @click="confirmDelete(item)">删除</n-button>
           </div>
         </div>
-      </template>
+      </div>
 
       <n-text depth="3" style="font-size: 12px">
-        提示：实际项目中可使用密码 + 盐 (PBKDF2) 派生密钥，避免直接保存明文密钥。
+        提示：密钥保存在浏览器本地存储中（localStorage）。生产环境建议结合系统钥匙串或 PBKDF2 密码派生。
       </n-text>
 
     </n-space>
@@ -294,43 +405,87 @@ function useHistoryKey(hex) {
 
 .generate-btn { flex: 1; }
 
-/* ── 历史记录 ── */
+/* ── 保存到库 ── */
+.save-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.save-name-input { flex: 1; }
+
+/* ── 密钥库 ── */
 .divider-title { font-size: 12px; color: rgba(128, 128, 128, 0.6); }
 
-.history-list { display: flex; flex-direction: column; gap: 6px; }
-
-.history-item {
-  border-radius: 10px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  padding: 10px 14px;
+.empty-lib {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: background 0.15s ease;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 12px;
+  border: 1px dashed rgba(128, 128, 128, 0.2);
+  border-radius: 12px;
 }
 
-.history-item:hover { background: rgba(128, 128, 128, 0.04); }
+.empty-icon { color: rgba(128, 128, 128, 0.3); }
+.empty-text { font-size: 13px; color: rgba(128, 128, 128, 0.65); }
+.empty-sub  { font-size: 11px; color: rgba(128, 128, 128, 0.45); }
 
-.history-current {
-  border-color: rgba(240, 160, 32, 0.35);
-  background: rgba(240, 160, 32, 0.04);
+.lib-list { display: flex; flex-direction: column; gap: 8px; }
+
+.lib-item {
+  border-radius: 10px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.history-hex {
-  font-family: 'SF Mono', 'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
+.lib-item:hover { background: rgba(128, 128, 128, 0.04); }
+
+.lib-current {
+  border-color: rgba(240, 160, 32, 0.4);
+  background: rgba(240, 160, 32, 0.05);
+}
+
+.lib-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lib-name {
   font-size: 13px;
+  font-weight: 600;
+  color: rgba(128, 128, 128, 0.95);
+  flex-shrink: 0;
+}
+
+.lib-rename { opacity: 0.5; }
+.lib-rename:hover { opacity: 1; }
+
+.rename-input { max-width: 200px; }
+
+.lib-time {
+  font-size: 11px;
+  color: rgba(128, 128, 128, 0.5);
+  margin-left: auto;
+}
+
+.lib-hex {
+  font-family: 'SF Mono', 'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12.5px;
   letter-spacing: 0.04em;
+  color: rgba(128, 128, 128, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-meta {
+.lib-actions {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 12px;
 }
-
-.history-time { font-size: 11px; color: rgba(128, 128, 128, 0.5); }
-.history-actions { display: flex; gap: 8px; }
 </style>

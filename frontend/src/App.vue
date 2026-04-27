@@ -1,20 +1,55 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
-import { LockClosedOutline, LockOpenOutline, KeyOutline, SpeedometerOutline, MoonOutline, SunnyOutline, LogoGithub } from '@vicons/ionicons5'
+import { LockClosedOutline, LockOpenOutline, KeyOutline, SpeedometerOutline, MoonOutline, SunnyOutline, ContrastOutline, LogoGithub } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import EncryptPanel from './components/EncryptPanel.vue'
 import DecryptPanel from './components/DecryptPanel.vue'
 import KeyManager from './components/KeyManager.vue'
 import BenchmarkPanel from './components/BenchmarkPanel.vue'
 
-const isDark = ref(true)
+const STORAGE_KEY = 'bittern.themeMode'
+const savedMode = localStorage.getItem(STORAGE_KEY)
+const themeMode = ref(['auto', 'light', 'dark'].includes(savedMode) ? savedMode : 'auto')
+const systemDark = ref(false)
 const activeTab = ref('encrypt')
 const mounted = ref(false)
 
+let mediaQuery = null
+const handleSystemThemeChange = (e) => { systemDark.value = e.matches }
+
 onMounted(() => {
+  mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  systemDark.value = mediaQuery.matches
+  mediaQuery.addEventListener('change', handleSystemThemeChange)
   setTimeout(() => { mounted.value = true }, 50)
 })
+
+onUnmounted(() => {
+  if (mediaQuery) mediaQuery.removeEventListener('change', handleSystemThemeChange)
+})
+
+watch(themeMode, (val) => { localStorage.setItem(STORAGE_KEY, val) })
+
+const isDark = computed(() =>
+  themeMode.value === 'auto' ? systemDark.value : themeMode.value === 'dark'
+)
+
+const themeOptions = [
+  { value: 'auto',  icon: ContrastOutline, tip: '跟随系统' },
+  { value: 'light', icon: SunnyOutline,    tip: '亮色主题' },
+  { value: 'dark',  icon: MoonOutline,     tip: '暗色主题' },
+]
+
+const GITHUB_URL = 'https://github.com/RooobinYe/Bittern'
+const openGithub = async () => {
+  try {
+    const { BrowserOpenURL } = await import('../wailsjs/runtime/runtime')
+    BrowserOpenURL(GITHUB_URL)
+  } catch {
+    window.open(GITHUB_URL, '_blank')
+  }
+}
 
 const themeOverrides = computed(() => ({
   common: {
@@ -70,19 +105,29 @@ const tabs = [
               </div>
 
               <div class="header-right">
-                <!-- 主题切换 -->
+                <!-- 主题切换：自动 / 亮 / 暗 -->
+                <div class="theme-switcher" :class="isDark ? 'switcher-dark' : 'switcher-light'">
+                  <n-tooltip v-for="opt in themeOptions" :key="opt.value">
+                    <template #trigger>
+                      <button
+                        class="theme-btn"
+                        :class="[
+                          themeMode === opt.value
+                            ? (isDark ? 'theme-btn-active-dark' : 'theme-btn-active-light')
+                            : (isDark ? 'theme-btn-inactive-dark' : 'theme-btn-inactive-light')
+                        ]"
+                        @click="themeMode = opt.value"
+                      >
+                        <n-icon :component="opt.icon" :size="15" />
+                      </button>
+                    </template>
+                    {{ opt.tip }}
+                  </n-tooltip>
+                </div>
+                <!-- GitHub -->
                 <n-tooltip>
                   <template #trigger>
-                    <button class="icon-btn" @click="isDark = !isDark" :class="isDark ? 'icon-btn-dark' : 'icon-btn-light'">
-                      <n-icon :component="isDark ? SunnyOutline : MoonOutline" :size="18" />
-                    </button>
-                  </template>
-                  {{ isDark ? '切换亮色主题' : '切换暗色主题' }}
-                </n-tooltip>
-                <!-- GitHub 占位 -->
-                <n-tooltip>
-                  <template #trigger>
-                    <button class="icon-btn" :class="isDark ? 'icon-btn-dark' : 'icon-btn-light'" @click="() => {}">
+                    <button class="icon-btn" :class="isDark ? 'icon-btn-dark' : 'icon-btn-light'" @click="openGithub">
                       <n-icon :component="LogoGithub" :size="18" />
                     </button>
                   </template>
@@ -232,6 +277,74 @@ const tabs = [
 }
 
 .icon-btn-light:hover { background: rgba(0, 0, 0, 0.1); }
+
+/* ── 主题三段切换器 ── */
+.theme-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.switcher-dark {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.switcher-light {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.theme-btn:hover  { transform: scale(1.06); }
+.theme-btn:active { transform: scale(0.92); }
+
+.theme-btn-active-dark {
+  background: rgba(120, 100, 240, 0.6);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(120, 100, 240, 0.4);
+}
+
+.theme-btn-active-light {
+  background: rgba(255, 255, 255, 0.95);
+  color: rgba(60, 60, 220, 0.9);
+  box-shadow: 0 2px 6px rgba(60, 60, 220, 0.18);
+}
+
+.theme-btn-inactive-dark {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.theme-btn-inactive-dark:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.theme-btn-inactive-light {
+  background: transparent;
+  color: rgba(0, 0, 0, 0.42);
+}
+
+.theme-btn-inactive-light:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.7);
+}
 
 /* ── Tab 导航 ── */
 .app-nav {
