@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+tmp/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env
+.env
+.env.local
+
+# Wails 构建产物
+build/bin/
+
+# 前端
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# 课程报告临时文件（可选）
+*.log
