@@ -250,12 +250,13 @@ async function handleDecrypt() {
         </div>
 
         <!-- 密钥库下拉选择 -->
-        <div class="key-row" v-if="keyOptions.length">
+        <div class="key-row">
           <n-select
             v-model:value="selectedKeyId"
             :options="keyOptions"
             :render-label="renderKeyOption"
-            placeholder="从密钥库选择已保存的密钥…"
+            :placeholder="keyOptions.length ? '从密钥库选择已保存的密钥…' : '密钥库暂无保存密钥'"
+            :disabled="!keyOptions.length"
             clearable
             @update:value="onSelectLibKey"
             class="key-input"

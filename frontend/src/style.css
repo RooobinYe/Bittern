@@ -125,6 +125,7 @@ html, body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  --top-chrome-offset: 176px;
 }
 
 /* ── 玻璃卡片基础样式 ── */
@@ -201,7 +202,7 @@ html, body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 24px 24px;
+  padding: var(--top-chrome-offset, 176px) 24px 24px;
   scroll-behavior: smooth;
 }
 
