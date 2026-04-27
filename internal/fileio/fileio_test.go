@@ -66,16 +66,16 @@ func TestEncryptDecrypt_CBC_Small(t *testing.T) {
 	testRoundTrip(t, ModeCBC, "CBC", []byte("Hello, SM4 File Encryption!"))
 }
 
-func TestEncryptDecrypt_CFB_Small(t *testing.T) {
-	testRoundTrip(t, ModeCFB, "CFB", []byte("Hello, SM4 File Encryption!"))
+func TestEncryptDecrypt_CTR_Small(t *testing.T) {
+	testRoundTrip(t, ModeCTR, "CTR", []byte("Hello, SM4 File Encryption!"))
 }
 
 func TestEncryptDecrypt_CBC_Empty(t *testing.T) {
 	testRoundTrip(t, ModeCBC, "CBC-empty", []byte{})
 }
 
-func TestEncryptDecrypt_CFB_Empty(t *testing.T) {
-	testRoundTrip(t, ModeCFB, "CFB-empty", []byte{})
+func TestEncryptDecrypt_CTR_Empty(t *testing.T) {
+	testRoundTrip(t, ModeCTR, "CTR-empty", []byte{})
 }
 
 func TestEncryptDecrypt_CBC_1MB(t *testing.T) {
@@ -86,12 +86,12 @@ func TestEncryptDecrypt_CBC_1MB(t *testing.T) {
 	testRoundTrip(t, ModeCBC, "CBC-1MB", data)
 }
 
-func TestEncryptDecrypt_CFB_NonAligned(t *testing.T) {
+func TestEncryptDecrypt_CTR_NonAligned(t *testing.T) {
 	data := make([]byte, 100)
 	for i := range data {
 		data[i] = byte(i)
 	}
-	testRoundTrip(t, ModeCFB, "CFB-nonaligned", data)
+	testRoundTrip(t, ModeCTR, "CTR-nonaligned", data)
 }
 
 func TestDecrypt_WrongKey(t *testing.T) {

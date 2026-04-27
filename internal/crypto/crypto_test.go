@@ -76,71 +76,71 @@ func TestCBC_ExactBlockSize(t *testing.T) {
 	}
 }
 
-// --- CFB 测试 ---
+// --- CTR 测试 ---
 
-func TestCFB_EncryptDecrypt(t *testing.T) {
-	plaintext := []byte("Hello SM4 CFB mode!")
-	iv, ct, err := EncryptCFB(testKey, plaintext)
+func TestCTR_EncryptDecrypt(t *testing.T) {
+	plaintext := []byte("Hello SM4 CTR mode!")
+	iv, ct, err := EncryptCTR(testKey, plaintext)
 	if err != nil {
-		t.Fatalf("EncryptCFB 失败: %v", err)
+		t.Fatalf("EncryptCTR 失败: %v", err)
 	}
-	pt, err := DecryptCFB(testKey, iv, ct)
+	pt, err := DecryptCTR(testKey, iv, ct)
 	if err != nil {
-		t.Fatalf("DecryptCFB 失败: %v", err)
+		t.Fatalf("DecryptCTR 失败: %v", err)
 	}
 	if !bytes.Equal(pt, plaintext) {
-		t.Fatalf("CFB 解密结果不匹配: got %q, want %q", pt, plaintext)
+		t.Fatalf("CTR 解密结果不匹配: got %q, want %q", pt, plaintext)
 	}
 }
 
-func TestCFB_EmptyInput(t *testing.T) {
-	iv, ct, err := EncryptCFB(testKey, []byte{})
+func TestCTR_EmptyInput(t *testing.T) {
+	iv, ct, err := EncryptCTR(testKey, []byte{})
 	if err != nil {
-		t.Fatalf("EncryptCFB 空输入失败: %v", err)
+		t.Fatalf("EncryptCTR 空输入失败: %v", err)
 	}
-	pt, err := DecryptCFB(testKey, iv, ct)
+	pt, err := DecryptCTR(testKey, iv, ct)
 	if err != nil {
-		t.Fatalf("DecryptCFB 空输入失败: %v", err)
+		t.Fatalf("DecryptCTR 空输入失败: %v", err)
 	}
 	if len(pt) != 0 {
 		t.Fatalf("空输入解密后应为空，got len=%d", len(pt))
 	}
 }
 
-func TestCFB_WrongKey(t *testing.T) {
+func TestCTR_WrongKey(t *testing.T) {
 	plaintext := []byte("secret data")
-	iv, ct, err := EncryptCFB(testKey, plaintext)
+	iv, ct, err := EncryptCTR(testKey, plaintext)
 	if err != nil {
-		t.Fatalf("EncryptCFB 失败: %v", err)
+		t.Fatalf("EncryptCTR 失败: %v", err)
 	}
 	wrongKey := []byte("fedcba9876543210")
-	pt, err := DecryptCFB(wrongKey, iv, ct)
+	pt, err := DecryptCTR(wrongKey, iv, ct)
 	if err == nil && bytes.Equal(pt, plaintext) {
 		t.Fatal("错误密钥不应解密出正确结果")
 	}
 }
 
-func TestCFB_NonBlockAligned(t *testing.T) {
+func TestCTR_NonBlockAligned(t *testing.T) {
 	// 非块对齐长度（如 25 字节）
 	plaintext := make([]byte, 25)
 	for i := range plaintext {
 		plaintext[i] = byte(i)
 	}
-	iv, ct, err := EncryptCFB(testKey, plaintext)
+	iv, ct, err := EncryptCTR(testKey, plaintext)
 	if err != nil {
-		t.Fatalf("EncryptCFB 失败: %v", err)
+		t.Fatalf("EncryptCTR 失败: %v", err)
 	}
-	pt, err := DecryptCFB(testKey, iv, ct)
+	pt, err := DecryptCTR(testKey, iv, ct)
 	if err != nil {
-		t.Fatalf("DecryptCFB 失败: %v", err)
+		t.Fatalf("DecryptCTR 失败: %v", err)
 	}
 	if !bytes.Equal(pt, plaintext) {
-		t.Fatal("非对齐 CFB 解密结果不匹配")
+		t.Fatal("非对齐 CTR 解密结果不匹配")
 	}
 }
 
-func TestCFB_InvalidKeyLength(t *testing.T) {
-	_, _, err := EncryptCFB([]byte("short"), []byte("data"))
+func TestCTR_InvalidKeyLength(t *testing.T) {
+	_, _, err := EncryptCTR([]byte("short"), []byte("data"))
 	if err == nil {
 		t.Fatal("非法密钥长度应返回错误")
 	}
@@ -166,21 +166,21 @@ func TestCBC_LargeFile(t *testing.T) {
 	}
 }
 
-func TestCFB_LargeFile(t *testing.T) {
+func TestCTR_LargeFile(t *testing.T) {
 	plaintext := make([]byte, 1024*1024) // 1 MB
 	if _, err := rand.Read(plaintext); err != nil {
 		t.Fatalf("生成随机数据失败: %v", err)
 	}
-	iv, ct, err := EncryptCFB(testKey, plaintext)
+	iv, ct, err := EncryptCTR(testKey, plaintext)
 	if err != nil {
-		t.Fatalf("EncryptCFB 大文件失败: %v", err)
+		t.Fatalf("EncryptCTR 大文件失败: %v", err)
 	}
-	pt, err := DecryptCFB(testKey, iv, ct)
+	pt, err := DecryptCTR(testKey, iv, ct)
 	if err != nil {
-		t.Fatalf("DecryptCFB 大文件失败: %v", err)
+		t.Fatalf("DecryptCTR 大文件失败: %v", err)
 	}
 	if !bytes.Equal(pt, plaintext) {
-		t.Fatal("大文件 CFB 解密结果不匹配")
+		t.Fatal("大文件 CTR 解密结果不匹配")
 	}
 }
 
@@ -205,16 +205,16 @@ func benchCBCEncrypt(b *testing.B, size int) {
 	}
 }
 
-func BenchmarkCFB_Encrypt_1KB(b *testing.B)  { benchCFBEncrypt(b, 1024) }
-func BenchmarkCFB_Encrypt_1MB(b *testing.B)  { benchCFBEncrypt(b, 1024*1024) }
-func BenchmarkCFB_Encrypt_10MB(b *testing.B) { benchCFBEncrypt(b, 10*1024*1024) }
+func BenchmarkCTR_Encrypt_1KB(b *testing.B)  { benchCTREncrypt(b, 1024) }
+func BenchmarkCTR_Encrypt_1MB(b *testing.B)  { benchCTREncrypt(b, 1024*1024) }
+func BenchmarkCTR_Encrypt_10MB(b *testing.B) { benchCTREncrypt(b, 10*1024*1024) }
 
-func benchCFBEncrypt(b *testing.B, size int) {
+func benchCTREncrypt(b *testing.B, size int) {
 	data := makeData(size)
 	b.SetBytes(int64(size))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = EncryptCFB(testKey, data)
+		_, _, _ = EncryptCTR(testKey, data)
 	}
 }
 
@@ -228,12 +228,12 @@ func BenchmarkCBC_Decrypt_1MB(b *testing.B) {
 	}
 }
 
-func BenchmarkCFB_Decrypt_1MB(b *testing.B) {
+func BenchmarkCTR_Decrypt_1MB(b *testing.B) {
 	data := makeData(1024 * 1024)
-	iv, ct, _ := EncryptCFB(testKey, data)
+	iv, ct, _ := EncryptCTR(testKey, data)
 	b.SetBytes(int64(len(ct)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = DecryptCFB(testKey, iv, ct)
+		_, _ = DecryptCTR(testKey, iv, ct)
 	}
 }

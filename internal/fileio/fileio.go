@@ -15,14 +15,14 @@ const chunkSize = 64 * 1024 // 64 KB
 // ProgressCallback 进度回调：processed = 已处理字节，total = 文件总字节（0 表示未知）。
 type ProgressCallback func(processed, total int64)
 
-// EncryptFile 读取 input 文件，使用 key 和指定 mode（ModeCBC / ModeCFB）加密后写入 output。
+// EncryptFile 读取 input 文件，使用 key 和指定 mode（ModeCBC / ModeCTR）加密后写入 output。
 // progress 可为 nil。
 func EncryptFile(input, output string, key []byte, mode byte, progress ProgressCallback) error {
 	if len(key) != crypto.KeySize {
 		return errors.New("密钥长度必须为 16 字节（128 bit）")
 	}
-	if mode != ModeCBC && mode != ModeCFB {
-		return errors.New("不支持的加密模式，请选择 CBC 或 CFB")
+	if mode != ModeCBC && mode != ModeCTR {
+		return errors.New("不支持的加密模式，请选择 CBC 或 CTR")
 	}
 
 	in, err := os.Open(input)
@@ -37,7 +37,7 @@ func EncryptFile(input, output string, key []byte, mode byte, progress ProgressC
 	}
 	totalSize := stat.Size()
 
-	// 读取全部明文（对于超大文件可改为流式，但本阶段 CBC/CFB 需要整体加密再写头）
+	// 读取全部明文（对于超大文件可改为流式，但本阶段 CBC/CTR 需要整体加密再写头）
 	plaintext, err := io.ReadAll(bufio.NewReaderSize(in, chunkSize))
 	if err != nil {
 		return errors.New("读取文件失败：" + err.Error())
@@ -47,8 +47,8 @@ func EncryptFile(input, output string, key []byte, mode byte, progress ProgressC
 	switch mode {
 	case ModeCBC:
 		iv, ciphertext, err = crypto.EncryptCBC(key, plaintext)
-	case ModeCFB:
-		iv, ciphertext, err = crypto.EncryptCFB(key, plaintext)
+	case ModeCTR:
+		iv, ciphertext, err = crypto.EncryptCTR(key, plaintext)
 	}
 	if err != nil {
 		return errors.New("加密失败：" + err.Error())
@@ -132,8 +132,8 @@ func DecryptFile(input, output string, key []byte, progress ProgressCallback) er
 	switch header.Mode {
 	case ModeCBC:
 		plaintext, err = crypto.DecryptCBC(key, header.IV[:], ciphertext)
-	case ModeCFB:
-		plaintext, err = crypto.DecryptCFB(key, header.IV[:], ciphertext)
+	case ModeCTR:
+		plaintext, err = crypto.DecryptCTR(key, header.IV[:], ciphertext)
 	}
 	if err != nil {
 		return errors.New("解密失败，密钥可能不正确：" + err.Error())

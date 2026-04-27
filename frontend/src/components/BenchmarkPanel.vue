@@ -36,12 +36,12 @@ const sizeCards = [
 
 // KPI
 const cbcResult = computed(() => results.value.find(r => r.mode === 'CBC'))
-const cfbResult = computed(() => results.value.find(r => r.mode === 'CFB'))
+const ctrResult = computed(() => results.value.find(r => r.mode === 'CTR'))
 const winner    = computed(() => {
-  if (!cbcResult.value || !cfbResult.value) return ''
-  const cbcTh = parseFloat(cbcResult.value.throughput) || 0
-  const cfbTh = parseFloat(cfbResult.value.throughput) || 0
-  return cbcTh >= cfbTh ? 'CBC' : 'CFB'
+  if (!cbcResult.value || !ctrResult.value) return ''
+  const cbcTh = parseFloat(cbcResult.value.throughputMBps) || 0
+  const ctrTh = parseFloat(ctrResult.value.throughputMBps) || 0
+  return cbcTh >= ctrTh ? 'CBC' : 'CTR'
 })
 
 // 列配置
@@ -49,7 +49,7 @@ const columns = [
   { title: '模式', key: 'mode', width: 80 },
   { title: '加密耗时 (ms)', key: 'encryptMs' },
   { title: '解密耗时 (ms)', key: 'decryptMs' },
-  { title: '吞吐率 (MB/s)', key: 'throughput' },
+  { title: '吞吐率 (MB/s)', key: 'throughputMBps' },
 ]
 
 // ── ECharts ──
@@ -131,8 +131,7 @@ function renderChart() {
 watch(results, async () => {
   await nextTick()
   if (chartRef.value && results.value.length) {
-    if (!chartInstance) initChart()
-    else renderChart()
+    initChart()
   }
 })
 
@@ -163,11 +162,11 @@ async function runBenchmark() {
 
     const cbcEncMs = +(sizeMb * 42 + Math.random() * 8).toFixed(2)
     const cbcDecMs = +(sizeMb * 38 + Math.random() * 8).toFixed(2)
-    const cfbEncMs = +(sizeMb * 47 + Math.random() * 8).toFixed(2)
-    const cfbDecMs = +(sizeMb * 44 + Math.random() * 8).toFixed(2)
+    const ctrEncMs = +(sizeMb * 18 + Math.random() * 6).toFixed(2)
+    const ctrDecMs = +(sizeMb * 17 + Math.random() * 6).toFixed(2)
     results.value = [
-      { mode: 'CBC', encryptMs: cbcEncMs, decryptMs: cbcDecMs, throughput: (sizeMb / (cbcEncMs / 1000)).toFixed(2) },
-      { mode: 'CFB', encryptMs: cfbEncMs, decryptMs: cfbDecMs, throughput: (sizeMb / (cfbEncMs / 1000)).toFixed(2) },
+      { mode: 'CBC', encryptMs: cbcEncMs, decryptMs: cbcDecMs, throughputMBps: (sizeMb / (cbcEncMs / 1000)).toFixed(2) },
+      { mode: 'CTR', encryptMs: ctrEncMs, decryptMs: ctrDecMs, throughputMBps: (sizeMb / (ctrEncMs / 1000)).toFixed(2) },
     ]
     message.info('后端未就绪，展示模拟数据')
   } finally {
@@ -241,11 +240,11 @@ async function runBenchmark() {
           <div class="kpi-row">
             <div class="kpi-card">
               <div class="kpi-label">CBC 吞吐率</div>
-              <div class="kpi-value cbc-color">{{ cbcResult?.throughput ?? '—' }} <span class="kpi-unit">MB/s</span></div>
+              <div class="kpi-value cbc-color">{{ cbcResult?.throughputMBps ?? '—' }} <span class="kpi-unit">MB/s</span></div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">CFB 吞吐率</div>
-              <div class="kpi-value cfb-color">{{ cfbResult?.throughput ?? '—' }} <span class="kpi-unit">MB/s</span></div>
+              <div class="kpi-label">CTR 吞吐率</div>
+              <div class="kpi-value ctr-color">{{ ctrResult?.throughputMBps ?? '—' }} <span class="kpi-unit">MB/s</span></div>
             </div>
             <div class="kpi-card kpi-winner">
               <div class="kpi-label">
@@ -375,7 +374,7 @@ async function runBenchmark() {
 .kpi-unit { font-size: 12px; font-weight: 400; color: rgba(128, 128, 128, 0.55); }
 
 .cbc-color    { color: #a78bf0; }
-.cfb-color    { color: #4ab8d4; }
+.ctr-color    { color: #4ab8d4; }
 .winner-color { color: #f0a020; }
 
 /* ── Chart ── */

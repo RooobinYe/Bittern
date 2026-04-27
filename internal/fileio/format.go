@@ -1,6 +1,6 @@
 // 加密文件头格式：Magic(4B) | Mode(1B) | IV(16B) | Ciphertext(...)
 // Magic: "SM4\x00"
-// Mode:  0x01 = CBC, 0x02 = CFB
+// Mode:  0x01 = CBC, 0x02 = CTR
 
 package fileio
 
@@ -17,7 +17,7 @@ const (
 	HeaderSize = MagicSize + ModeSize + IVSize // 21 字节
 
 	ModeCBC byte = 0x01
-	ModeCFB byte = 0x02
+	ModeCTR byte = 0x02
 )
 
 var magic = [MagicSize]byte{'S', 'M', '4', 0x00}
@@ -50,7 +50,7 @@ func readHeader(r io.Reader) (Header, error) {
 		return Header{}, errors.New("文件头 Magic 不匹配，请确认选择的是正确的加密文件")
 	}
 	mode := buf[MagicSize]
-	if mode != ModeCBC && mode != ModeCFB {
+	if mode != ModeCBC && mode != ModeCTR {
 		return Header{}, errors.New("未知的加密模式，文件头可能已损坏")
 	}
 	var h Header

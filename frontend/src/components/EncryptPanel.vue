@@ -231,13 +231,13 @@ const modeCards = [
     value: 'CBC',
     label: 'CBC',
     desc: '密码分组链接模式，相同明文块输出不同密文',
-    badge: '推荐',
+    badge: '经典',
   },
   {
-    value: 'CFB',
-    label: 'CFB',
-    desc: '密码反馈模式，可用于流加密场景',
-    badge: '',
+    value: 'CTR',
+    label: 'CTR',
+    desc: '计数器模式，可并行加解密、性能更高',
+    badge: '高速',
   },
 ]
 </script>

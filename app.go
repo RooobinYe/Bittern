@@ -35,7 +35,7 @@ type EncryptRequest struct {
 	InputPath  string `json:"inputPath"`
 	OutputPath string `json:"outputPath"`
 	KeyHex     string `json:"keyHex"`
-	Mode       string `json:"mode"` // "CBC" 或 "CFB"
+	Mode       string `json:"mode"` // "CBC" 或 "CTR"
 }
 
 // EncryptResult 加密操作结果
@@ -92,10 +92,10 @@ func parseModeStr(mode string) (byte, error) {
 	switch mode {
 	case "CBC":
 		return fileio.ModeCBC, nil
-	case "CFB":
-		return fileio.ModeCFB, nil
+	case "CTR":
+		return fileio.ModeCTR, nil
 	default:
-		return 0, fmt.Errorf("不支持的加密模式「%s」，请选择 CBC 或 CFB", mode)
+		return 0, fmt.Errorf("不支持的加密模式「%s」，请选择 CBC 或 CTR", mode)
 	}
 }
 
@@ -203,7 +203,7 @@ func (a *App) DecryptFile(req DecryptRequest) (DecryptResult, error) {
 	}, nil
 }
 
-// RunBenchmark 对给定大小的随机数据运行 CBC 和 CFB 的加解密基准测试。
+// RunBenchmark 对给定大小的随机数据运行 CBC 和 CTR 的加解密基准测试。
 // sizeLabel: "1KB" / "1MB" / "10MB" / "100MB"
 func (a *App) RunBenchmark(sizeLabel string) ([]BenchmarkResult, error) {
 	sizeMap := map[string]int{
@@ -233,7 +233,7 @@ func (a *App) RunBenchmark(sizeLabel string) ([]BenchmarkResult, error) {
 		mode byte
 	}{
 		{"CBC", fileio.ModeCBC},
-		{"CFB", fileio.ModeCFB},
+		{"CTR", fileio.ModeCTR},
 	} {
 		// 创建临时文件
 		tmpIn, err := os.CreateTemp("", "bm-in-*")

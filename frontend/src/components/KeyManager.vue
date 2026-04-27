@@ -298,7 +298,7 @@ function formatTime(ts) {
       </div>
 
       <n-text depth="3" style="font-size: 12px">
-        提示：密钥保存在浏览器本地存储中（localStorage）。生产环境建议结合系统钥匙串或 PBKDF2 密码派生。
+        提示：密钥保存在浏览器本地存储中（localStorage）。
       </n-text>
 
     </n-space>
