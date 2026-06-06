@@ -9,6 +9,8 @@ enum AppSettingKey {
     static let appearanceMode = "appearanceMode"
     static let privacyModeEnabled = "privacyModeEnabled"
     static let minPriceThreshold = "minPriceThreshold"
+    static let performanceMode = "performanceMode"
+    static let sortOption = "sortOption"
 }
 
 enum AppAppearance: String, CaseIterable, Identifiable {

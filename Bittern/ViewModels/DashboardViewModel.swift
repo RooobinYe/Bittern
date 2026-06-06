@@ -11,8 +11,16 @@ final class DashboardViewModel: ObservableObject {
     @Published private(set) var snapshot: PortfolioSnapshot = .emptyLive
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
-    @Published var performanceMode: PerformanceMode = .today
-    @Published var sortOption: HoldingSortOption = .marketValue
+    @Published var performanceMode: PerformanceMode = .today {
+        didSet {
+            UserDefaults.standard.set(performanceMode.rawValue, forKey: AppSettingKey.performanceMode)
+        }
+    }
+    @Published var sortOption: HoldingSortOption = .marketValue {
+        didSet {
+            UserDefaults.standard.set(sortOption.rawValue, forKey: AppSettingKey.sortOption)
+        }
+    }
     @Published var selectedProviderName: String?
 
     private let credentialsStore: CredentialsStore
@@ -26,6 +34,16 @@ final class DashboardViewModel: ObservableObject {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
         snapshot = PortfolioCache.load() ?? .emptyLive
+
+        if let rawMode = UserDefaults.standard.string(forKey: AppSettingKey.performanceMode),
+           let mode = PerformanceMode(rawValue: rawMode) {
+            performanceMode = mode
+        }
+
+        if let rawSort = UserDefaults.standard.string(forKey: AppSettingKey.sortOption),
+           let sort = HoldingSortOption(rawValue: rawSort) {
+            sortOption = sort
+        }
     }
 
     var sortedHoldings: [PortfolioHolding] {
