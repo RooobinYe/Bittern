@@ -24,6 +24,7 @@ final class DashboardViewModel: ObservableObject {
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
+        snapshot = PortfolioCache.load() ?? .emptyLive
     }
 
     var sortedHoldings: [PortfolioHolding] {
@@ -63,13 +64,37 @@ final class DashboardViewModel: ObservableObject {
     }
 
     func refresh() async {
+        // Prevent overlapping refreshes — the first caller wins.
+        guard !isLoading else { return }
+
+        // No credentials: nothing to refresh.
+        guard credentialsStore.credentials?.isComplete == true else {
+            snapshot = .emptyLive
+            errorMessage = nil
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let newSnapshot = try await repository.refreshPrices(for: snapshot)
+            snapshot = newSnapshot
+            PortfolioCache.save(newSnapshot)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    func fullRefresh() async {
         guard let credentials = credentialsStore.credentials, credentials.isComplete else {
             snapshot = .emptyLive
             errorMessage = nil
             return
         }
 
-        // Prevent overlapping refreshes — the first caller wins.
         guard !isLoading else { return }
 
         isLoading = true
@@ -82,9 +107,9 @@ final class DashboardViewModel: ObservableObject {
                !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
                 self.selectedProviderName = nil
             }
+            PortfolioCache.save(newSnapshot)
         } catch {
             errorMessage = error.localizedDescription
-            // Keep previous snapshot so the UI doesn't flash empty.
         }
 
         isLoading = false

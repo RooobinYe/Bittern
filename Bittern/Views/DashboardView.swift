@@ -11,6 +11,7 @@ struct DashboardView: View {
     @State private var isShowingSettings = false
     @State private var isShowingPortfolioAccounts = false
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
+    @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     var body: some View {
         NavigationStack {
@@ -38,7 +39,8 @@ struct DashboardView: View {
                             PortfolioDonutSection(
                                 snapshot: viewModel.visibleSnapshot,
                                 performanceMode: $viewModel.performanceMode,
-                                isPrivacyEnabled: isPrivacyEnabled
+                                isPrivacyEnabled: isPrivacyEnabled,
+                                minPriceThreshold: minPriceThreshold
                             )
 
                             if let errorMessage = viewModel.errorMessage {
@@ -47,7 +49,8 @@ struct DashboardView: View {
 
                             HoldingsSection(
                                 viewModel: viewModel,
-                                isPrivacyEnabled: isPrivacyEnabled
+                                isPrivacyEnabled: isPrivacyEnabled,
+                                minPriceThreshold: minPriceThreshold
                             )
                         }
                         .padding(.horizontal, 24)
@@ -240,13 +243,15 @@ private struct PortfolioDonutSection: View {
     let snapshot: PortfolioSnapshot
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
 
     var body: some View {
         VStack(spacing: 0) {
             DonutPortfolioChart(
                 snapshot: snapshot,
                 performanceMode: $performanceMode,
-                isPrivacyEnabled: isPrivacyEnabled
+                isPrivacyEnabled: isPrivacyEnabled,
+                minPriceThreshold: minPriceThreshold
             )
             .frame(minHeight: 300)
             .padding(.vertical, 22)
@@ -258,6 +263,11 @@ private struct DonutPortfolioChart: View {
     let snapshot: PortfolioSnapshot
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+
+    private var filteredHoldings: [PortfolioHolding] {
+        snapshot.holdings.filter { $0.marketValue >= minPriceThreshold }
+    }
 
     private var performanceAmount: Double {
         snapshot.performanceAmount(for: performanceMode)
@@ -268,7 +278,7 @@ private struct DonutPortfolioChart: View {
     }
 
     private var segments: [DonutSegmentInfo] {
-        makeSegments(from: snapshot.holdings)
+        makeSegments(from: filteredHoldings)
     }
 
     var body: some View {
@@ -427,6 +437,15 @@ private struct AllocationBubble: View {
 private struct HoldingsSection: View {
     @ObservedObject var viewModel: DashboardViewModel
     let isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+
+    private var filteredHoldings: [PortfolioHolding] {
+        viewModel.sortedHoldings.filter { $0.marketValue >= minPriceThreshold }
+    }
+
+    private var accountProviderLookup: [String: String] {
+        Dictionary(uniqueKeysWithValues: viewModel.visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -434,6 +453,10 @@ private struct HoldingsSection: View {
                 Text("Holdings")
                     .font(.system(size: 23, weight: .bold, design: .rounded))
                     .foregroundStyle(BitternTheme.ink)
+
+                Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BitternTheme.secondaryInk)
 
                 Spacer()
 
@@ -448,17 +471,18 @@ private struct HoldingsSection: View {
                 .frame(height: 1)
                 .overlay(BitternTheme.softLine)
 
-            if viewModel.sortedHoldings.isEmpty {
+            if filteredHoldings.isEmpty {
                 EmptyHoldingsView()
                     .padding(.top, 24)
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(viewModel.sortedHoldings) { holding in
+                    ForEach(filteredHoldings) { holding in
                         HoldingListRow(
                             holding: holding,
                             totalMarketValue: viewModel.visibleSnapshot.totalMarketValue,
                             performanceMode: viewModel.performanceMode,
-                            isPrivacyEnabled: isPrivacyEnabled
+                            isPrivacyEnabled: isPrivacyEnabled,
+                            providerName: accountProviderLookup[holding.accountID] ?? ""
                         )
                     }
                 }
@@ -538,6 +562,17 @@ private struct HoldingListRow: View {
     let totalMarketValue: Double
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
+    let providerName: String
+
+    private var unitLabel: String {
+        providerName.lowercased().contains("binance") ? "tokens" : "shares"
+    }
+
+    private var formattedQuantity: String {
+        unitLabel == "tokens"
+            ? PortfolioFormat.tokens(holding.quantity)
+            : PortfolioFormat.shares(holding.quantity)
+    }
 
     private var allocation: Double {
         totalMarketValue == 0 ? 0 : holding.marketValue / totalMarketValue
@@ -561,7 +596,7 @@ private struct HoldingListRow: View {
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
 
-                Text("\(PortfolioFormat.shares(holding.quantity)) shares | \(PortfolioFormat.percent(allocation))")
+                Text("\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)

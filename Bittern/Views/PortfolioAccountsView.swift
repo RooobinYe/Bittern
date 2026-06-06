@@ -19,6 +19,7 @@ struct PortfolioAccountsView: View {
     @State private var isSavingCredentials = false
     @State private var isOpeningPortal = false
     @State private var isRefreshing = false
+    @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
         self.credentialsStore = credentialsStore
@@ -90,7 +91,7 @@ struct PortfolioAccountsView: View {
             let providerAccounts = accounts.filter { $0.providerName == name }
             let accountIDs = Set(providerAccounts.map(\.id))
             let providerHoldings = holdings
-                .filter { accountIDs.contains($0.accountID) }
+                .filter { accountIDs.contains($0.accountID) && $0.marketValue >= minPriceThreshold }
                 .sorted { $0.marketValue > $1.marketValue }
             let totalMarketValue = providerHoldings.reduce(0) { $0 + $1.marketValue }
 
@@ -122,7 +123,7 @@ struct PortfolioAccountsView: View {
             clientId = ""
             consumerKey = ""
             errorMessage = nil
-            Task { await viewModel.refresh() }
+            Task { await viewModel.fullRefresh() }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -131,7 +132,7 @@ struct PortfolioAccountsView: View {
     private func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        await viewModel.refresh()
+        await viewModel.fullRefresh()
         isRefreshing = false
     }
 
@@ -413,7 +414,7 @@ private struct ProviderHoldingsSection: View {
                     .padding(.bottom, 15)
             } else {
                 ForEach(group.holdings) { holding in
-                    ProviderHoldingRow(holding: holding)
+                    ProviderHoldingRow(holding: holding, providerName: group.name)
                 }
             }
         }
@@ -422,10 +423,14 @@ private struct ProviderHoldingsSection: View {
 
 private struct ProviderHoldingRow: View {
     let holding: PortfolioHolding
+    let providerName: String
+
+    private var unitLabel: String {
+        providerName.lowercased().contains("binance") ? "tokens" : "shares"
+    }
 
     private var formattedQuantity: String {
-        let isToken = holding.unitLabel == "tokens"
-        return isToken
+        unitLabel == "tokens"
             ? PortfolioFormat.tokens(holding.quantity)
             : PortfolioFormat.shares(holding.quantity)
     }
@@ -456,7 +461,7 @@ private struct ProviderHoldingRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                Text("\(formattedQuantity) \(holding.unitLabel)")
+                Text("\(formattedQuantity) \(unitLabel)")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
@@ -578,13 +583,3 @@ private struct PortfolioConnectButtonStyle: ButtonStyle {
     }
 }
 
-private extension PortfolioHolding {
-    var unitLabel: String {
-        switch symbol.uppercased() {
-        case "BTC", "ETH", "SOL", "USDC", "USDT":
-            "tokens"
-        default:
-            "shares"
-        }
-    }
-}

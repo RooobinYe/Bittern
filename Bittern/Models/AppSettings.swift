@@ -8,6 +8,7 @@ import SwiftUI
 enum AppSettingKey {
     static let appearanceMode = "appearanceMode"
     static let privacyModeEnabled = "privacyModeEnabled"
+    static let minPriceThreshold = "minPriceThreshold"
 }
 
 enum AppAppearance: String, CaseIterable, Identifiable {

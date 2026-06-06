@@ -93,7 +93,7 @@ struct SnapTradeCredentials: Codable, Equatable {
     }
 }
 
-struct PortfolioAccount: Identifiable, Hashable {
+struct PortfolioAccount: Identifiable, Hashable, Codable {
     let id: String
     let connectionID: String?
     let name: String
@@ -114,7 +114,7 @@ struct PortfolioAccount: Identifiable, Hashable {
     }
 }
 
-struct PortfolioHolding: Identifiable, Hashable {
+struct PortfolioHolding: Identifiable, Hashable, Codable {
     let id: String
     let accountID: String
     let symbol: String
@@ -171,7 +171,7 @@ struct PortfolioHolding: Identifiable, Hashable {
     }
 }
 
-struct PortfolioSnapshot {
+struct PortfolioSnapshot: Codable {
     let accounts: [PortfolioAccount]
     let holdings: [PortfolioHolding]
     let totalAssets: Double

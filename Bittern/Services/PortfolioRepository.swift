@@ -7,6 +7,7 @@ import Foundation
 
 protocol PortfolioRepository {
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot
+    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot
 }
 
 struct LivePortfolioRepository: PortfolioRepository {
@@ -78,6 +79,43 @@ struct LivePortfolioRepository: PortfolioRepository {
             holdings: holdings,
             lastUpdated: Date(),
             isDemo: false
+        )
+    }
+
+    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot {
+        let symbols = snapshot.holdings.map(\.symbol)
+        let quotes = (try? await YahooFinanceClient().quotes(for: symbols)) ?? [:]
+
+        let updatedHoldings = snapshot.holdings.map { holding -> PortfolioHolding in
+            let symbol = holding.symbol.uppercased()
+            guard let quote = quotes[symbol] else { return holding }
+
+            guard let currentPrice = quote.regularMarketPrice, currentPrice > 0 else {
+                return holding
+            }
+            let previousClose = quote.regularMarketPreviousClose
+                ?? quote.regularMarketChange.map { currentPrice - $0 }
+                ?? holding.previousClose
+
+            return PortfolioHolding(
+                id: holding.id,
+                accountID: holding.accountID,
+                symbol: holding.symbol,
+                name: quote.displayName ?? holding.name,
+                accountName: holding.accountName,
+                quantity: holding.quantity,
+                averageCost: holding.averageCost,
+                currentPrice: currentPrice,
+                previousClose: previousClose,
+                currencyCode: quote.currency ?? holding.currencyCode
+            )
+        }
+
+        return PortfolioSnapshot.make(
+            accounts: snapshot.accounts,
+            holdings: updatedHoldings,
+            lastUpdated: Date(),
+            isDemo: snapshot.isDemo
         )
     }
 
