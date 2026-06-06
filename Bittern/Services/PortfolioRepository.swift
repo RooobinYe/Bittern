@@ -11,6 +11,8 @@ protocol PortfolioRepository {
 }
 
 struct LivePortfolioRepository: PortfolioRepository {
+    private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
+
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
         let snapTrade = SnapTradeClient(credentials: credentials)
         let yahoo = YahooFinanceClient()
@@ -41,6 +43,10 @@ struct LivePortfolioRepository: PortfolioRepository {
         }
 
         let quotes = (try? await yahoo.quotes(for: symbols)) ?? [:]
+        let dividendActivitiesByAccount = await loadDividendActivitiesByAccount(
+            accounts: accounts,
+            snapTrade: snapTrade
+        )
 
         let holdings = positionsByAccount.compactMap { account, position -> PortfolioHolding? in
             guard let rawSymbol = position.resolvedSymbol?.trimmedNonEmpty else {
@@ -59,6 +65,13 @@ struct LivePortfolioRepository: PortfolioRepository {
             let name = quote?.displayName ?? position.resolvedName ?? symbol
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
                 .joined(separator: "-")
+            let dividendsReceived = dividendActivitiesByAccount[account.id].map {
+                dividendAmount(
+                    for: symbol,
+                    currencyCode: currencyCode,
+                    activities: $0
+                )
+            }
 
             return PortfolioHolding(
                 id: id,
@@ -67,10 +80,12 @@ struct LivePortfolioRepository: PortfolioRepository {
                 name: name,
                 accountName: account.name,
                 quantity: position.units,
+                quantityDisplay: position.unitsDisplay,
                 averageCost: averageCost,
                 currentPrice: currentPrice,
                 previousClose: previousClose,
-                currencyCode: currencyCode
+                currencyCode: currencyCode,
+                dividendsReceived: dividendsReceived
             )
         }
 
@@ -104,10 +119,12 @@ struct LivePortfolioRepository: PortfolioRepository {
                 name: quote.displayName ?? holding.name,
                 accountName: holding.accountName,
                 quantity: holding.quantity,
+                quantityDisplay: holding.quantityDisplay,
                 averageCost: holding.averageCost,
                 currentPrice: currentPrice,
                 previousClose: previousClose,
-                currencyCode: quote.currency ?? holding.currencyCode
+                currencyCode: quote.currency ?? holding.currencyCode,
+                dividendsReceived: holding.dividendsReceived
             )
         }
 
@@ -141,6 +158,56 @@ struct LivePortfolioRepository: PortfolioRepository {
                 AccountSource(account: $0, connection: nil)
             }
         }
+    }
+
+    private func loadDividendActivitiesByAccount(
+        accounts: [PortfolioAccount],
+        snapTrade: SnapTradeClient
+    ) async -> [String: [SnapTradeActivityDTO]] {
+        var result: [String: [SnapTradeActivityDTO]] = [:]
+
+        for account in accounts {
+            if let activities = try? await snapTrade.listActivities(
+                accountID: account.id,
+                types: []
+            ) {
+                result[account.id] = activities.filter { activity in
+                    guard let type = activity.type?.uppercased() else { return false }
+                    return dividendActivityTypes.contains(type)
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func dividendAmount(
+        for symbol: String,
+        currencyCode: String,
+        activities: [SnapTradeActivityDTO]
+    ) -> Double {
+        let normalizedSymbol = normalized(symbol)
+        let normalizedCurrencyCode = currencyCode.uppercased()
+
+        return activities.reduce(0) { total, activity in
+            guard let activitySymbol = activity.resolvedSymbol.map(normalized),
+                  activitySymbol == normalizedSymbol,
+                  let amount = activity.amount
+            else {
+                return total
+            }
+
+            if let activityCurrency = activity.currency?.uppercased(),
+               activityCurrency != normalizedCurrencyCode {
+                return total
+            }
+
+            return total + max(amount, 0)
+        }
+    }
+
+    private func normalized(_ symbol: String) -> String {
+        symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 }
 

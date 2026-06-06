@@ -17,6 +17,7 @@ final class DashboardViewModel: ObservableObject {
 
     private let credentialsStore: CredentialsStore
     private let repository: PortfolioRepository
+    private var hasAttemptedDividendBackfill = false
 
     init(
         credentialsStore: CredentialsStore,
@@ -68,7 +69,7 @@ final class DashboardViewModel: ObservableObject {
         guard !isLoading else { return }
 
         // No credentials: nothing to refresh.
-        guard credentialsStore.credentials?.isComplete == true else {
+        guard let credentials = credentialsStore.credentials, credentials.isComplete else {
             snapshot = .emptyLive
             errorMessage = nil
             return
@@ -78,7 +79,13 @@ final class DashboardViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let newSnapshot = try await repository.refreshPrices(for: snapshot)
+            let needsDividendBackfill = !hasAttemptedDividendBackfill
+                && snapshot.holdings.contains { $0.dividendsReceived == nil }
+            hasAttemptedDividendBackfill = hasAttemptedDividendBackfill || needsDividendBackfill
+
+            let newSnapshot = needsDividendBackfill
+                ? try await repository.loadPortfolio(credentials: credentials)
+                : try await repository.refreshPrices(for: snapshot)
             snapshot = newSnapshot
             PortfolioCache.save(newSnapshot)
         } catch {

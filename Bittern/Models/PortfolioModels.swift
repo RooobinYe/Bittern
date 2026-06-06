@@ -56,6 +56,111 @@ enum HoldingSortOption: String, CaseIterable, Identifiable {
     }
 }
 
+enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
+    case oneDay = "1D"
+    case fiveDays = "5D"
+    case threeMonths = "3M"
+    case oneYear = "1Y"
+    case fiveYears = "5Y"
+    case max = "MAX"
+
+    var id: String { rawValue }
+
+    var title: String { rawValue }
+
+    var yahooRange: String {
+        switch self {
+        case .oneDay:
+            "1d"
+        case .fiveDays:
+            "5d"
+        case .threeMonths:
+            "3mo"
+        case .oneYear:
+            "1y"
+        case .fiveYears:
+            "5y"
+        case .max:
+            "max"
+        }
+    }
+
+    var yahooInterval: String {
+        switch self {
+        case .oneDay:
+            "5m"
+        case .fiveDays:
+            "15m"
+        case .threeMonths, .oneYear:
+            "1d"
+        case .fiveYears:
+            "1wk"
+        case .max:
+            "1mo"
+        }
+    }
+
+    var fallbackPointCount: Int {
+        switch self {
+        case .oneDay:
+            78
+        case .fiveDays:
+            80
+        case .threeMonths:
+            64
+        case .oneYear:
+            84
+        case .fiveYears:
+            110
+        case .max:
+            124
+        }
+    }
+
+    var fallbackTimeSpan: TimeInterval {
+        switch self {
+        case .oneDay:
+            6.5 * 60 * 60
+        case .fiveDays:
+            5 * 24 * 60 * 60
+        case .threeMonths:
+            92 * 24 * 60 * 60
+        case .oneYear:
+            365 * 24 * 60 * 60
+        case .fiveYears:
+            5 * 365 * 24 * 60 * 60
+        case .max:
+            10 * 365 * 24 * 60 * 60
+        }
+    }
+
+    var summaryLabel: String {
+        switch self {
+        case .oneDay:
+            "Today"
+        case .fiveDays:
+            "Last week"
+        case .threeMonths:
+            "3 months"
+        case .oneYear:
+            "1 year"
+        case .fiveYears:
+            "5 years"
+        case .max:
+            "Max"
+        }
+    }
+}
+
+struct HoldingPricePoint: Identifiable, Hashable {
+    let date: Date
+    let price: Double
+
+    var id: TimeInterval {
+        date.timeIntervalSince1970
+    }
+}
+
 struct SnapTradeCredentials: Codable, Equatable {
     var clientId: String
     var consumerKey: String
@@ -121,10 +226,12 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     let name: String
     let accountName: String
     let quantity: Double
+    let quantityDisplay: String?
     let averageCost: Double
     let currentPrice: Double
     let previousClose: Double
     let currencyCode: String
+    let dividendsReceived: Double?
 
     var marketValue: Double {
         quantity * currentPrice
@@ -150,6 +257,21 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     var allTimeGainPercent: Double {
         guard costBasis != 0 else { return 0 }
         return allTimeGainAmount / abs(costBasis)
+    }
+
+    var dividendReturnPercent: Double? {
+        guard let dividendsReceived, costBasis != 0 else { return nil }
+        return dividendsReceived / abs(costBasis)
+    }
+
+    var totalReturnAmount: Double? {
+        guard let dividendsReceived else { return nil }
+        return allTimeGainAmount + dividendsReceived
+    }
+
+    var totalReturnPercent: Double? {
+        guard let totalReturnAmount, costBasis != 0 else { return nil }
+        return totalReturnAmount / abs(costBasis)
     }
 
     func performanceAmount(for mode: PerformanceMode) -> Double {

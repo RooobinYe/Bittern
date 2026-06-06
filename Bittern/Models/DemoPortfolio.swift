@@ -26,10 +26,12 @@ enum DemoPortfolio {
                 name: "Apple Inc.",
                 accountName: account.name,
                 quantity: 84,
+                quantityDisplay: "84",
                 averageCost: 158.24,
                 currentPrice: 202.79,
                 previousClose: 199.32,
-                currencyCode: "USD"
+                currencyCode: "USD",
+                dividendsReceived: 82.32
             ),
             PortfolioHolding(
                 id: "demo-msft",
@@ -38,10 +40,12 @@ enum DemoPortfolio {
                 name: "Microsoft Corp.",
                 accountName: account.name,
                 quantity: 41,
+                quantityDisplay: "41",
                 averageCost: 331.16,
                 currentPrice: 472.13,
                 previousClose: 468.44,
-                currencyCode: "USD"
+                currencyCode: "USD",
+                dividendsReceived: 54.70
             ),
             PortfolioHolding(
                 id: "demo-nvda",
@@ -50,10 +54,12 @@ enum DemoPortfolio {
                 name: "NVIDIA Corp.",
                 accountName: account.name,
                 quantity: 120,
+                quantityDisplay: "120",
                 averageCost: 92.40,
                 currentPrice: 142.18,
                 previousClose: 145.26,
-                currencyCode: "USD"
+                currencyCode: "USD",
+                dividendsReceived: 12.96
             ),
             PortfolioHolding(
                 id: "demo-voo",
@@ -62,10 +68,12 @@ enum DemoPortfolio {
                 name: "Vanguard S&P 500 ETF",
                 accountName: account.name,
                 quantity: 58,
+                quantityDisplay: "58",
                 averageCost: 421.82,
                 currentPrice: 537.61,
                 previousClose: 534.80,
-                currencyCode: "USD"
+                currencyCode: "USD",
+                dividendsReceived: 446.18
             ),
             PortfolioHolding(
                 id: "demo-tsla",
@@ -74,10 +82,12 @@ enum DemoPortfolio {
                 name: "Tesla Inc.",
                 accountName: account.name,
                 quantity: 32,
+                quantityDisplay: "32",
                 averageCost: 244.20,
                 currentPrice: 178.12,
                 previousClose: 181.64,
-                currencyCode: "USD"
+                currencyCode: "USD",
+                dividendsReceived: 0
             )
         ]
 

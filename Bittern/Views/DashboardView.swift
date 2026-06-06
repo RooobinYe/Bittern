@@ -73,7 +73,18 @@ struct DashboardView: View {
             .navigationDestination(isPresented: $isShowingPortfolioAccounts) {
                 PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
             }
+            .navigationDestination(for: PortfolioHolding.self) { holding in
+                HoldingDetailView(
+                    holding: holding,
+                    snapshot: viewModel.visibleSnapshot,
+                    providerName: providerName(for: holding.accountID)
+                )
+            }
         }
+    }
+
+    private func providerName(for accountID: String) -> String {
+        viewModel.visibleSnapshot.accounts.first { $0.id == accountID }?.providerName ?? ""
     }
 }
 
@@ -488,13 +499,16 @@ private struct HoldingsSection: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredHoldings) { holding in
-                        HoldingListRow(
-                            holding: holding,
-                            totalMarketValue: viewModel.visibleSnapshot.totalMarketValue,
-                            performanceMode: viewModel.performanceMode,
-                            isPrivacyEnabled: isPrivacyEnabled,
-                            providerName: accountProviderLookup[holding.accountID] ?? ""
-                        )
+                        NavigationLink(value: holding) {
+                            HoldingListRow(
+                                holding: holding,
+                                totalMarketValue: viewModel.visibleSnapshot.totalMarketValue,
+                                performanceMode: viewModel.performanceMode,
+                                isPrivacyEnabled: isPrivacyEnabled,
+                                providerName: accountProviderLookup[holding.accountID] ?? ""
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -631,6 +645,8 @@ private struct HoldingListRow: View {
             }
         }
         .padding(.vertical, 15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Divider()
                 .frame(height: 1)

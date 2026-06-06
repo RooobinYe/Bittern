@@ -85,6 +85,41 @@ struct SnapTradeClient {
         return response.positions
     }
 
+    func listActivities(accountID: String, types: [String]) async throws -> [SnapTradeActivityDTO] {
+        let limit = 1000
+        var offset = 0
+        var result: [SnapTradeActivityDTO] = []
+
+        while true {
+            var queryItems = userQueryItems + [
+                URLQueryItem(name: "limit", value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)")
+            ]
+
+            if !types.isEmpty {
+                queryItems.append(URLQueryItem(name: "type", value: types.joined(separator: ",")))
+            }
+
+            let data = try await request(
+                path: "/accounts/\(accountID)/activities",
+                queryItems: queryItems
+            )
+            let page = try JSONDecoder().decode(SnapTradeActivitiesResponseDTO.self, from: data)
+            result.append(contentsOf: page.activities)
+
+            offset += page.activities.count
+            if page.activities.count < limit {
+                break
+            }
+
+            if let total = page.total, offset >= total {
+                break
+            }
+        }
+
+        return result
+    }
+
     func connectionPortalURL(darkMode: Bool) async throws -> URL {
         let body = SnapTradeConnectionPortalRequestDTO(
             connectionType: "read",
@@ -385,11 +420,85 @@ struct SnapTradePositionsResponseDTO: Decodable {
     }
 }
 
+struct SnapTradeActivitiesResponseDTO: Decodable {
+    let activities: [SnapTradeActivityDTO]
+    let total: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if let activities = try? container.decode([SnapTradeActivityDTO].self) {
+            self.activities = activities
+            total = activities.count
+            return
+        }
+
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        if let activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .data) {
+            self.activities = activities
+        } else if let activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .activities) {
+            self.activities = activities
+        } else {
+            self.activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .results) ?? []
+        }
+        total = try keyed.decodeIfPresent(SnapTradePaginationDTO.self, forKey: .pagination)?.total
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case activities
+        case data
+        case results
+        case pagination
+    }
+}
+
+struct SnapTradePaginationDTO: Decodable {
+    let total: Int?
+}
+
+struct SnapTradeActivityDTO: Decodable {
+    let symbol: String?
+    let amount: Double?
+    let currency: String?
+    let type: String?
+    let tradeDate: Date?
+
+    var resolvedSymbol: String? {
+        symbol
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        symbol = try container.decodeSymbolTextIfPresent(forKey: .symbol)
+        if let rawAmount = try container.decodeFlexibleDoubleIfPresent(forKey: .amount) {
+            amount = rawAmount
+        } else {
+            amount = try container.decodeIfPresent(SnapTradeMoneyDTO.self, forKey: .amount)?.amount
+        }
+        if let rawCurrency = try container.decodeCurrencyCodeIfPresent(forKey: .currency) {
+            currency = rawCurrency
+        } else {
+            currency = try container.decodeIfPresent(SnapTradeMoneyDTO.self, forKey: .amount)?.currency
+        }
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        tradeDate = try container.decodeDateIfPresent(forKey: .tradeDate)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case symbol
+        case amount
+        case currency
+        case type
+        case tradeDate = "trade_date"
+    }
+}
+
 struct SnapTradePositionDTO: Decodable {
     let id: String?
     let symbol: String?
     let description: String?
     let units: Double
+    let unitsDisplay: String?
     let price: Double?
     let averagePurchasePrice: Double?
     let costBasis: Double?
@@ -418,6 +527,7 @@ struct SnapTradePositionDTO: Decodable {
         symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         units = try container.decodeFlexibleDoubleIfPresent(forKey: .units) ?? 0
+        unitsDisplay = try container.decodeFlexibleNumberTextIfPresent(forKey: .units)
         price = try container.decodeFlexibleDoubleIfPresent(forKey: .price)
         averagePurchasePrice = try container.decodeFlexibleDoubleIfPresent(forKey: .averagePurchasePrice)
         costBasis = try container.decodeFlexibleDoubleIfPresent(forKey: .costBasis)
@@ -499,6 +609,55 @@ extension KeyedDecodingContainer {
 
         if let currency = try? decodeIfPresent(SnapTradeInstrumentCurrencyDTO.self, forKey: key) {
             return currency.code
+        }
+
+        return nil
+    }
+
+    func decodeDateIfPresent(forKey key: Key) throws -> Date? {
+        guard let value = try? decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
+    }
+
+    func decodeFlexibleNumberTextIfPresent(forKey key: Key) throws -> String? {
+        if let string = try? decodeIfPresent(String.self, forKey: key) {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if let intValue = try? decodeIfPresent(Int.self, forKey: key) {
+            return String(intValue)
+        }
+
+        if let doubleValue = try? decodeIfPresent(Double.self, forKey: key) {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = false
+            formatter.maximumFractionDigits = 12
+            formatter.minimumFractionDigits = 0
+            return formatter.string(from: NSNumber(value: doubleValue)) ?? "\(doubleValue)"
+        }
+
+        return nil
+    }
+
+    func decodeSymbolTextIfPresent(forKey key: Key) throws -> String? {
+        if let string = try? decodeIfPresent(String.self, forKey: key) {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if let instrument = try? decodeIfPresent(SnapTradeInstrumentDTO.self, forKey: key) {
+            return instrument.symbol ?? instrument.rawSymbol
         }
 
         return nil
