@@ -400,21 +400,22 @@ private struct HoldingChartSection: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            ZStack(alignment: .topTrailing) {
-                HoldingPriceChart(
-                    points: series,
-                    basePrice: series.first?.price,
-                    currencyCode: currencyCode,
-                    lineColor: lineColor,
-                    selectedPoint: $selectedPoint
-                )
-                .frame(height: 318)
-
+            ZStack {
                 if isLoading {
                     ProgressView()
                         .tint(BitternTheme.secondaryInk)
-                        .scaleEffect(0.82)
-                        .padding(.top, 4)
+                        .scaleEffect(1.2)
+                        .frame(height: 318)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    HoldingPriceChart(
+                        points: series,
+                        basePrice: series.first?.price,
+                        currencyCode: currencyCode,
+                        lineColor: lineColor,
+                        selectedPoint: $selectedPoint
+                    )
+                    .frame(height: 318)
                 }
             }
 
