@@ -15,6 +15,7 @@ struct PortfolioAccountsView: View {
     @State private var clientId: String
     @State private var consumerKey: String
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     @State private var isSavingCredentials = false
     @State private var isOpeningPortal = false
     @State private var isRefreshing = false
@@ -47,6 +48,7 @@ struct PortfolioAccountsView: View {
                         clientId: $clientId,
                         consumerKey: $consumerKey,
                         errorMessage: errorMessage ?? viewModel.errorMessage,
+                        successMessage: successMessage,
                         save: save,
                         connect: { Task { await openConnectionPortal() } },
                         clear: clear
@@ -152,12 +154,17 @@ struct PortfolioAccountsView: View {
     private func saveCredentials() async {
         guard !isSavingCredentials else { return }
         isSavingCredentials = true
-        defer { isSavingCredentials = false }
 
         do {
             _ = try await ensureRegisteredCredentials()
             await refresh()
+            isSavingCredentials = false
+            errorMessage = nil
+            successMessage = "Credentials saved successfully."
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            successMessage = nil
         } catch {
+            isSavingCredentials = false
             errorMessage = error.localizedDescription
         }
     }
@@ -272,6 +279,7 @@ private struct SnapTradeSettingsPanel: View {
     @Binding var clientId: String
     @Binding var consumerKey: String
     let errorMessage: String?
+    let successMessage: String?
     let save: () -> Void
     let connect: () -> Void
     let clear: () -> Void
@@ -309,6 +317,23 @@ private struct SnapTradeSettingsPanel: View {
                     .font(.footnote)
                     .foregroundStyle(BitternTheme.loss)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let successMessage {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(BitternTheme.gain)
+
+                    Text(successMessage)
+                        .font(.footnote)
+                        .foregroundStyle(BitternTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .background(BitternTheme.gain.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             HStack(spacing: 12) {
@@ -398,6 +423,13 @@ private struct ProviderHoldingsSection: View {
 private struct ProviderHoldingRow: View {
     let holding: PortfolioHolding
 
+    private var formattedQuantity: String {
+        let isToken = holding.unitLabel == "tokens"
+        return isToken
+            ? PortfolioFormat.tokens(holding.quantity)
+            : PortfolioFormat.shares(holding.quantity)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             ProviderSymbolAvatar(symbol: holding.symbol)
@@ -424,7 +456,7 @@ private struct ProviderHoldingRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                Text("\(PortfolioFormat.shares(holding.quantity)) \(holding.unitLabel)")
+                Text("\(formattedQuantity) \(holding.unitLabel)")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)

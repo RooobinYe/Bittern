@@ -134,8 +134,16 @@ enum PortfolioFormat {
     static func shares(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 4
+        formatter.maximumFractionDigits = 2
         formatter.minimumFractionDigits = value.rounded() == value ? 0 : 2
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func tokens(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 8
+        formatter.minimumFractionDigits = 0
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
