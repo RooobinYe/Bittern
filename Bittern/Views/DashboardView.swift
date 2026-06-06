@@ -14,6 +14,12 @@ struct DashboardView: View {
     @State private var isShowingShareSheet = false
     @State private var shareImage: UIImage?
     @State private var isGeneratingScreenshot = false
+    @State private var showScreenshotError = false
+    @State private var screenshotErrorMessage = ""
+    @State private var screenshotTask: Task<Void, Never>?
+#if DEBUG
+    @State private var didRunDebugScreenshotExport = false
+#endif
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
@@ -26,7 +32,11 @@ struct DashboardView: View {
                     PortfolioTopBar(
                         openSettings: { isShowingSettings = true },
                         openPortfolioAccounts: { isShowingPortfolioAccounts = true },
-                        openShare: { generateAndShareScreenshot() }
+                        openShare: {
+                            screenshotTask = Task {
+                                await generateAndShareScreenshot()
+                            }
+                        }
                     )
                     .padding(.horizontal, 24)
                     .padding(.top, 16)
@@ -37,8 +47,7 @@ struct DashboardView: View {
                         DashboardContent(
                             viewModel: viewModel,
                             isPrivacyEnabled: $isPrivacyEnabled,
-                            minPriceThreshold: minPriceThreshold,
-                            isForScreenshot: false
+                            minPriceThreshold: minPriceThreshold
                         )
                         .padding(.horizontal, 24)
                         .padding(.bottom, 34)
@@ -49,7 +58,60 @@ struct DashboardView: View {
                         }.value
                     }
                 }
+
+                // Screenshot generation progress overlay
+                if isGeneratingScreenshot {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.4)
+                            .tint(.white)
+
+                        Text("Generating screenshot…")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+
+                        Button {
+                            screenshotTask?.cancel()
+                            isGeneratingScreenshot = false
+                        } label: {
+                            Text("Cancel")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(.white.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .transition(.opacity)
+                    }
+                    .padding(28)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .transition(.scale.combined(with: .opacity))
+                }
+
+                // Screenshot error toast
+                if showScreenshotError {
+                    VStack {
+                        Spacer()
+                        Text(screenshotErrorMessage)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .padding(.bottom, 40)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.easeInOut(duration: 0.22), value: isGeneratingScreenshot)
+            .animation(.easeInOut(duration: 0.22), value: showScreenshotError)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $isShowingSettings) {
                 SettingsView()
@@ -71,6 +133,11 @@ struct DashboardView: View {
                     ShareSheet(items: [shareImage])
                 }
             }
+#if DEBUG
+            .task {
+                await exportDebugScreenshotIfNeeded()
+            }
+#endif
         }
     }
 
@@ -78,17 +145,17 @@ struct DashboardView: View {
         viewModel.visibleSnapshot.accounts.first { $0.id == accountID }?.providerName ?? ""
     }
 
+    // MARK: - Screenshot
+
     @MainActor
-    private func generateAndShareScreenshot() {
+    private func generateAndShareScreenshot() async {
         guard !isGeneratingScreenshot else { return }
         isGeneratingScreenshot = true
+        defer { isGeneratingScreenshot = false }
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
-            isGeneratingScreenshot = false
-            return
-        }
-        let screenWidth = windowScene.screen.bounds.width
+        let screenshotWidth = UIScreen.main.bounds.width
 
+        // Build screenshot content with the privacy value frozen at capture time.
         let privacyBinding = Binding<Bool>(
             get: { isPrivacyEnabled },
             set: { _ in }
@@ -97,35 +164,101 @@ struct DashboardView: View {
         let content = DashboardContent(
             viewModel: viewModel,
             isPrivacyEnabled: privacyBinding,
-            minPriceThreshold: minPriceThreshold,
-            isForScreenshot: true
+            minPriceThreshold: minPriceThreshold
         )
-        .frame(width: screenWidth)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 34)
+        .frame(width: screenshotWidth, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
         .background(BitternTheme.background)
+        .environment(\.isRenderingScreenshot, true)
 
-        let controller = UIHostingController(rootView: content)
-        let targetSize = CGSize(
-            width: screenWidth,
-            height: UIView.layoutFittingCompressedSize.height
-        )
-        let fittingSize = controller.view.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        controller.view.bounds = CGRect(origin: .zero, size: fittingSize)
-        controller.view.backgroundColor = .clear
+        // Race the synchronous render against a 15-second timeout.
+        // withTaskGroup ensures the continuation is resumed exactly once —
+        // whichever task finishes first, the other is cancelled.
+        let image: UIImage? = await withTaskGroup(of: UIImage?.self) { group in
+            group.addTask { @MainActor in
+                ScreenshotRenderer.render(
+                    content,
+                    width: screenshotWidth,
+                    scale: UIScreen.main.scale
+                )
+            }
 
-        let renderer = UIGraphicsImageRenderer(size: fittingSize)
-        let image = renderer.image { _ in
-            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            group.addTask {
+                try? await Task.sleep(for: .seconds(15))
+                return nil
+            }
+
+            let result = await group.next()!
+            group.cancelAll()
+            return result
+        }
+
+        guard !Task.isCancelled else { return }
+
+        guard let image else {
+            showError("Screenshot timed out")
+            return
         }
 
         shareImage = image
-        isGeneratingScreenshot = false
         isShowingShareSheet = true
     }
+
+    @MainActor
+    private func showError(_ message: String) {
+        screenshotErrorMessage = message
+        showScreenshotError = true
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            showScreenshotError = false
+        }
+    }
+
+    // MARK: - Debug
+
+#if DEBUG
+    @MainActor
+    private func exportDebugScreenshotIfNeeded() async {
+        guard !didRunDebugScreenshotExport else { return }
+        didRunDebugScreenshotExport = true
+
+        guard ProcessInfo.processInfo.environment["BITTERN_EXPORT_SCREENSHOT_ON_LAUNCH"] == "1" else {
+            return
+        }
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        let screenshotWidth = UIScreen.main.bounds.width
+
+        guard let image = ScreenshotRenderer.render(
+                  DashboardContent(
+                      viewModel: viewModel,
+                      isPrivacyEnabled: .constant(false),
+                      minPriceThreshold: 0
+                  )
+                  .padding(.horizontal, 24)
+                  .padding(.bottom, 34)
+                  .frame(width: screenshotWidth, alignment: .top)
+                  .fixedSize(horizontal: false, vertical: true)
+                  .background(BitternTheme.background)
+                  .environment(\.isRenderingScreenshot, true),
+                  width: screenshotWidth,
+                  scale: UIScreen.main.scale
+              ),
+              let data = image.pngData(),
+              let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return
+        }
+
+        let screenshotURL = cachesURL.appendingPathComponent("bittern-debug-screenshot.png")
+        try? data.write(to: screenshotURL, options: [.atomic])
+    }
+#endif
 }
+
+// MARK: - Top Bar
 
 private struct PortfolioTopBar: View {
     let openSettings: () -> Void
@@ -174,11 +307,12 @@ private struct PortfolioTopBar: View {
     }
 }
 
+// MARK: - Dashboard Content
+
 private struct DashboardContent: View {
     @ObservedObject var viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
     let minPriceThreshold: Double
-    let isForScreenshot: Bool
 
     var body: some View {
         VStack(spacing: 24) {
@@ -202,17 +336,19 @@ private struct DashboardContent: View {
             HoldingsSection(
                 viewModel: viewModel,
                 isPrivacyEnabled: isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold,
-                isForScreenshot: isForScreenshot
+                minPriceThreshold: minPriceThreshold
             )
         }
     }
 }
 
+// MARK: - Account Filter Bar
+
 private struct AccountFilterBar: View {
     let accounts: [PortfolioAccount]
     @Binding var selectedProviderName: String?
     @Binding var isPrivacyEnabled: Bool
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     private var providerNames: [String] {
         accounts.reduce(into: []) { result, account in
@@ -228,24 +364,40 @@ private struct AccountFilterBar: View {
             HStack(spacing: 14) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 20) {
-                        AccountTabButton(
-                            title: "All",
-                            systemImage: nil,
-                            isSelected: selectedProviderName == nil
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                selectedProviderName = nil
+                        if isForScreenshot {
+                            AccountTabLabel(
+                                title: "All",
+                                systemImage: nil,
+                                isSelected: selectedProviderName == nil
+                            )
+                        } else {
+                            AccountTabButton(
+                                title: "All",
+                                systemImage: nil,
+                                isSelected: selectedProviderName == nil
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    selectedProviderName = nil
+                                }
                             }
                         }
 
                         ForEach(providerNames, id: \.self) { providerName in
-                            AccountTabButton(
-                                title: providerName,
-                                systemImage: nil,
-                                isSelected: selectedProviderName == providerName
-                            ) {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    selectedProviderName = providerName
+                            if isForScreenshot {
+                                AccountTabLabel(
+                                    title: providerName,
+                                    systemImage: nil,
+                                    isSelected: selectedProviderName == providerName
+                                )
+                            } else {
+                                AccountTabButton(
+                                    title: providerName,
+                                    systemImage: nil,
+                                    isSelected: selectedProviderName == providerName
+                                ) {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        selectedProviderName = providerName
+                                    }
                                 }
                             }
                         }
@@ -253,42 +405,56 @@ private struct AccountFilterBar: View {
                     .padding(.trailing, 4)
                 }
 
-                Menu {
-                    Button {
-                        selectedProviderName = nil
-                    } label: {
-                        Label("All", systemImage: selectedProviderName == nil ? "checkmark" : "tray.full")
-                    }
-
-                    ForEach(providerNames, id: \.self) { providerName in
-                        Button {
-                            selectedProviderName = providerName
-                        } label: {
-                            Label(
-                                providerName,
-                                systemImage: selectedProviderName == providerName ? "checkmark" : "building.columns"
-                            )
-                        }
-                    }
-                } label: {
+                if isForScreenshot {
                     Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(width: 30, height: 38)
-                }
-                .accessibilityLabel("Filter provider")
+                } else {
+                    Menu {
+                        Button {
+                            selectedProviderName = nil
+                        } label: {
+                            Label("All", systemImage: selectedProviderName == nil ? "checkmark" : "tray.full")
+                        }
 
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isPrivacyEnabled.toggle()
+                        ForEach(providerNames, id: \.self) { providerName in
+                            Button {
+                                selectedProviderName = providerName
+                            } label: {
+                                Label(
+                                    providerName,
+                                    systemImage: selectedProviderName == providerName ? "checkmark" : "building.columns"
+                                )
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(BitternTheme.secondaryInk)
+                            .frame(width: 30, height: 38)
                     }
-                } label: {
+                    .accessibilityLabel("Filter provider")
+                }
+
+                if isForScreenshot {
                     Image(systemName: isPrivacyEnabled ? "eye.slash" : "eye")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(width: 30, height: 38)
+                } else {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            isPrivacyEnabled.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isPrivacyEnabled ? "eye.slash" : "eye")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(BitternTheme.secondaryInk)
+                            .frame(width: 30, height: 38)
+                    }
+                    .accessibilityLabel(isPrivacyEnabled ? "Show values" : "Hide values")
                 }
-                .accessibilityLabel(isPrivacyEnabled ? "Show values" : "Hide values")
             }
 
             Divider()
@@ -298,39 +464,7 @@ private struct AccountFilterBar: View {
     }
 }
 
-private struct AccountTabButton: View {
-    let title: String
-    let systemImage: String?
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Text(title)
-                    .font(.system(size: 19, weight: isSelected ? .bold : .semibold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .bold))
-                }
-            }
-            .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
-            .padding(.bottom, 10)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle()
-                        .fill(BitternTheme.blue)
-                        .frame(height: 2)
-                        .offset(y: 1)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
+// MARK: - Donut Section
 
 private struct PortfolioDonutSection: View {
     let snapshot: PortfolioSnapshot
@@ -346,7 +480,7 @@ private struct PortfolioDonutSection: View {
                 isPrivacyEnabled: isPrivacyEnabled,
                 minPriceThreshold: minPriceThreshold
             )
-            .frame(minHeight: 300)
+            .frame(height: 300)
             .padding(.vertical, 22)
         }
     }
@@ -357,6 +491,7 @@ private struct DonutPortfolioChart: View {
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     private var filteredHoldings: [PortfolioHolding] {
         snapshot.holdings.filter { $0.marketValue >= minPriceThreshold }
@@ -413,23 +548,20 @@ private struct DonutPortfolioChart: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.68)
 
-                    Menu {
-                        ForEach(PerformanceMode.allCases) { mode in
-                            Button {
-                                performanceMode = mode
-                            } label: {
-                                Label(mode.title, systemImage: mode.systemImage)
+                    if isForScreenshot {
+                        PerformanceModeLabel(title: performanceMode.title, foregroundStyle: BitternTheme.ink)
+                    } else {
+                        Menu {
+                            ForEach(PerformanceMode.allCases) { mode in
+                                Button {
+                                    performanceMode = mode
+                                } label: {
+                                    Label(mode.title, systemImage: mode.systemImage)
+                                }
                             }
+                        } label: {
+                            PerformanceModeLabel(title: performanceMode.title, foregroundStyle: BitternTheme.ink)
                         }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(performanceMode.title)
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 12, weight: .bold))
-                        }
-                        .foregroundStyle(BitternTheme.ink)
                     }
                 }
                 .frame(width: side * 0.58)
@@ -460,6 +592,225 @@ private struct DonutPortfolioChart: View {
     }
 }
 
+// MARK: - Holdings Section
+
+private struct HoldingsSection: View {
+    @ObservedObject var viewModel: DashboardViewModel
+    let isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+
+    private var filteredHoldings: [PortfolioHolding] {
+        viewModel.sortedHoldings.filter { $0.marketValue >= minPriceThreshold }
+    }
+
+    private var accountProviderLookup: [String: String] {
+        Dictionary(uniqueKeysWithValues: viewModel.visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Holdings")
+                    .font(.system(size: 23, weight: .bold, design: .rounded))
+                    .foregroundStyle(BitternTheme.ink)
+
+                Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+
+                Spacer()
+
+                HoldingsSortMenu(
+                    performanceMode: $viewModel.performanceMode,
+                    sortOption: $viewModel.sortOption
+                )
+            }
+            .padding(.bottom, 8)
+
+            if filteredHoldings.isEmpty {
+                EmptyHoldingsView()
+                    .padding(.top, 24)
+            } else {
+                HoldingsList(
+                    filteredHoldings: filteredHoldings,
+                    visibleSnapshot: viewModel.visibleSnapshot,
+                    performanceMode: viewModel.performanceMode,
+                    isPrivacyEnabled: isPrivacyEnabled,
+                    accountProviderLookup: accountProviderLookup
+                )
+            }
+        }
+    }
+}
+
+private struct HoldingsList: View {
+    let filteredHoldings: [PortfolioHolding]
+    let visibleSnapshot: PortfolioSnapshot
+    let performanceMode: PerformanceMode
+    let isPrivacyEnabled: Bool
+    let accountProviderLookup: [String: String]
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
+
+    var body: some View {
+        if isForScreenshot {
+            VStack(spacing: 0) {
+                ForEach(filteredHoldings) { holding in
+                    HoldingListRow(
+                        holding: holding,
+                        totalMarketValue: visibleSnapshot.totalMarketValue,
+                        performanceMode: performanceMode,
+                        isPrivacyEnabled: isPrivacyEnabled,
+                        providerName: accountProviderLookup[holding.accountID] ?? ""
+                    )
+                }
+            }
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(filteredHoldings) { holding in
+                    NavigationLink(value: holding) {
+                        HoldingListRow(
+                            holding: holding,
+                            totalMarketValue: visibleSnapshot.totalMarketValue,
+                            performanceMode: performanceMode,
+                            isPrivacyEnabled: isPrivacyEnabled,
+                            providerName: accountProviderLookup[holding.accountID] ?? ""
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct HoldingsSortMenu: View {
+    @Binding var performanceMode: PerformanceMode
+    @Binding var sortOption: HoldingSortOption
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
+
+    var body: some View {
+        if isForScreenshot {
+            HoldingsSortLabel(title: headerTitle)
+        } else {
+            Menu {
+                Section("Return") {
+                    ForEach(PerformanceMode.allCases) { mode in
+                        Button {
+                            performanceMode = mode
+                        } label: {
+                            Label(mode.title, systemImage: mode.systemImage)
+                        }
+                    }
+                }
+
+                Section("Sort") {
+                    ForEach(HoldingSortOption.allCases) { option in
+                        Button {
+                            sortOption = option
+                        } label: {
+                            Label(option.title, systemImage: option.systemImage)
+                        }
+                    }
+                }
+            } label: {
+                HoldingsSortLabel(title: headerTitle)
+            }
+            .accessibilityLabel("Holding return and sort options")
+        }
+    }
+
+    private var headerTitle: String {
+        if sortOption == .marketValue {
+            return "Market value"
+        }
+
+        let prefix: String
+        switch performanceMode {
+        case .today:
+            prefix = "Today's"
+        case .allTime:
+            prefix = "All-time"
+        }
+
+        switch sortOption {
+        case .gainAmount:
+            return "\(prefix) gain"
+        case .lossAmount:
+            return "\(prefix) loss"
+        case .percent:
+            return "\(prefix) return (%)"
+        case .marketValue:
+            return "Market value"
+        }
+    }
+}
+
+// MARK: - Shared Subviews
+
+private struct AccountTabLabel: View {
+    let title: String
+    let systemImage: String?
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(.system(size: 19, weight: isSelected ? .bold : .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .bold))
+            }
+        }
+        .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
+        .padding(.bottom, 10)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(BitternTheme.blue)
+                    .frame(height: 2)
+                    .offset(y: 1)
+            }
+        }
+    }
+}
+
+private struct AccountTabButton: View {
+    let title: String
+    let systemImage: String?
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(title)
+                    .font(.system(size: 19, weight: isSelected ? .bold : .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 15, weight: .bold))
+                }
+            }
+            .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
+            .padding(.bottom, 10)
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Rectangle()
+                        .fill(BitternTheme.blue)
+                        .frame(height: 2)
+                        .offset(y: 1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct DonutSegmentInfo: Identifiable {
     let id: String
     let symbol: String
@@ -475,6 +826,22 @@ private struct DonutSegmentInfo: Identifiable {
 
     var midAngle: Double {
         (startAngle + endAngle) / 2
+    }
+}
+
+private struct PerformanceModeLabel: View {
+    let title: String
+    let foregroundStyle: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+        }
+        .foregroundStyle(foregroundStyle)
     }
 }
 
@@ -508,8 +875,6 @@ private struct AllocationBubble: View {
 
     private var symbolFontSize: CGFloat {
         let chars = CGFloat(min(symbol.count, 4))
-        // Adaptive: longer symbols get proportionally smaller font
-        // 3 chars → ~9pt, 4 chars → ~7pt
         let base = circleSize / chars * 1.15
         return min(10, max(6, base))
     }
@@ -538,171 +903,20 @@ private struct AllocationBubble: View {
     }
 }
 
-private struct HoldingsSection: View {
-    @ObservedObject var viewModel: DashboardViewModel
-    let isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
-    let isForScreenshot: Bool
-
-    private var filteredHoldings: [PortfolioHolding] {
-        viewModel.sortedHoldings.filter { $0.marketValue >= minPriceThreshold }
-    }
-
-    private var accountProviderLookup: [String: String] {
-        Dictionary(uniqueKeysWithValues: viewModel.visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
-    }
+private struct HoldingsSortLabel: View {
+    let title: String
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Holdings")
-                    .font(.system(size: 23, weight: .bold, design: .rounded))
-                    .foregroundStyle(BitternTheme.ink)
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
 
-                Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-
-                Spacer()
-
-                HoldingsSortMenu(
-                    performanceMode: $viewModel.performanceMode,
-                    sortOption: $viewModel.sortOption
-                )
-            }
-            .padding(.bottom, 14)
-
-            Divider()
-                .frame(height: 1)
-                .overlay(BitternTheme.softLine)
-
-            if filteredHoldings.isEmpty {
-                EmptyHoldingsView()
-                    .padding(.top, 24)
-            } else {
-                HoldingsList(
-                    filteredHoldings: filteredHoldings,
-                    visibleSnapshot: viewModel.visibleSnapshot,
-                    performanceMode: viewModel.performanceMode,
-                    isPrivacyEnabled: isPrivacyEnabled,
-                    accountProviderLookup: accountProviderLookup,
-                    isForScreenshot: isForScreenshot
-                )
-            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
         }
-    }
-}
-
-private struct HoldingsList: View {
-    let filteredHoldings: [PortfolioHolding]
-    let visibleSnapshot: PortfolioSnapshot
-    let performanceMode: PerformanceMode
-    let isPrivacyEnabled: Bool
-    let accountProviderLookup: [String: String]
-    let isForScreenshot: Bool
-
-    var body: some View {
-        if isForScreenshot {
-            VStack(spacing: 0) {
-                ForEach(filteredHoldings) { holding in
-                    HoldingListRow(
-                        holding: holding,
-                        totalMarketValue: visibleSnapshot.totalMarketValue,
-                        performanceMode: performanceMode,
-                        isPrivacyEnabled: isPrivacyEnabled,
-                        providerName: accountProviderLookup[holding.accountID] ?? ""
-                    )
-                    .padding(.vertical, 15)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .bottom) {
-                        Divider()
-                            .frame(height: 1)
-                            .overlay(BitternTheme.softLine)
-                    }
-                }
-            }
-        } else {
-            LazyVStack(spacing: 0) {
-                ForEach(filteredHoldings) { holding in
-                    NavigationLink(value: holding) {
-                        HoldingListRow(
-                            holding: holding,
-                            totalMarketValue: visibleSnapshot.totalMarketValue,
-                            performanceMode: performanceMode,
-                            isPrivacyEnabled: isPrivacyEnabled,
-                            providerName: accountProviderLookup[holding.accountID] ?? ""
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-}
-
-private struct HoldingsSortMenu: View {
-    @Binding var performanceMode: PerformanceMode
-    @Binding var sortOption: HoldingSortOption
-
-    var body: some View {
-        Menu {
-            Section("Return") {
-                ForEach(PerformanceMode.allCases) { mode in
-                    Button {
-                        performanceMode = mode
-                    } label: {
-                        Label(mode.title, systemImage: mode.systemImage)
-                    }
-                }
-            }
-
-            Section("Sort") {
-                ForEach(HoldingSortOption.allCases) { option in
-                    Button {
-                        sortOption = option
-                    } label: {
-                        Label(option.title, systemImage: option.systemImage)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Text(headerTitle)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .bold))
-            }
-            .foregroundStyle(BitternTheme.secondaryInk)
-        }
-        .accessibilityLabel("Holding return and sort options")
-    }
-
-    private var headerTitle: String {
-        if sortOption == .marketValue {
-            return "Market value"
-        }
-
-        let prefix: String
-        switch performanceMode {
-        case .today:
-            prefix = "Today's"
-        case .allTime:
-            prefix = "All-time"
-        }
-
-        switch sortOption {
-        case .gainAmount:
-            return "\(prefix) gain"
-        case .lossAmount:
-            return "\(prefix) loss"
-        case .percent:
-            return "\(prefix) return (%)"
-        case .marketValue:
-            return "Market value"
-        }
+        .foregroundStyle(BitternTheme.secondaryInk)
     }
 }
 
@@ -771,11 +985,6 @@ private struct HoldingListRow: View {
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            Divider()
-                .frame(height: 1)
-                .overlay(BitternTheme.softLine)
-        }
     }
 
     private var performanceText: String {
@@ -843,6 +1052,8 @@ private struct EmptyHoldingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
+
+// MARK: - Helpers
 
 private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
     let sortedHoldings = holdings
