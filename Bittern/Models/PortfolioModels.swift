@@ -100,40 +100,6 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var fallbackPointCount: Int {
-        switch self {
-        case .oneDay:
-            78
-        case .fiveDays:
-            80
-        case .threeMonths:
-            64
-        case .oneYear:
-            84
-        case .fiveYears:
-            110
-        case .max:
-            124
-        }
-    }
-
-    var fallbackTimeSpan: TimeInterval {
-        switch self {
-        case .oneDay:
-            6.5 * 60 * 60
-        case .fiveDays:
-            5 * 24 * 60 * 60
-        case .threeMonths:
-            92 * 24 * 60 * 60
-        case .oneYear:
-            365 * 24 * 60 * 60
-        case .fiveYears:
-            5 * 365 * 24 * 60 * 60
-        case .max:
-            10 * 365 * 24 * 60 * 60
-        }
-    }
-
     var summaryLabel: String {
         switch self {
         case .oneDay:
@@ -227,9 +193,9 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     let accountName: String
     let quantity: Double
     let quantityDisplay: String?
-    let averageCost: Double
+    let averageCost: Double?
     let currentPrice: Double
-    let previousClose: Double
+    let previousClose: Double?
     let currencyCode: String
     let dividendsReceived: Double?
 
@@ -237,44 +203,47 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
         quantity * currentPrice
     }
 
-    var costBasis: Double {
-        quantity * averageCost
+    var costBasis: Double? {
+        guard let averageCost, averageCost > 0 else { return nil }
+        return quantity * averageCost
     }
 
-    var dayGainAmount: Double {
-        quantity * (currentPrice - previousClose)
+    var dayGainAmount: Double? {
+        guard let previousClose, previousClose > 0 else { return nil }
+        return quantity * (currentPrice - previousClose)
     }
 
-    var dayGainPercent: Double {
-        guard previousClose != 0 else { return 0 }
+    var dayGainPercent: Double? {
+        guard let previousClose, previousClose > 0 else { return nil }
         return (currentPrice - previousClose) / abs(previousClose)
     }
 
-    var allTimeGainAmount: Double {
-        marketValue - costBasis
+    var allTimeGainAmount: Double? {
+        guard let costBasis else { return nil }
+        return marketValue - costBasis
     }
 
-    var allTimeGainPercent: Double {
-        guard costBasis != 0 else { return 0 }
+    var allTimeGainPercent: Double? {
+        guard let costBasis, costBasis != 0, let allTimeGainAmount else { return nil }
         return allTimeGainAmount / abs(costBasis)
     }
 
     var dividendReturnPercent: Double? {
-        guard let dividendsReceived, costBasis != 0 else { return nil }
+        guard let dividendsReceived, let costBasis, costBasis != 0 else { return nil }
         return dividendsReceived / abs(costBasis)
     }
 
     var totalReturnAmount: Double? {
-        guard let dividendsReceived else { return nil }
+        guard let dividendsReceived, let allTimeGainAmount else { return nil }
         return allTimeGainAmount + dividendsReceived
     }
 
     var totalReturnPercent: Double? {
-        guard let totalReturnAmount, costBasis != 0 else { return nil }
+        guard let totalReturnAmount, let costBasis, costBasis != 0 else { return nil }
         return totalReturnAmount / abs(costBasis)
     }
 
-    func performanceAmount(for mode: PerformanceMode) -> Double {
+    func performanceAmount(for mode: PerformanceMode) -> Double? {
         switch mode {
         case .today:
             dayGainAmount
@@ -283,7 +252,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
         }
     }
 
-    func performancePercent(for mode: PerformanceMode) -> Double {
+    func performancePercent(for mode: PerformanceMode) -> Double? {
         switch mode {
         case .today:
             dayGainPercent
@@ -298,10 +267,10 @@ struct PortfolioSnapshot: Codable {
     let holdings: [PortfolioHolding]
     let totalAssets: Double
     let totalMarketValue: Double
-    let dayGainAmount: Double
-    let dayGainPercent: Double
-    let allTimeGainAmount: Double
-    let allTimeGainPercent: Double
+    let dayGainAmount: Double?
+    let dayGainPercent: Double?
+    let allTimeGainAmount: Double?
+    let allTimeGainPercent: Double?
     let currencyCode: String
     let hasMixedCurrencies: Bool
     let lastUpdated: Date
@@ -314,10 +283,20 @@ struct PortfolioSnapshot: Codable {
         isDemo: Bool = false
     ) -> PortfolioSnapshot {
         let totalMarketValue = holdings.reduce(0) { $0 + $1.marketValue }
-        let totalCostBasis = holdings.reduce(0) { $0 + $1.costBasis }
-        let dayGainAmount = holdings.reduce(0) { $0 + $1.dayGainAmount }
-        let previousMarketValue = totalMarketValue - dayGainAmount
-        let allTimeGainAmount = totalMarketValue - totalCostBasis
+        let knownCostBases = holdings.compactMap(\.costBasis)
+        let hasCompleteCostBasis = knownCostBases.count == holdings.count
+        let totalCostBasis = knownCostBases.reduce(0, +)
+        let knownDayGains = holdings.compactMap(\.dayGainAmount)
+        let hasCompleteDayGain = knownDayGains.count == holdings.count
+        let dayGainAmount = hasCompleteDayGain ? knownDayGains.reduce(0, +) : nil
+        let dayGainPercent = dayGainAmount.flatMap { amount in
+            let previousMarketValue = totalMarketValue - amount
+            return previousMarketValue == 0 ? 0 : amount / abs(previousMarketValue)
+        }
+        let allTimeGainAmount = hasCompleteCostBasis ? totalMarketValue - totalCostBasis : nil
+        let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
+            totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
+        }
         let accountBalance = accounts.compactMap(\.totalBalance).reduce(0, +)
         let currencyCodes = Set(holdings.map(\.currencyCode) + accounts.map(\.currencyCode))
         let currencyCode = holdings.first?.currencyCode ?? accounts.first?.currencyCode ?? "USD"
@@ -328,9 +307,9 @@ struct PortfolioSnapshot: Codable {
             totalAssets: accountBalance > 0 ? accountBalance : totalMarketValue,
             totalMarketValue: totalMarketValue,
             dayGainAmount: dayGainAmount,
-            dayGainPercent: previousMarketValue == 0 ? 0 : dayGainAmount / abs(previousMarketValue),
+            dayGainPercent: dayGainPercent,
             allTimeGainAmount: allTimeGainAmount,
-            allTimeGainPercent: totalCostBasis == 0 ? 0 : allTimeGainAmount / abs(totalCostBasis),
+            allTimeGainPercent: allTimeGainPercent,
             currencyCode: currencyCode,
             hasMixedCurrencies: currencyCodes.count > 1,
             lastUpdated: lastUpdated,
@@ -343,7 +322,7 @@ struct PortfolioSnapshot: Codable {
 }
 
 extension PortfolioSnapshot {
-    func performanceAmount(for mode: PerformanceMode) -> Double {
+    func performanceAmount(for mode: PerformanceMode) -> Double? {
         switch mode {
         case .today:
             dayGainAmount
@@ -352,7 +331,7 @@ extension PortfolioSnapshot {
         }
     }
 
-    func performancePercent(for mode: PerformanceMode) -> Double {
+    func performancePercent(for mode: PerformanceMode) -> Double? {
         switch mode {
         case .today:
             dayGainPercent

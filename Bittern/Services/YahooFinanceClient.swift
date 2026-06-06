@@ -155,15 +155,9 @@ struct YahooFinanceClient {
         // previousClose is not reliably present in meta; compute it from
         // the daily close array (second-to-last value = previous session).
         let closes = result.indicators?.quote?.first?.close?.compactMap({ $0 }) ?? []
-        let previousClose: Double
-        if closes.count >= 2 {
-            previousClose = closes[closes.count - 2]
-        } else {
-            previousClose = currentPrice
-        }
-
-        let change = currentPrice - previousClose
-        let changePercent = previousClose != 0 ? change / previousClose : 0
+        let previousClose = closes.count >= 2 ? closes[closes.count - 2] : nil
+        let change = previousClose.map { currentPrice - $0 }
+        let changePercent = previousClose.flatMap { $0 == 0 ? nil : (currentPrice - $0) / abs($0) }
 
         return YahooQuoteDTO(
             symbol: symbol,

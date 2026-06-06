@@ -497,11 +497,11 @@ private struct DonutPortfolioChart: View {
         snapshot.holdings.filter { $0.marketValue >= minPriceThreshold }
     }
 
-    private var performanceAmount: Double {
+    private var performanceAmount: Double? {
         snapshot.performanceAmount(for: performanceMode)
     }
 
-    private var performancePercent: Double {
+    private var performancePercent: Double? {
         snapshot.performancePercent(for: performanceMode)
     }
 
@@ -585,9 +585,11 @@ private struct DonutPortfolioChart: View {
 
     private var performanceText: String {
         if isPrivacyEnabled {
-            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: snapshot.currencyCode))"
+            let sign = performanceAmount.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
+            return "\(sign)\(hiddenMoney(currencyCode: snapshot.currencyCode))"
         }
 
+        guard let performanceAmount, let performancePercent else { return "N/A" }
         return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
     }
 }
@@ -941,11 +943,11 @@ private struct HoldingListRow: View {
         totalMarketValue == 0 ? 0 : holding.marketValue / totalMarketValue
     }
 
-    private var performanceAmount: Double {
+    private var performanceAmount: Double? {
         holding.performanceAmount(for: performanceMode)
     }
 
-    private var performancePercent: Double {
+    private var performancePercent: Double? {
         holding.performancePercent(for: performanceMode)
     }
 
@@ -989,9 +991,11 @@ private struct HoldingListRow: View {
 
     private var performanceText: String {
         if isPrivacyEnabled {
-            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: holding.currencyCode))"
+            let sign = performanceAmount.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
+            return "\(sign)\(hiddenMoney(currencyCode: holding.currencyCode))"
         }
 
+        guard let performanceAmount, let performancePercent else { return "N/A" }
         return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
     }
 }

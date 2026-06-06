@@ -95,7 +95,7 @@ private final class HoldingDetailViewModel: ObservableObject {
     }
 
     var visibleSeries: [HoldingPricePoint] {
-        priceSeriesByRange[selectedRange] ?? Self.fallbackSeries(for: holding, range: selectedRange)
+        priceSeriesByRange[selectedRange] ?? []
     }
 
     func loadSelectedRangeIfNeeded() async {
@@ -114,7 +114,7 @@ private final class HoldingDetailViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             priceSeriesByRange[range] = normalized(history, currentPrice: holding.currentPrice)
         } catch {
-            priceSeriesByRange[range] = Self.fallbackSeries(for: holding, range: range)
+            priceSeriesByRange[range] = []
         }
     }
 
@@ -134,97 +134,6 @@ private final class HoldingDetailViewModel: ObservableObject {
         ]
     }
 
-    private static func fallbackSeries(for holding: PortfolioHolding, range: HoldingChartRange) -> [HoldingPricePoint] {
-        let count = max(range.fallbackPointCount, 2)
-        let currentPrice = max(holding.currentPrice, 0.01)
-        let seed = Double(holding.symbol.unicodeScalars.reduce(0) { $0 + Int($1.value) } % 31)
-        let startPrice = fallbackStartPrice(for: holding, range: range, currentPrice: currentPrice)
-        let amplitude = max(currentPrice * amplitudeScale(for: range), abs(currentPrice - startPrice) * 0.22, 0.01)
-        let cycles = cyclesForRange(range) + seed.truncatingRemainder(dividingBy: 3)
-        let now = Date()
-        let startDate = now.addingTimeInterval(-range.fallbackTimeSpan)
-
-        return (0..<count).map { index in
-            let progress = Double(index) / Double(count - 1)
-            let trend = startPrice + (currentPrice - startPrice) * progress
-            let ease = sin(progress * .pi)
-            let waveA = sin(progress * .pi * cycles + seed * 0.23)
-            let waveB = cos(progress * .pi * (cycles * 0.52 + 1.7) + seed * 0.41)
-            let wave = (waveA + waveB * 0.45) * amplitude * ease
-            let price: Double
-            if index == 0 {
-                price = startPrice
-            } else if index == count - 1 {
-                price = currentPrice
-            } else {
-                price = max(0.01, trend + wave)
-            }
-
-            return HoldingPricePoint(
-                date: startDate.addingTimeInterval(range.fallbackTimeSpan * progress),
-                price: price
-            )
-        }
-    }
-
-    private static func fallbackStartPrice(
-        for holding: PortfolioHolding,
-        range: HoldingChartRange,
-        currentPrice: Double
-    ) -> Double {
-        let previousClose = holding.previousClose > 0 ? holding.previousClose : currentPrice * 0.995
-        let averageCost = holding.averageCost > 0 ? holding.averageCost : currentPrice
-
-        switch range {
-        case .oneDay:
-            return previousClose
-        case .fiveDays:
-            let dailyDelta = currentPrice - previousClose
-            return max(0.01, currentPrice - dailyDelta * 2.6 - currentPrice * 0.006)
-        case .threeMonths:
-            return max(0.01, (averageCost * 0.45 + previousClose * 0.2 + currentPrice * 0.35))
-        case .oneYear:
-            return max(0.01, averageCost * 0.76 + currentPrice * 0.24)
-        case .fiveYears:
-            return max(0.01, averageCost * 0.58 + currentPrice * 0.18)
-        case .max:
-            return max(0.01, averageCost * 0.42 + currentPrice * 0.12)
-        }
-    }
-
-    private static func amplitudeScale(for range: HoldingChartRange) -> Double {
-        switch range {
-        case .oneDay:
-            0.009
-        case .fiveDays:
-            0.016
-        case .threeMonths:
-            0.032
-        case .oneYear:
-            0.045
-        case .fiveYears:
-            0.06
-        case .max:
-            0.07
-        }
-    }
-
-    private static func cyclesForRange(_ range: HoldingChartRange) -> Double {
-        switch range {
-        case .oneDay:
-            18
-        case .fiveDays:
-            8
-        case .threeMonths:
-            7
-        case .oneYear:
-            9
-        case .fiveYears:
-            11
-        case .max:
-            13
-        }
-    }
 }
 
 private struct HoldingDetailTopBar: View {
@@ -271,16 +180,17 @@ private struct HoldingAssetHeader: View {
         selectedPoint ?? series.last ?? HoldingPricePoint(date: Date(), price: holding.currentPrice)
     }
 
-    private var basePrice: Double {
+    private var basePrice: Double? {
         series.first?.price ?? holding.previousClose
     }
 
-    private var priceDelta: Double {
-        displayPoint.price - basePrice
+    private var priceDelta: Double? {
+        guard let basePrice else { return nil }
+        return displayPoint.price - basePrice
     }
 
-    private var priceDeltaPercent: Double {
-        guard basePrice != 0 else { return 0 }
+    private var priceDeltaPercent: Double? {
+        guard let basePrice, basePrice != 0, let priceDelta else { return nil }
         return priceDelta / abs(basePrice)
     }
 
@@ -314,7 +224,7 @@ private struct HoldingAssetHeader: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
 
-                    Text(PortfolioFormat.percent(priceDeltaPercent, signed: true))
+                    Text(priceDeltaPercentText)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.performanceColor(priceDelta))
                         .lineLimit(1)
@@ -341,6 +251,10 @@ private struct HoldingAssetHeader: View {
 
     private var changeAmountText: String {
         if isPrivacyEnabled {
+            guard let priceDelta else {
+                return hiddenDetailMoney(currencyCode: holding.currencyCode)
+            }
+
             if priceDelta > 0 {
                 return "+\(hiddenDetailMoney(currencyCode: holding.currencyCode))"
             }
@@ -352,7 +266,13 @@ private struct HoldingAssetHeader: View {
             return hiddenDetailMoney(currencyCode: holding.currencyCode)
         }
 
+        guard let priceDelta else { return "N/A" }
         return PortfolioFormat.money(priceDelta, currencyCode: holding.currencyCode, signed: true)
+    }
+
+    private var priceDeltaPercentText: String {
+        guard let priceDeltaPercent else { return "N/A" }
+        return PortfolioFormat.percent(priceDeltaPercent, signed: true)
     }
 }
 
@@ -405,6 +325,12 @@ private struct HoldingChartSection: View {
                     ProgressView()
                         .tint(BitternTheme.secondaryInk)
                         .scaleEffect(1.2)
+                        .frame(height: 318)
+                        .frame(maxWidth: .infinity)
+                } else if series.count < 2 {
+                    Text("N/A")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(height: 318)
                         .frame(maxWidth: .infinity)
                 } else {
@@ -556,8 +482,13 @@ private struct ChartMetrics {
         self.points = points
         self.size = size
         let prices = points.map(\.price)
-        let minValue = prices.min() ?? 0
-        let maxValue = prices.max() ?? 1
+        guard let minValue = prices.min(),
+              let maxValue = prices.max()
+        else {
+            minPrice = 0
+            maxPrice = 1
+            return
+        }
         let padding = 0.01
         minPrice = max(0, minValue - padding)
         maxPrice = maxValue + padding
@@ -627,21 +558,34 @@ private struct HoldingInfoSection: View {
         return preciseQuantity(holding.quantity)
     }
 
+    private var averagePriceText: String {
+        if isPrivacyEnabled {
+            return hiddenDetailMoney(currencyCode: holding.currencyCode)
+        }
+
+        guard let averageCost = holding.averageCost else { return "N/A" }
+        return PortfolioFormat.price(averageCost, currencyCode: holding.currencyCode)
+    }
+
     private var returnEquation: HoldingReturnEquation? {
-        guard holding.averageCost > 0, holding.quantity > 0 else {
+        guard let costBasis = holding.costBasis,
+              let allTimeGainAmount = holding.allTimeGainAmount,
+              let allTimeGainPercent = holding.allTimeGainPercent,
+              let dividendsReceived = holding.dividendsReceived,
+              holding.quantity > 0
+        else {
             return nil
         }
 
-        let dividendsReceived = holding.dividendsReceived ?? 0
-        let dividendReturnPercent = holding.costBasis == 0 ? 0 : dividendsReceived / abs(holding.costBasis)
-        let totalReturnAmount = holding.allTimeGainAmount + dividendsReceived
-        let totalReturnPercent = holding.costBasis == 0 ? 0 : totalReturnAmount / abs(holding.costBasis)
+        let dividendReturnPercent = dividendsReceived / abs(costBasis)
+        let totalReturnAmount = allTimeGainAmount + dividendsReceived
+        let totalReturnPercent = totalReturnAmount / abs(costBasis)
 
         return HoldingReturnEquation(
             priceGain: HoldingReturnMetric(
                 title: "Price Gain",
-                amount: holding.allTimeGainAmount,
-                percent: holding.allTimeGainPercent
+                amount: allTimeGainAmount,
+                percent: allTimeGainPercent
             ),
             dividends: HoldingReturnMetric(
                 title: "Dividends",
@@ -688,7 +632,7 @@ private struct HoldingInfoSection: View {
 
                 HoldingInfoRow(
                     title: "Average Price",
-                    value: isPrivacyEnabled ? hiddenDetailMoney(currencyCode: holding.currencyCode) : PortfolioFormat.price(holding.averageCost, currencyCode: holding.currencyCode)
+                    value: averagePriceText
                 )
 
                 Divider().overlay(BitternTheme.softLine)

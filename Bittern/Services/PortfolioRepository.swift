@@ -52,15 +52,20 @@ struct LivePortfolioRepository: PortfolioRepository {
             guard let rawSymbol = position.resolvedSymbol?.trimmedNonEmpty else {
                 return nil
             }
+            guard let units = position.units else {
+                return nil
+            }
 
             let symbol = rawSymbol.uppercased()
             let quote = quotes[symbol]
-            let currentPrice = quote?.regularMarketPrice ?? position.price ?? position.resolvedAverageCost ?? 0
+            guard let currentPrice = quote?.regularMarketPrice ?? position.price,
+                  currentPrice > 0
+            else {
+                return nil
+            }
             let previousClose = quote?.regularMarketPreviousClose
                 ?? quote?.regularMarketChange.map { currentPrice - $0 }
-                ?? position.price
-                ?? currentPrice
-            let averageCost = position.resolvedAverageCost ?? currentPrice
+            let averageCost = position.resolvedAverageCost
             let currencyCode = quote?.currency ?? position.resolvedCurrency ?? account.currencyCode
             let name = quote?.displayName ?? position.resolvedName ?? symbol
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
@@ -79,7 +84,7 @@ struct LivePortfolioRepository: PortfolioRepository {
                 symbol: symbol,
                 name: name,
                 accountName: account.name,
-                quantity: position.units,
+                quantity: units,
                 quantityDisplay: position.unitsDisplay,
                 averageCost: averageCost,
                 currentPrice: currentPrice,

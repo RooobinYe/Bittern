@@ -39,6 +39,11 @@ enum BitternTheme {
 
         return secondaryInk
     }
+
+    static func performanceColor(_ value: Double?) -> Color {
+        guard let value else { return secondaryInk }
+        return performanceColor(value)
+    }
 }
 
 struct PanelModifier: ViewModifier {

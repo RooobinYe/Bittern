@@ -497,7 +497,7 @@ struct SnapTradePositionDTO: Decodable {
     let id: String?
     let symbol: String?
     let description: String?
-    let units: Double
+    let units: Double?
     let unitsDisplay: String?
     let price: Double?
     let averagePurchasePrice: Double?
@@ -514,7 +514,9 @@ struct SnapTradePositionDTO: Decodable {
     }
 
     var resolvedAverageCost: Double? {
-        averagePurchasePrice ?? costBasis
+        [averagePurchasePrice, costBasis]
+            .compactMap { $0 }
+            .first { $0 > 0 }
     }
 
     var resolvedCurrency: String? {
@@ -526,7 +528,7 @@ struct SnapTradePositionDTO: Decodable {
         id = try container.decodeIfPresent(String.self, forKey: .id)
         symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
         description = try container.decodeIfPresent(String.self, forKey: .description)
-        units = try container.decodeFlexibleDoubleIfPresent(forKey: .units) ?? 0
+        units = try container.decodeFlexibleDoubleIfPresent(forKey: .units)
         unitsDisplay = try container.decodeFlexibleNumberTextIfPresent(forKey: .units)
         price = try container.decodeFlexibleDoubleIfPresent(forKey: .price)
         averagePurchasePrice = try container.decodeFlexibleDoubleIfPresent(forKey: .averagePurchasePrice)

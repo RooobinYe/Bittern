@@ -26,6 +26,7 @@ final class DashboardViewModel: ObservableObject {
     private let credentialsStore: CredentialsStore
     private let repository: PortfolioRepository
     private var hasAttemptedDividendBackfill = false
+    private var shouldReloadPositionsOnNextRefresh = true
 
     init(
         credentialsStore: CredentialsStore,
@@ -50,11 +51,11 @@ final class DashboardViewModel: ObservableObject {
         visibleSnapshot.holdings.sorted { lhs, rhs in
             switch sortOption {
             case .gainAmount:
-                lhs.performanceAmount(for: performanceMode) > rhs.performanceAmount(for: performanceMode)
+                isOrdered(lhs.performanceAmount(for: performanceMode), before: rhs.performanceAmount(for: performanceMode), ascending: false)
             case .lossAmount:
-                lhs.performanceAmount(for: performanceMode) < rhs.performanceAmount(for: performanceMode)
+                isOrdered(lhs.performanceAmount(for: performanceMode), before: rhs.performanceAmount(for: performanceMode), ascending: true)
             case .percent:
-                lhs.performancePercent(for: performanceMode) > rhs.performancePercent(for: performanceMode)
+                isOrdered(lhs.performancePercent(for: performanceMode), before: rhs.performancePercent(for: performanceMode), ascending: false)
             case .marketValue:
                 lhs.marketValue > rhs.marketValue
             }
@@ -99,11 +100,13 @@ final class DashboardViewModel: ObservableObject {
         do {
             let needsDividendBackfill = !hasAttemptedDividendBackfill
                 && snapshot.holdings.contains { $0.dividendsReceived == nil }
-            hasAttemptedDividendBackfill = hasAttemptedDividendBackfill || needsDividendBackfill
+            let shouldReloadPositions = shouldReloadPositionsOnNextRefresh || needsDividendBackfill
 
-            let newSnapshot = needsDividendBackfill
+            let newSnapshot = shouldReloadPositions
                 ? try await repository.loadPortfolio(credentials: credentials)
                 : try await repository.refreshPrices(for: snapshot)
+            shouldReloadPositionsOnNextRefresh = false
+            hasAttemptedDividendBackfill = hasAttemptedDividendBackfill || needsDividendBackfill
             snapshot = newSnapshot
             PortfolioCache.save(newSnapshot)
         } catch {
@@ -127,6 +130,7 @@ final class DashboardViewModel: ObservableObject {
 
         do {
             let newSnapshot = try await repository.loadPortfolio(credentials: credentials)
+            shouldReloadPositionsOnNextRefresh = false
             snapshot = newSnapshot
             if let selectedProviderName,
                !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
@@ -138,5 +142,18 @@ final class DashboardViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    private func isOrdered(_ lhs: Double?, before rhs: Double?, ascending: Bool) -> Bool {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?):
+            return ascending ? lhs < rhs : lhs > rhs
+        case (.some, nil):
+            return true
+        case (nil, .some):
+            return false
+        case (nil, nil):
+            return false
+        }
     }
 }
