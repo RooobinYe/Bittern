@@ -360,7 +360,7 @@ private struct DonutPortfolioChart: View {
 
     private var performanceText: String {
         if isPrivacyEnabled {
-            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: snapshot.currencyCode)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
+            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: snapshot.currencyCode))"
         }
 
         return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
@@ -411,20 +411,31 @@ private struct AllocationBubble: View {
     let percent: Double
     let color: Color
 
+    private let circleSize: CGFloat = 24
+
+    private var symbolFontSize: CGFloat {
+        let chars = CGFloat(min(symbol.count, 4))
+        // Adaptive: longer symbols get proportionally smaller font
+        // 3 chars → ~9pt, 4 chars → ~7pt
+        let base = circleSize / chars * 1.15
+        return min(10, max(6, base))
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 5) {
             Text(String(symbol.prefix(4)))
-                .font(.system(size: symbol.count > 3 ? 7 : 9, weight: .bold, design: .rounded))
+                .font(.system(size: symbolFontSize, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
+                .frame(width: circleSize, height: circleSize)
                 .background(color)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
 
             Text(PortfolioFormat.percent(percent))
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
+                .minimumScaleFactor(0.65)
         }
         .padding(.leading, 4)
         .padding(.trailing, 7)
@@ -596,7 +607,7 @@ private struct HoldingListRow: View {
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
 
-                Text("\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
+                Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
@@ -629,7 +640,7 @@ private struct HoldingListRow: View {
 
     private var performanceText: String {
         if isPrivacyEnabled {
-            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: holding.currencyCode)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
+            return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: holding.currencyCode))"
         }
 
         return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"

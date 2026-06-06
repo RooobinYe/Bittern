@@ -13,7 +13,7 @@ enum PortfolioFormat {
         compact: Bool = false
     ) -> String {
         let formatter = NumberFormatter()
-        formatter.numberStyle = compact ? .currencyAccounting : .currency
+        formatter.numberStyle = .currencyAccounting
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.currencyCode = currencyCode
         if currencyCode == "USD" {
@@ -41,7 +41,7 @@ enum PortfolioFormat {
 
     static func price(_ value: Double, currencyCode: String = "USD") -> String {
         let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
+        formatter.numberStyle = .currencyAccounting
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.currencyCode = currencyCode
         if currencyCode == "USD" {
