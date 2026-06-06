@@ -418,7 +418,7 @@ private struct ProviderHoldingRow: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 5) {
-                Text(PortfolioFormat.money(holding.marketValue, currencyCode: holding.currencyCode, compact: true))
+                Text(PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)

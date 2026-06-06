@@ -8,7 +8,7 @@ import Combine
 
 @MainActor
 final class DashboardViewModel: ObservableObject {
-    @Published private(set) var snapshot: PortfolioSnapshot = DemoPortfolio.snapshot
+    @Published private(set) var snapshot: PortfolioSnapshot = .emptyLive
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
     @Published var performanceMode: PerformanceMode = .today
@@ -64,23 +64,27 @@ final class DashboardViewModel: ObservableObject {
 
     func refresh() async {
         guard let credentials = credentialsStore.credentials, credentials.isComplete else {
-            snapshot = DemoPortfolio.snapshot
+            snapshot = .emptyLive
             errorMessage = nil
             return
         }
+
+        // Prevent overlapping refreshes — the first caller wins.
+        guard !isLoading else { return }
 
         isLoading = true
         errorMessage = nil
 
         do {
-            snapshot = try await repository.loadPortfolio(credentials: credentials)
+            let newSnapshot = try await repository.loadPortfolio(credentials: credentials)
+            snapshot = newSnapshot
             if let selectedProviderName,
-               !snapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
+               !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
                 self.selectedProviderName = nil
             }
         } catch {
             errorMessage = error.localizedDescription
-            snapshot = PortfolioSnapshot.emptyLive
+            // Keep previous snapshot so the UI doesn't flash empty.
         }
 
         isLoading = false

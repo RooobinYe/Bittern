@@ -41,7 +41,15 @@ struct SnapTradeClient {
             queryItems: [],
             body: body
         )
-        return try JSONDecoder().decode(SnapTradeRegisteredUserDTO.self, from: data)
+        do {
+            return try JSONDecoder().decode(SnapTradeRegisteredUserDTO.self, from: data)
+        } catch {
+            let bodyPreview = String(data: data, encoding: .utf8) ?? "<not UTF-8>"
+            throw NetworkServiceError.httpStatus(
+                -1,
+                "Decoding registerUser response failed. Body: \(bodyPreview.prefix(500))"
+            )
+        }
     }
 
     func listAccounts() async throws -> [SnapTradeAccountDTO] {
@@ -201,6 +209,35 @@ struct SnapTradeClient {
 struct SnapTradeRegisteredUserDTO: Decodable {
     let userId: String
     let userSecret: String
+
+    // MARK: Coding Keys for both naming conventions
+
+    private enum CamelCaseKeys: String, CodingKey {
+        case userId
+        case userSecret
+    }
+
+    private enum SnakeCaseKeys: String, CodingKey {
+        case userId = "user_id"
+        case userSecret = "user_secret"
+    }
+
+    init(from decoder: Decoder) throws {
+        // Try camelCase keys first, then fall back to snake_case.
+        // This handles both API response formats without breaking either.
+        let container = try decoder.container(keyedBy: CamelCaseKeys.self)
+
+        if let userId = try? container.decode(String.self, forKey: .userId),
+           let userSecret = try? container.decode(String.self, forKey: .userSecret) {
+            self.userId = userId
+            self.userSecret = userSecret
+            return
+        }
+
+        let snakeContainer = try decoder.container(keyedBy: SnakeCaseKeys.self)
+        userId = try snakeContainer.decode(String.self, forKey: .userId)
+        userSecret = try snakeContainer.decode(String.self, forKey: .userSecret)
+    }
 }
 
 private struct SnapTradeRegisterUserRequestDTO: Encodable {
@@ -440,15 +477,15 @@ struct SnapTradeInstrumentCurrencyDTO: Decodable {
 
 extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
-        if let value = try decodeIfPresent(Double.self, forKey: key) {
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
             return value
         }
 
-        if let value = try decodeIfPresent(Int.self, forKey: key) {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
             return Double(value)
         }
 
-        if let string = try decodeIfPresent(String.self, forKey: key) {
+        if let string = try? decodeIfPresent(String.self, forKey: key) {
             return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 

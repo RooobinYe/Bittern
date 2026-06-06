@@ -75,6 +75,62 @@ enum PortfolioFormat {
         return rendered
     }
 
+    /// Compact change label for the donut centre — rounds to whole dollars
+    /// so the text always fits on one line.
+    static func change(_ amount: Double, percent: Double, currencyCode: String = "USD") -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currencyAccounting
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.currencyCode = currencyCode
+        if currencyCode == "USD" {
+            formatter.currencySymbol = "$"
+        }
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
+
+        let absAmount = abs(amount)
+        let rendered: String
+        if absAmount >= 1_000_000 {
+            let millions = absAmount / 1_000_000
+            rendered = "$\(String(format: "%.1f", millions))M"
+        } else {
+            rendered = formatter.string(from: NSNumber(value: absAmount)) ?? "\(absAmount)"
+        }
+
+        let sign: String
+        if amount > 0 { sign = "+" }
+        else if amount < 0 { sign = "-" }
+        else { sign = "" }
+
+        // Percent with 2 decimals
+        let pct = String(format: "%.2f%%", abs(percent) * 100)
+
+        return "\(sign)\(rendered) (\(amount < 0 ? "-" : amount > 0 ? "+" : "")\(pct))"
+    }
+
+    /// Whole-dollar money with no decimal places.
+    static func wholeMoney(_ value: Double, currencyCode: String = "USD", signed: Bool = false) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currencyAccounting
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.currencyCode = currencyCode
+        if currencyCode == "USD" {
+            formatter.currencySymbol = "$"
+        }
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
+
+        let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(abs(value))"
+
+        guard signed else {
+            return value < 0 ? "-\(rendered)" : rendered
+        }
+
+        if value > 0 { return "+\(rendered)" }
+        if value < 0 { return "-\(rendered)" }
+        return rendered
+    }
+
     static func shares(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal

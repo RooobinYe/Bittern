@@ -54,7 +54,12 @@ struct DashboardView: View {
                         .padding(.bottom, 34)
                     }
                     .refreshable {
-                        await viewModel.refresh()
+                        // Use a detached task so that URLSession calls (especially
+                        // the Yahoo Finance quote fetch) are not cancelled when
+                        // SwiftUI's .refreshable decides to cancel its own task.
+                        _ = await Task.detached {
+                            await viewModel.refresh()
+                        }.value
                     }
                 }
             }
@@ -243,8 +248,8 @@ private struct PortfolioDonutSection: View {
                 performanceMode: $performanceMode,
                 isPrivacyEnabled: isPrivacyEnabled
             )
-            .frame(height: 236)
-            .padding(.vertical, 10)
+            .frame(minHeight: 300)
+            .padding(.vertical, 22)
         }
     }
 }
@@ -268,7 +273,11 @@ private struct DonutPortfolioChart: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let side = min(proxy.size.width - 132, 188)
+            let totalStr = isPrivacyEnabled
+                ? hiddenMoney(currencyCode: snapshot.currencyCode)
+                : PortfolioFormat.wholeMoney(snapshot.totalAssets, currencyCode: snapshot.currencyCode)
+            let charCount = CGFloat(max(totalStr.count, 4))
+            let side = min(charCount * 15 + 140, proxy.size.width - 64)
             let center = CGPoint(x: proxy.size.width / 2, y: side / 2 + 20)
             let labelRadius = side * 0.64
 
@@ -289,7 +298,7 @@ private struct DonutPortfolioChart: View {
                 }
 
                 VStack(spacing: 7) {
-                    Text(isPrivacyEnabled ? hiddenMoney(currencyCode: snapshot.currencyCode) : PortfolioFormat.money(snapshot.totalAssets, currencyCode: snapshot.currencyCode, compact: true))
+                    Text(isPrivacyEnabled ? hiddenMoney(currencyCode: snapshot.currencyCode) : PortfolioFormat.wholeMoney(snapshot.totalAssets, currencyCode: snapshot.currencyCode))
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
@@ -344,7 +353,7 @@ private struct DonutPortfolioChart: View {
             return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: snapshot.currencyCode)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
         }
 
-        return "\(PortfolioFormat.money(performanceAmount, currencyCode: snapshot.currencyCode, signed: true, compact: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
+        return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
     }
 }
 
@@ -562,7 +571,7 @@ private struct HoldingListRow: View {
             Spacer(minLength: 10)
 
             VStack(alignment: .trailing, spacing: 7) {
-                Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.money(holding.marketValue, currencyCode: holding.currencyCode, compact: true))
+                Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
@@ -588,7 +597,7 @@ private struct HoldingListRow: View {
             return "\(performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : "")\(hiddenMoney(currencyCode: holding.currencyCode)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
         }
 
-        return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true, compact: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
+        return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
     }
 }
 
