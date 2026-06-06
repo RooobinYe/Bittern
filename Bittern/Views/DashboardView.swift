@@ -4,12 +4,16 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
     @ObservedObject var credentialsStore: CredentialsStore
     @State private var isShowingSettings = false
     @State private var isShowingPortfolioAccounts = false
+    @State private var isShowingShareSheet = false
+    @State private var shareImage: UIImage?
+    @State private var isGeneratingScreenshot = false
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
@@ -21,7 +25,8 @@ struct DashboardView: View {
                 VStack(spacing: 0) {
                     PortfolioTopBar(
                         openSettings: { isShowingSettings = true },
-                        openPortfolioAccounts: { isShowingPortfolioAccounts = true }
+                        openPortfolioAccounts: { isShowingPortfolioAccounts = true },
+                        openShare: { generateAndShareScreenshot() }
                     )
                     .padding(.horizontal, 24)
                     .padding(.top, 16)
@@ -29,37 +34,16 @@ struct DashboardView: View {
                     .background(BitternTheme.background)
 
                     ScrollView {
-                        VStack(spacing: 24) {
-                            AccountFilterBar(
-                                accounts: viewModel.snapshot.accounts,
-                                selectedProviderName: $viewModel.selectedProviderName,
-                                isPrivacyEnabled: $isPrivacyEnabled
-                            )
-
-                            PortfolioDonutSection(
-                                snapshot: viewModel.visibleSnapshot,
-                                performanceMode: $viewModel.performanceMode,
-                                isPrivacyEnabled: isPrivacyEnabled,
-                                minPriceThreshold: minPriceThreshold
-                            )
-
-                            if let errorMessage = viewModel.errorMessage {
-                                ErrorBanner(message: errorMessage)
-                            }
-
-                            HoldingsSection(
-                                viewModel: viewModel,
-                                isPrivacyEnabled: isPrivacyEnabled,
-                                minPriceThreshold: minPriceThreshold
-                            )
-                        }
+                        DashboardContent(
+                            viewModel: viewModel,
+                            isPrivacyEnabled: $isPrivacyEnabled,
+                            minPriceThreshold: minPriceThreshold,
+                            isForScreenshot: false
+                        )
                         .padding(.horizontal, 24)
                         .padding(.bottom, 34)
                     }
                     .refreshable {
-                        // Use a detached task so that URLSession calls (especially
-                        // the Yahoo Finance quote fetch) are not cancelled when
-                        // SwiftUI's .refreshable decides to cancel its own task.
                         _ = await Task.detached {
                             await viewModel.refresh()
                         }.value
@@ -80,17 +64,73 @@ struct DashboardView: View {
                     providerName: providerName(for: holding.accountID)
                 )
             }
+            .sheet(isPresented: $isShowingShareSheet, onDismiss: {
+                shareImage = nil
+            }) {
+                if let shareImage {
+                    ShareSheet(items: [shareImage])
+                }
+            }
         }
     }
 
     private func providerName(for accountID: String) -> String {
         viewModel.visibleSnapshot.accounts.first { $0.id == accountID }?.providerName ?? ""
     }
+
+    @MainActor
+    private func generateAndShareScreenshot() {
+        guard !isGeneratingScreenshot else { return }
+        isGeneratingScreenshot = true
+
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            isGeneratingScreenshot = false
+            return
+        }
+        let screenWidth = windowScene.screen.bounds.width
+
+        let privacyBinding = Binding<Bool>(
+            get: { isPrivacyEnabled },
+            set: { _ in }
+        )
+
+        let content = DashboardContent(
+            viewModel: viewModel,
+            isPrivacyEnabled: privacyBinding,
+            minPriceThreshold: minPriceThreshold,
+            isForScreenshot: true
+        )
+        .frame(width: screenWidth)
+        .background(BitternTheme.background)
+
+        let controller = UIHostingController(rootView: content)
+        let targetSize = CGSize(
+            width: screenWidth,
+            height: UIView.layoutFittingCompressedSize.height
+        )
+        let fittingSize = controller.view.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        controller.view.bounds = CGRect(origin: .zero, size: fittingSize)
+        controller.view.backgroundColor = .clear
+
+        let renderer = UIGraphicsImageRenderer(size: fittingSize)
+        let image = renderer.image { _ in
+            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+
+        shareImage = image
+        isGeneratingScreenshot = false
+        isShowingShareSheet = true
+    }
 }
 
 private struct PortfolioTopBar: View {
     let openSettings: () -> Void
     let openPortfolioAccounts: () -> Void
+    let openShare: () -> Void
 
     var body: some View {
         ZStack {
@@ -112,6 +152,13 @@ private struct PortfolioTopBar: View {
 
                 Spacer()
 
+                Button(action: openShare) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(BitternTheme.secondaryInk)
+                }
+                .accessibilityLabel("Share portfolio")
+
                 Button(action: openPortfolioAccounts) {
                     Image(systemName: "building.columns")
                         .font(.system(size: 21, weight: .semibold))
@@ -123,6 +170,41 @@ private struct PortfolioTopBar: View {
             Text("Portfolio")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(BitternTheme.ink)
+        }
+    }
+}
+
+private struct DashboardContent: View {
+    @ObservedObject var viewModel: DashboardViewModel
+    @Binding var isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+    let isForScreenshot: Bool
+
+    var body: some View {
+        VStack(spacing: 24) {
+            AccountFilterBar(
+                accounts: viewModel.snapshot.accounts,
+                selectedProviderName: $viewModel.selectedProviderName,
+                isPrivacyEnabled: $isPrivacyEnabled
+            )
+
+            PortfolioDonutSection(
+                snapshot: viewModel.visibleSnapshot,
+                performanceMode: $viewModel.performanceMode,
+                isPrivacyEnabled: isPrivacyEnabled,
+                minPriceThreshold: minPriceThreshold
+            )
+
+            if let errorMessage = viewModel.errorMessage {
+                ErrorBanner(message: errorMessage)
+            }
+
+            HoldingsSection(
+                viewModel: viewModel,
+                isPrivacyEnabled: isPrivacyEnabled,
+                minPriceThreshold: minPriceThreshold,
+                isForScreenshot: isForScreenshot
+            )
         }
     }
 }
@@ -460,6 +542,7 @@ private struct HoldingsSection: View {
     @ObservedObject var viewModel: DashboardViewModel
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
+    let isForScreenshot: Bool
 
     private var filteredHoldings: [PortfolioHolding] {
         viewModel.sortedHoldings.filter { $0.marketValue >= minPriceThreshold }
@@ -497,19 +580,60 @@ private struct HoldingsSection: View {
                 EmptyHoldingsView()
                     .padding(.top, 24)
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredHoldings) { holding in
-                        NavigationLink(value: holding) {
-                            HoldingListRow(
-                                holding: holding,
-                                totalMarketValue: viewModel.visibleSnapshot.totalMarketValue,
-                                performanceMode: viewModel.performanceMode,
-                                isPrivacyEnabled: isPrivacyEnabled,
-                                providerName: accountProviderLookup[holding.accountID] ?? ""
-                            )
-                        }
-                        .buttonStyle(.plain)
+                HoldingsList(
+                    filteredHoldings: filteredHoldings,
+                    visibleSnapshot: viewModel.visibleSnapshot,
+                    performanceMode: viewModel.performanceMode,
+                    isPrivacyEnabled: isPrivacyEnabled,
+                    accountProviderLookup: accountProviderLookup,
+                    isForScreenshot: isForScreenshot
+                )
+            }
+        }
+    }
+}
+
+private struct HoldingsList: View {
+    let filteredHoldings: [PortfolioHolding]
+    let visibleSnapshot: PortfolioSnapshot
+    let performanceMode: PerformanceMode
+    let isPrivacyEnabled: Bool
+    let accountProviderLookup: [String: String]
+    let isForScreenshot: Bool
+
+    var body: some View {
+        if isForScreenshot {
+            VStack(spacing: 0) {
+                ForEach(filteredHoldings) { holding in
+                    HoldingListRow(
+                        holding: holding,
+                        totalMarketValue: visibleSnapshot.totalMarketValue,
+                        performanceMode: performanceMode,
+                        isPrivacyEnabled: isPrivacyEnabled,
+                        providerName: accountProviderLookup[holding.accountID] ?? ""
+                    )
+                    .padding(.vertical, 15)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottom) {
+                        Divider()
+                            .frame(height: 1)
+                            .overlay(BitternTheme.softLine)
                     }
+                }
+            }
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(filteredHoldings) { holding in
+                    NavigationLink(value: holding) {
+                        HoldingListRow(
+                            holding: holding,
+                            totalMarketValue: visibleSnapshot.totalMarketValue,
+                            performanceMode: performanceMode,
+                            isPrivacyEnabled: isPrivacyEnabled,
+                            providerName: accountProviderLookup[holding.accountID] ?? ""
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
