@@ -343,6 +343,7 @@ private struct HoldingChartSection: View {
                         selectedPoint: $selectedPoint
                     )
                     .frame(height: 318)
+                    .padding(.horizontal, -holdingChartSideInset)
                 }
             }
 
@@ -409,8 +410,8 @@ private struct HoldingPriceChart: View {
                 if let basePrice,
                    let baseY = metrics.y(for: basePrice) {
                     var baseline = Path()
-                    baseline.move(to: CGPoint(x: 0, y: baseY))
-                    baseline.addLine(to: CGPoint(x: canvasSize.width, y: baseY))
+                    baseline.move(to: CGPoint(x: metrics.sideInset, y: baseY))
+                    baseline.addLine(to: CGPoint(x: canvasSize.width - metrics.sideInset, y: baseY))
                     context.stroke(
                         baseline,
                         with: .color(BitternTheme.softLine.opacity(0.55)),
@@ -420,7 +421,7 @@ private struct HoldingPriceChart: View {
                     let label = Text(PortfolioFormat.price(basePrice, currencyCode: currencyCode))
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
-                    context.draw(label, at: CGPoint(x: canvasSize.width - 28, y: max(12, baseY - 16)))
+                    context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 28, y: max(12, baseY - 16)))
                 }
 
                 let activeIndex = selectedPoint.flatMap { metrics.index(of: $0) }
@@ -480,13 +481,15 @@ private struct HoldingPriceChart: View {
     }
 
     private func nearestPoint(to xPosition: CGFloat, in width: CGFloat) -> HoldingPricePoint? {
-        guard points.count > 1, width > 0 else { return points.last }
-        let clamped = min(max(xPosition, 0), width)
-        let progress = clamped / width
+        guard points.count > 1, width > holdingChartSideInset * 2 else { return points.last }
+        let clamped = min(max(xPosition, holdingChartSideInset), width - holdingChartSideInset)
+        let progress = (clamped - holdingChartSideInset) / (width - holdingChartSideInset * 2)
         let index = Int((progress * CGFloat(points.count - 1)).rounded())
         return points[min(max(index, 0), points.count - 1)]
     }
 }
+
+private let holdingChartSideInset: CGFloat = 19
 
 private struct ChartMetrics {
     let points: [HoldingPricePoint]
@@ -495,6 +498,7 @@ private struct ChartMetrics {
     let maxPrice: Double
     let topInset: CGFloat = 12
     let bottomInset: CGFloat = 28
+    let sideInset: CGFloat = holdingChartSideInset
 
     init(points: [HoldingPricePoint], size: CGSize, minPrice: Double, maxPrice: Double) {
         self.points = points
@@ -504,7 +508,7 @@ private struct ChartMetrics {
     }
 
     var isDrawable: Bool {
-        points.count >= 2 && size.width > 0 && size.height > topInset + bottomInset
+        points.count >= 2 && size.width > sideInset * 2 && size.height > topInset + bottomInset
     }
 
     func index(of point: HoldingPricePoint) -> Int? {
@@ -513,7 +517,8 @@ private struct ChartMetrics {
 
     func location(for index: Int) -> CGPoint? {
         guard points.indices.contains(index) else { return nil }
-        let x = points.count == 1 ? size.width : CGFloat(index) / CGFloat(points.count - 1) * size.width
+        let plotWidth = size.width - sideInset * 2
+        let x = points.count == 1 ? size.width / 2 : sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
         guard let y = y(for: points[index].price) else { return nil }
         return CGPoint(x: x, y: y)
     }
