@@ -297,14 +297,13 @@ struct PortfolioSnapshot: Codable {
         let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
             totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
         }
-        let accountBalance = accounts.compactMap(\.totalBalance).reduce(0, +)
         let currencyCodes = Set(holdings.map(\.currencyCode) + accounts.map(\.currencyCode))
         let currencyCode = holdings.first?.currencyCode ?? accounts.first?.currencyCode ?? "USD"
 
         return PortfolioSnapshot(
             accounts: accounts,
             holdings: holdings,
-            totalAssets: accountBalance > 0 ? accountBalance : totalMarketValue,
+            totalAssets: totalMarketValue,
             totalMarketValue: totalMarketValue,
             dayGainAmount: dayGainAmount,
             dayGainPercent: dayGainPercent,

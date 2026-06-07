@@ -31,7 +31,13 @@ enum PortfolioCache {
             return nil
         }
         do {
-            return try JSONDecoder().decode(PortfolioSnapshot.self, from: data)
+            let snapshot = try JSONDecoder().decode(PortfolioSnapshot.self, from: data)
+            return PortfolioSnapshot.make(
+                accounts: snapshot.accounts,
+                holdings: snapshot.holdings,
+                lastUpdated: snapshot.lastUpdated,
+                isDemo: snapshot.isDemo
+            )
         } catch {
             print("[PortfolioCache] load failed: \(error)")
             return nil

@@ -64,7 +64,6 @@ struct LivePortfolioRepository: PortfolioRepository {
                 return nil
             }
             let previousClose = quote?.regularMarketPreviousClose
-                ?? quote?.regularMarketChange.map { currentPrice - $0 }
             let averageCost = position.resolvedAverageCost
             let currencyCode = quote?.currency ?? position.resolvedCurrency ?? account.currencyCode
             let name = quote?.displayName ?? position.resolvedName ?? symbol
@@ -114,8 +113,6 @@ struct LivePortfolioRepository: PortfolioRepository {
                 return holding
             }
             let previousClose = quote.regularMarketPreviousClose
-                ?? quote.regularMarketChange.map { currentPrice - $0 }
-                ?? holding.previousClose
 
             return PortfolioHolding(
                 id: holding.id,

@@ -89,9 +89,7 @@ struct YahooFinanceClient {
                     longName: quote.longName,
                     currency: quote.currency,
                     regularMarketPrice: quote.regularMarketPrice,
-                    regularMarketPreviousClose: quote.regularMarketPreviousClose,
-                    regularMarketChange: quote.regularMarketChange,
-                    regularMarketChangePercent: quote.regularMarketChangePercent
+                    regularMarketPreviousClose: quote.regularMarketPreviousClose
                 )
             }
         }
@@ -120,7 +118,7 @@ struct YahooFinanceClient {
         var components = URLComponents(string: "\(baseURL)/\(symbol)")
         components?.queryItems = [
             URLQueryItem(name: "interval", value: "1d"),
-            URLQueryItem(name: "range", value: "2d"),
+            URLQueryItem(name: "range", value: "1d"),
             URLQueryItem(name: "includePrePost", value: "false"),
         ]
 
@@ -152,12 +150,7 @@ struct YahooFinanceClient {
             throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
-        // previousClose is not reliably present in meta; compute it from
-        // the daily close array (second-to-last value = previous session).
-        let closes = result.indicators?.quote?.first?.close?.compactMap({ $0 }) ?? []
-        let previousClose = closes.count >= 2 ? closes[closes.count - 2] : nil
-        let change = previousClose.map { currentPrice - $0 }
-        let changePercent = previousClose.flatMap { $0 == 0 ? nil : (currentPrice - $0) / abs($0) }
+        let previousClose = meta.chartPreviousClose
 
         return YahooQuoteDTO(
             symbol: symbol,
@@ -165,9 +158,7 @@ struct YahooFinanceClient {
             longName: meta.longName,
             currency: meta.currency,
             regularMarketPrice: currentPrice,
-            regularMarketPreviousClose: previousClose,
-            regularMarketChange: change,
-            regularMarketChangePercent: changePercent
+            regularMarketPreviousClose: previousClose
         )
     }
 
@@ -249,6 +240,7 @@ private struct YahooChartMetaDTO: Decodable {
     let currency: String?
     let symbol: String?
     let regularMarketPrice: Double?
+    let chartPreviousClose: Double?
     let shortName: String?
     let longName: String?
 }
@@ -273,8 +265,6 @@ struct YahooQuoteDTO: Decodable {
     let currency: String?
     let regularMarketPrice: Double?
     let regularMarketPreviousClose: Double?
-    let regularMarketChange: Double?
-    let regularMarketChangePercent: Double?
 
     var displayName: String? {
         shortName ?? longName
