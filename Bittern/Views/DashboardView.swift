@@ -609,6 +609,10 @@ private struct HoldingsSection: View {
         Dictionary(uniqueKeysWithValues: viewModel.visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
     }
 
+    private var holdingColorLookup: [String: Color] {
+        makeHoldingColorLookup(from: viewModel.visibleSnapshot.holdings.filter { $0.marketValue >= minPriceThreshold })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
@@ -638,7 +642,8 @@ private struct HoldingsSection: View {
                     visibleSnapshot: viewModel.visibleSnapshot,
                     performanceMode: viewModel.performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
-                    accountProviderLookup: accountProviderLookup
+                    accountProviderLookup: accountProviderLookup,
+                    holdingColorLookup: holdingColorLookup
                 )
             }
         }
@@ -651,6 +656,7 @@ private struct HoldingsList: View {
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let accountProviderLookup: [String: String]
+    let holdingColorLookup: [String: Color]
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     var body: some View {
@@ -662,7 +668,8 @@ private struct HoldingsList: View {
                         totalMarketValue: visibleSnapshot.totalMarketValue,
                         performanceMode: performanceMode,
                         isPrivacyEnabled: isPrivacyEnabled,
-                        providerName: accountProviderLookup[holding.accountID] ?? ""
+                        providerName: accountProviderLookup[holding.accountID] ?? "",
+                        color: holdingColorLookup[holding.id] ?? fallbackAllocationColor
                     )
                 }
             }
@@ -675,7 +682,8 @@ private struct HoldingsList: View {
                             totalMarketValue: visibleSnapshot.totalMarketValue,
                             performanceMode: performanceMode,
                             isPrivacyEnabled: isPrivacyEnabled,
-                            providerName: accountProviderLookup[holding.accountID] ?? ""
+                            providerName: accountProviderLookup[holding.accountID] ?? "",
+                            color: holdingColorLookup[holding.id] ?? fallbackAllocationColor
                         )
                     }
                     .buttonStyle(.plain)
@@ -875,21 +883,15 @@ private struct AllocationBubble: View {
 
     private let circleSize: CGFloat = 24
 
-    private var symbolFontSize: CGFloat {
-        let chars = CGFloat(min(symbol.count, 4))
-        let base = circleSize / chars * 1.15
-        return min(10, max(6, base))
-    }
-
     var body: some View {
         HStack(spacing: 5) {
-            Text(String(symbol.prefix(4)))
-                .font(.system(size: symbolFontSize, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: circleSize, height: circleSize)
-                .background(color)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
+            HoldingSymbolIcon(
+                symbol: symbol,
+                color: color,
+                size: circleSize,
+                borderColor: BitternTheme.ink.opacity(0.85),
+                borderWidth: 1
+            )
 
             Text(PortfolioFormat.percent(percent))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -928,6 +930,7 @@ private struct HoldingListRow: View {
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let providerName: String
+    let color: Color
 
     private var unitLabel: String {
         providerName.lowercased().contains("binance") ? "tokens" : "shares"
@@ -953,7 +956,7 @@ private struct HoldingListRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            SymbolAvatar(symbol: holding.symbol)
+            SymbolAvatar(symbol: holding.symbol, color: color)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(holding.symbol)
@@ -1002,20 +1005,45 @@ private struct HoldingListRow: View {
 
 private struct SymbolAvatar: View {
     let symbol: String
+    let color: Color
 
     var body: some View {
-        Text(String(symbol.prefix(4)))
-            .font(.system(size: symbol.count > 3 ? 11 : 14, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: 46, height: 46)
-            .background(avatarColor)
-            .clipShape(Circle())
+        HoldingSymbolIcon(symbol: symbol, color: color, size: 46)
+    }
+}
+
+private struct HoldingSymbolIcon: View {
+    let symbol: String
+    let color: Color
+    let size: CGFloat
+    var borderColor: Color? = nil
+    var borderWidth: CGFloat = 0
+
+    private var label: String {
+        let prefix = String(symbol.prefix(4))
+        return prefix.isEmpty ? "?" : prefix
     }
 
-    private var avatarColor: Color {
-        let palette = BitternTheme.allocationColors
-        let sum = symbol.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[sum % palette.count]
+    private var symbolFontSize: CGFloat {
+        let chars = CGFloat(max(label.count, 1))
+        let base = size / chars * 1.15
+        return min(size * 0.42, max(size * 0.25, base))
+    }
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: symbolFontSize, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(width: size, height: size)
+            .background(color)
+            .clipShape(Circle())
+            .overlay {
+                if let borderColor, borderWidth > 0 {
+                    Circle().stroke(borderColor, lineWidth: borderWidth)
+                }
+            }
     }
 }
 
@@ -1060,9 +1088,7 @@ private struct EmptyHoldingsView: View {
 // MARK: - Helpers
 
 private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
-    let sortedHoldings = holdings
-        .filter { $0.marketValue > 0 }
-        .sorted { $0.marketValue > $1.marketValue }
+    let sortedHoldings = sortedAllocationHoldings(from: holdings)
 
     let visibleHoldings = sortedHoldings.prefix(5)
     let total = sortedHoldings.reduce(0) { $0 + $1.marketValue }
@@ -1082,11 +1108,43 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
             total: total,
             startAngle: startAngle,
             endAngle: max(startAngle, endAngle),
-            color: BitternTheme.allocationColors[index % BitternTheme.allocationColors.count]
+            color: allocationColor(at: index)
         )
         cursor += span
         return segment
     }
+}
+
+private func makeHoldingColorLookup(from holdings: [PortfolioHolding]) -> [String: Color] {
+    Dictionary(
+        uniqueKeysWithValues: sortedAllocationHoldings(from: holdings).enumerated().map { index, holding in
+            (holding.id, allocationColor(at: index))
+        }
+    )
+}
+
+private func sortedAllocationHoldings(from holdings: [PortfolioHolding]) -> [PortfolioHolding] {
+    holdings
+        .filter { $0.marketValue > 0 }
+        .sorted { lhs, rhs in
+            if lhs.marketValue != rhs.marketValue {
+                return lhs.marketValue > rhs.marketValue
+            }
+
+            if lhs.symbol != rhs.symbol {
+                return lhs.symbol < rhs.symbol
+            }
+
+            return lhs.id < rhs.id
+        }
+}
+
+private func allocationColor(at index: Int) -> Color {
+    BitternTheme.allocationColors[index % BitternTheme.allocationColors.count]
+}
+
+private var fallbackAllocationColor: Color {
+    BitternTheme.allocationColors.first ?? BitternTheme.blue
 }
 
 private func hiddenMoney(currencyCode: String) -> String {

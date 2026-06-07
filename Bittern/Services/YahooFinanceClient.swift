@@ -266,7 +266,17 @@ struct YahooQuoteDTO: Decodable {
     let regularMarketPrice: Double?
     let regularMarketPreviousClose: Double?
 
+    var fullName: String? {
+        longName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
     var displayName: String? {
-        shortName ?? longName
+        fullName
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

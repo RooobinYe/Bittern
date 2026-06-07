@@ -201,7 +201,8 @@ private struct HoldingAssetHeader: View {
                     .font(.system(size: 31, weight: .bold, design: .rounded))
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.68)
+                    .minimumScaleFactor(0.48)
+                    .allowsTightening(true)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
