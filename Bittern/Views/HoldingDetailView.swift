@@ -651,7 +651,7 @@ private struct HoldingInfoSection: View {
 
                 Divider().overlay(BitternTheme.softLine)
 
-                HoldingInfoRow(title: unitLabel, value: formattedQuantity)
+                HoldingInfoRow(title: unitLabel, value: isPrivacyEnabled ? "••••" : formattedQuantity)
 
                 if let returnEquation {
                     Divider().overlay(BitternTheme.softLine)
