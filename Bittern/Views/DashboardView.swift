@@ -10,7 +10,6 @@ struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
     @ObservedObject var credentialsStore: CredentialsStore
     @State private var isShowingSettings = false
-    @State private var isShowingPortfolioAccounts = false
     @State private var isShowingShareSheet = false
     @State private var shareImage: UIImage?
     @State private var isGeneratingScreenshot = false
@@ -31,7 +30,6 @@ struct DashboardView: View {
                 VStack(spacing: 0) {
                     PortfolioTopBar(
                         openSettings: { isShowingSettings = true },
-                        openPortfolioAccounts: { isShowingPortfolioAccounts = true },
                         openShare: {
                             screenshotTask = Task {
                                 await generateAndShareScreenshot()
@@ -114,10 +112,7 @@ struct DashboardView: View {
             .animation(.easeInOut(duration: 0.22), value: showScreenshotError)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $isShowingSettings) {
-                SettingsView()
-            }
-            .navigationDestination(isPresented: $isShowingPortfolioAccounts) {
-                PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
+                SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
             }
             .navigationDestination(for: PortfolioHolding.self) { holding in
                 HoldingDetailView(
@@ -262,7 +257,6 @@ struct DashboardView: View {
 
 private struct PortfolioTopBar: View {
     let openSettings: () -> Void
-    let openPortfolioAccounts: () -> Void
     let openShare: () -> Void
 
     var body: some View {
@@ -291,13 +285,6 @@ private struct PortfolioTopBar: View {
                         .foregroundStyle(BitternTheme.secondaryInk)
                 }
                 .accessibilityLabel("Share portfolio")
-
-                Button(action: openPortfolioAccounts) {
-                    Image(systemName: "building.columns")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                }
-                .accessibilityLabel("Edit portfolio accounts")
             }
 
             Text("Portfolio")
@@ -406,38 +393,6 @@ private struct AccountFilterBar: View {
                 }
 
                 if isForScreenshot {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                        .frame(width: 30, height: 38)
-                } else {
-                    Menu {
-                        Button {
-                            selectedProviderName = nil
-                        } label: {
-                            Label("All", systemImage: selectedProviderName == nil ? "checkmark" : "tray.full")
-                        }
-
-                        ForEach(providerNames, id: \.self) { providerName in
-                            Button {
-                                selectedProviderName = providerName
-                            } label: {
-                                Label(
-                                    providerName,
-                                    systemImage: selectedProviderName == providerName ? "checkmark" : "building.columns"
-                                )
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(BitternTheme.secondaryInk)
-                            .frame(width: 30, height: 38)
-                    }
-                    .accessibilityLabel("Filter provider")
-                }
-
-                if isForScreenshot {
                     Image(systemName: isPrivacyEnabled ? "eye.slash" : "eye")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(BitternTheme.secondaryInk)
@@ -514,8 +469,7 @@ private struct DonutPortfolioChart: View {
             let totalStr = isPrivacyEnabled
                 ? hiddenMoney(currencyCode: snapshot.currencyCode)
                 : PortfolioFormat.wholeMoney(snapshot.totalAssets, currencyCode: snapshot.currencyCode)
-            let charCount = CGFloat(max(totalStr.count, 4))
-            let side = min(charCount * 15 + 140, proxy.size.width - 64)
+            let side = min(proxy.size.width * 0.7, proxy.size.width - 80)
             let center = CGPoint(x: proxy.size.width / 2, y: side / 2 + 20)
             let labelRadius = side * 0.64
 
@@ -567,7 +521,7 @@ private struct DonutPortfolioChart: View {
                 .frame(width: side * 0.58)
                 .position(center)
 
-                ForEach(segments.prefix(5)) { segment in
+                ForEach(segments) { segment in
                     AllocationBubble(
                         symbol: segment.symbol,
                         percent: segment.percent,
@@ -1090,17 +1044,20 @@ private struct EmptyHoldingsView: View {
 private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
     let sortedHoldings = sortedAllocationHoldings(from: holdings)
 
-    let visibleHoldings = sortedHoldings.prefix(5)
     let total = sortedHoldings.reduce(0) { $0 + $1.marketValue }
     guard total > 0 else { return [] }
 
+    let minAllocation = total * 0.05
+    let visibleHoldings = sortedHoldings.filter { $0.marketValue >= minAllocation }
+
     var cursor = -90.0
     let gap = 2.2
+    let shrink = gap / 2 * Double(visibleHoldings.count - 1) / Double(visibleHoldings.count)
 
     return visibleHoldings.enumerated().map { index, holding in
         let span = holding.marketValue / total * 360
-        let startAngle = cursor + min(gap / 2, span * 0.18)
-        let endAngle = cursor + span - min(gap / 2, span * 0.18)
+        let startAngle = cursor + min(shrink, span * 0.18)
+        let endAngle = cursor + span - min(shrink, span * 0.18)
         let segment = DonutSegmentInfo(
             id: holding.id,
             symbol: holding.symbol,

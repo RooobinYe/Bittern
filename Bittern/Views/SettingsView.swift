@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject var credentialsStore: CredentialsStore
+    @ObservedObject var viewModel: DashboardViewModel
     @AppStorage(AppSettingKey.appearanceMode) private var appearanceModeRaw = AppAppearance.automatic.rawValue
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
@@ -38,6 +40,23 @@ struct SettingsView: View {
                 }
 
                 MinPriceRow(threshold: $minPriceThreshold)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Portfolio")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(BitternTheme.ink)
+                }
+
+                NavigationLink {
+                    PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
+                } label: {
+                    SettingsNavigationRow(
+                        title: "Portfolio Accounts",
+                        subtitle: "Manage connected institutions",
+                        systemImage: "building.columns"
+                    )
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
             .padding(.top, 22)
@@ -52,6 +71,41 @@ struct SettingsView: View {
 
     private var currentAppearance: AppAppearance {
         AppAppearance(rawValue: appearanceModeRaw) ?? .automatic
+    }
+}
+
+private struct SettingsNavigationRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(BitternTheme.blue)
+                .frame(width: 38, height: 38)
+                .background(BitternTheme.blue.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(BitternTheme.ink)
+
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(BitternTheme.secondaryInk)
+        }
+        .padding(14)
+        .bitternPanel()
     }
 }
 
