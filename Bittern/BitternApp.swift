@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct BitternApp: App {
@@ -13,5 +14,13 @@ struct BitternApp: App {
         WindowGroup {
             ContentView()
         }
+    }
+}
+
+extension UINavigationController {
+    open override func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.isEnabled = true
+        interactivePopGestureRecognizer?.delegate = nil
     }
 }
