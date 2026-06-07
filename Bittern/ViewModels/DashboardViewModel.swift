@@ -34,7 +34,12 @@ final class DashboardViewModel: ObservableObject {
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
-        snapshot = PortfolioCache.load() ?? .emptyLive
+        snapshot = .emptyLive
+        Task {
+            if let cached = await PortfolioCache.loadAsync() {
+                snapshot = cached
+            }
+        }
 
         if let rawMode = UserDefaults.standard.string(forKey: AppSettingKey.performanceMode),
            let mode = PerformanceMode(rawValue: rawMode) {

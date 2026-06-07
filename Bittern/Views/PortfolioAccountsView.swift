@@ -81,36 +81,26 @@ struct PortfolioAccountsView: View {
         let accounts = viewModel.snapshot.accounts
         let holdings = viewModel.snapshot.holdings
 
-        var result: [PortfolioProviderGroup] = []
-        for account in accounts {
-            let name = account.providerName
-            guard !result.contains(where: { $0.name == name }) else {
-                continue
-            }
+        let groupedAccounts = Dictionary(grouping: accounts, by: \.providerName)
 
-            let providerAccounts = accounts.filter { $0.providerName == name }
+        return groupedAccounts.map { (name, providerAccounts) in
             let accountIDs = Set(providerAccounts.map(\.id))
             let providerHoldings = holdings
                 .filter { accountIDs.contains($0.accountID) && $0.marketValue >= minPriceThreshold }
                 .sorted { $0.marketValue > $1.marketValue }
             let totalMarketValue = providerHoldings.reduce(0) { $0 + $1.marketValue }
 
-            result.append(
-                PortfolioProviderGroup(
-                    id: name,
-                    name: name,
-                    logoURL: providerAccounts.compactMap(\.providerLogoURL).first,
-                    isDisabled: providerAccounts.contains(where: \.isConnectionDisabled),
-                    accountCount: providerAccounts.count,
-                    totalMarketValue: totalMarketValue,
-                    holdings: providerHoldings
-                )
+            return PortfolioProviderGroup(
+                id: name,
+                name: name,
+                logoURL: providerAccounts.compactMap(\.providerLogoURL).first,
+                isDisabled: providerAccounts.contains(where: \.isConnectionDisabled),
+                accountCount: providerAccounts.count,
+                totalMarketValue: totalMarketValue,
+                holdings: providerHoldings
             )
         }
-
-        return result.sorted { lhs, rhs in
-            lhs.totalMarketValue > rhs.totalMarketValue
-        }
+        .sorted { $0.totalMarketValue > $1.totalMarketValue }
     }
 
     private func save() {

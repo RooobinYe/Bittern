@@ -147,14 +147,25 @@ struct LivePortfolioRepository: PortfolioRepository {
                 }
             }
 
-            var sources: [AccountSource] = []
-            for connection in connections {
-                let accounts = try await snapTrade.listAccounts(connectionID: connection.id)
-                sources.append(contentsOf: accounts.map {
-                    AccountSource(account: $0, connection: connection)
-                })
+            return try await withThrowingTaskGroup(
+                of: [AccountSource].self,
+                returning: [AccountSource].self
+            ) { group in
+                for connection in connections {
+                    group.addTask {
+                        if let accounts = try? await snapTrade.listAccounts(connectionID: connection.id) {
+                            return accounts.map { AccountSource(account: $0, connection: connection) }
+                        }
+                        return []
+                    }
+                }
+
+                var sources: [AccountSource] = []
+                for try await batch in group {
+                    sources.append(contentsOf: batch)
+                }
+                return sources
             }
-            return sources
         } catch {
             return try await snapTrade.listAccounts().map {
                 AccountSource(account: $0, connection: nil)
@@ -166,21 +177,34 @@ struct LivePortfolioRepository: PortfolioRepository {
         accounts: [PortfolioAccount],
         snapTrade: SnapTradeClient
     ) async -> [String: [SnapTradeActivityDTO]] {
-        var result: [String: [SnapTradeActivityDTO]] = [:]
-
-        for account in accounts {
-            if let activities = try? await snapTrade.listActivities(
-                accountID: account.id,
-                types: []
-            ) {
-                result[account.id] = activities.filter { activity in
-                    guard let type = activity.type?.uppercased() else { return false }
-                    return dividendActivityTypes.contains(type)
+        return await withTaskGroup(
+            of: (String, [SnapTradeActivityDTO])?.self,
+            returning: [String: [SnapTradeActivityDTO]].self
+        ) { group in
+            for account in accounts {
+                group.addTask { [dividendActivityTypes] in
+                    if let activities = try? await snapTrade.listActivities(
+                        accountID: account.id,
+                        types: []
+                    ) {
+                        let filtered = activities.filter { activity in
+                            guard let type = activity.type?.uppercased() else { return false }
+                            return dividendActivityTypes.contains(type)
+                        }
+                        return (account.id, filtered)
+                    }
+                    return nil
                 }
             }
-        }
 
-        return result
+            var result: [String: [SnapTradeActivityDTO]] = [:]
+            for await pair in group {
+                if let (accountID, activities) = pair {
+                    result[accountID] = activities
+                }
+            }
+            return result
+        }
     }
 
     private func dividendAmount(

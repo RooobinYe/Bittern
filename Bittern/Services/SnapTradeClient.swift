@@ -587,6 +587,18 @@ struct SnapTradeInstrumentCurrencyDTO: Decodable {
     }
 }
 
+private let iso8601Formatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+}()
+
+private let iso8601WithFractionalFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
 extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key) {
@@ -621,13 +633,11 @@ extension KeyedDecodingContainer {
             return nil
         }
 
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: value) {
+        if let date = iso8601Formatter.date(from: value) {
             return date
         }
 
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value)
+        return iso8601WithFractionalFormatter.date(from: value)
     }
 
     func decodeFlexibleNumberTextIfPresent(forKey key: Key) throws -> String? {

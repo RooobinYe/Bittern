@@ -50,11 +50,7 @@ struct DashboardView: View {
                         .padding(.horizontal, 24)
                         .padding(.bottom, 34)
                     }
-                    .refreshable {
-                        _ = await Task.detached {
-                            await viewModel.refresh()
-                        }.value
-                    }
+                    .refreshable { await viewModel.refresh() }
                 }
 
                 // Screenshot generation progress overlay
@@ -338,9 +334,10 @@ private struct AccountFilterBar: View {
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     private var providerNames: [String] {
-        accounts.reduce(into: []) { result, account in
+        var seen: Set<String> = []
+        return accounts.reduce(into: []) { result, account in
             let name = account.providerName
-            if !result.contains(name) {
+            if seen.insert(name).inserted {
                 result.append(name)
             }
         }

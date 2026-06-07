@@ -43,4 +43,10 @@ enum PortfolioCache {
             return nil
         }
     }
+
+    static func loadAsync() async -> PortfolioSnapshot? {
+        await Task.detached {
+            load()
+        }.value
+    }
 }

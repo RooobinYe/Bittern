@@ -282,13 +282,32 @@ struct PortfolioSnapshot: Codable {
         lastUpdated: Date = Date(),
         isDemo: Bool = false
     ) -> PortfolioSnapshot {
-        let totalMarketValue = holdings.reduce(0) { $0 + $1.marketValue }
-        let knownCostBases = holdings.compactMap(\.costBasis)
-        let hasCompleteCostBasis = knownCostBases.count == holdings.count
-        let totalCostBasis = knownCostBases.reduce(0, +)
-        let knownDayGains = holdings.compactMap(\.dayGainAmount)
-        let hasCompleteDayGain = knownDayGains.count == holdings.count
-        let dayGainAmount = hasCompleteDayGain ? knownDayGains.reduce(0, +) : nil
+        var totalMarketValue: Double = 0
+        var hasCompleteCostBasis = true
+        var totalCostBasis: Double = 0
+        var hasCompleteDayGain = true
+        var totalDayGain: Double = 0
+        var currencyCodes: Set<String> = []
+
+        for h in holdings {
+            totalMarketValue += h.marketValue
+            if let cb = h.costBasis {
+                totalCostBasis += cb
+            } else {
+                hasCompleteCostBasis = false
+            }
+            if let dg = h.dayGainAmount {
+                totalDayGain += dg
+            } else {
+                hasCompleteDayGain = false
+            }
+            currencyCodes.insert(h.currencyCode)
+        }
+        for a in accounts {
+            currencyCodes.insert(a.currencyCode)
+        }
+
+        let dayGainAmount = hasCompleteDayGain ? totalDayGain : nil
         let dayGainPercent = dayGainAmount.flatMap { amount in
             let previousMarketValue = totalMarketValue - amount
             return previousMarketValue == 0 ? 0 : amount / abs(previousMarketValue)
@@ -297,7 +316,6 @@ struct PortfolioSnapshot: Codable {
         let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
             totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
         }
-        let currencyCodes = Set(holdings.map(\.currencyCode) + accounts.map(\.currencyCode))
         let currencyCode = holdings.first?.currencyCode ?? accounts.first?.currencyCode ?? "USD"
 
         return PortfolioSnapshot(

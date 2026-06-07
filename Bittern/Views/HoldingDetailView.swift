@@ -382,11 +382,28 @@ private struct HoldingPriceChart: View {
     let lineColor: Color
     @Binding var selectedPoint: HoldingPricePoint?
 
+    private var precomputedMinMax: (min: Double, max: Double) {
+        let prices = points.map(\.price)
+        guard let minValue = prices.min(),
+              let maxValue = prices.max()
+        else {
+            return (0, 1)
+        }
+        let padding = 0.01
+        return (max(0, minValue - padding), maxValue + padding)
+    }
+
     var body: some View {
+        let minMax = precomputedMinMax
         GeometryReader { proxy in
             let size = proxy.size
             Canvas { context, canvasSize in
-                let metrics = ChartMetrics(points: points, size: canvasSize)
+                let metrics = ChartMetrics(
+                    points: points,
+                    size: canvasSize,
+                    minPrice: minMax.min,
+                    maxPrice: minMax.max
+                )
                 guard metrics.isDrawable else { return }
 
                 if let basePrice,
@@ -479,20 +496,11 @@ private struct ChartMetrics {
     let topInset: CGFloat = 12
     let bottomInset: CGFloat = 28
 
-    init(points: [HoldingPricePoint], size: CGSize) {
+    init(points: [HoldingPricePoint], size: CGSize, minPrice: Double, maxPrice: Double) {
         self.points = points
         self.size = size
-        let prices = points.map(\.price)
-        guard let minValue = prices.min(),
-              let maxValue = prices.max()
-        else {
-            minPrice = 0
-            maxPrice = 1
-            return
-        }
-        let padding = 0.01
-        minPrice = max(0, minValue - padding)
-        maxPrice = maxValue + padding
+        self.minPrice = minPrice
+        self.maxPrice = maxPrice
     }
 
     var isDrawable: Bool {
@@ -815,33 +823,40 @@ private struct HoldingReturnMetricCell: View {
     }
 }
 
-private func formattedSelectionDate(_ date: Date, range: HoldingChartRange) -> String {
+private let selectionDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
 
+private func formattedSelectionDate(_ date: Date, range: HoldingChartRange) -> String {
     switch range {
     case .oneDay:
-        formatter.dateFormat = "HH:mm"
+        selectionDateFormatter.dateFormat = "HH:mm"
     case .fiveDays:
-        formatter.dateFormat = "d MMM, HH:mm"
+        selectionDateFormatter.dateFormat = "d MMM, HH:mm"
     case .threeMonths, .oneYear, .fiveYears, .max:
-        formatter.dateFormat = "d MMM, yyyy"
+        selectionDateFormatter.dateFormat = "d MMM, yyyy"
     }
 
-    return formatter.string(from: date)
+    return selectionDateFormatter.string(from: date)
 }
 
 private func hiddenDetailMoney(currencyCode: String) -> String {
     currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
 }
 
-private func preciseQuantity(_ value: Double) -> String {
+private let preciseQuantityFormatter: NumberFormatter = {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
     formatter.usesGroupingSeparator = false
     formatter.maximumFractionDigits = 12
     formatter.minimumFractionDigits = 0
-    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    return formatter
+}()
+
+private func preciseQuantity(_ value: Double) -> String {
+    return preciseQuantityFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
 }
 
 #if DEBUG
