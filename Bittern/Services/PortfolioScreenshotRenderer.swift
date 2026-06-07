@@ -70,7 +70,8 @@ enum ScreenshotRenderer {
     static func render<Content: View>(
         _ content: Content,
         width: CGFloat,
-        scale: CGFloat = UIScreen.main.scale
+        scale: CGFloat = UIScreen.main.scale,
+        backgroundColor: UIColor = .systemBackground
     ) -> UIImage? {
         guard width > 0 else { return nil }
 
@@ -116,7 +117,7 @@ enum ScreenshotRenderer {
             size: renderSize,
             format: opaqueFormat
         ).image { ctx in
-            UIColor.systemBackground.setFill()
+            backgroundColor.setFill()
             ctx.fill(CGRect(origin: .zero, size: renderSize))
             rawImage.draw(at: .zero)
         }

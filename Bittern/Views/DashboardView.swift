@@ -9,6 +9,7 @@ import UIKit
 struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
     @ObservedObject var credentialsStore: CredentialsStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isShowingSettings = false
     @State private var isShowingShareSheet = false
     @State private var shareImage: UIImage?
@@ -121,7 +122,7 @@ struct DashboardView: View {
                 shareImage = nil
             }) {
                 if let shareImage {
-                    ShareSheet(items: [shareImage])
+                    ShareSheet(items: [shareImage], colorScheme: colorScheme)
                 }
             }
 #if DEBUG
@@ -145,6 +146,7 @@ struct DashboardView: View {
         defer { isGeneratingScreenshot = false }
 
         let screenshotWidth = UIScreen.main.bounds.width
+        let screenshotColorScheme = colorScheme
 
         // Build screenshot content with the privacy value frozen at capture time.
         let privacyBinding = Binding<Bool>(
@@ -162,6 +164,7 @@ struct DashboardView: View {
         .frame(width: screenshotWidth, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
         .background(BitternTheme.background)
+        .environment(\.colorScheme, screenshotColorScheme)
         .environment(\.isRenderingScreenshot, true)
 
         // Race the synchronous render against a 15-second timeout.
@@ -172,7 +175,8 @@ struct DashboardView: View {
                 ScreenshotRenderer.render(
                     content,
                     width: screenshotWidth,
-                    scale: UIScreen.main.scale
+                    scale: UIScreen.main.scale,
+                    backgroundColor: screenshotColorScheme.systemBackgroundColor
                 )
             }
 
@@ -222,6 +226,7 @@ struct DashboardView: View {
         try? await Task.sleep(nanoseconds: 500_000_000)
 
         let screenshotWidth = UIScreen.main.bounds.width
+        let screenshotColorScheme = colorScheme
 
         guard let image = ScreenshotRenderer.render(
                   DashboardContent(
@@ -234,9 +239,11 @@ struct DashboardView: View {
                   .frame(width: screenshotWidth, alignment: .top)
                   .fixedSize(horizontal: false, vertical: true)
                   .background(BitternTheme.background)
+                  .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
                   width: screenshotWidth,
-                  scale: UIScreen.main.scale
+                  scale: UIScreen.main.scale,
+                  backgroundColor: screenshotColorScheme.systemBackgroundColor
               ),
               let data = image.pngData(),
               let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
@@ -247,6 +254,23 @@ struct DashboardView: View {
         try? data.write(to: screenshotURL, options: [.atomic])
     }
 #endif
+}
+
+private extension ColorScheme {
+    var systemBackgroundColor: UIColor {
+        UIColor.systemBackground.resolvedColor(
+            with: UITraitCollection(userInterfaceStyle: userInterfaceStyle)
+        )
+    }
+
+    private var userInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .dark:
+            .dark
+        default:
+            .light
+        }
+    }
 }
 
 // MARK: - Top Bar
