@@ -25,8 +25,6 @@ final class DashboardViewModel: ObservableObject {
 
     private let credentialsStore: CredentialsStore
     private let repository: PortfolioRepository
-    private var hasAttemptedDividendBackfill = false
-    private var shouldReloadPositionsOnNextRefresh = true
 
     init(
         credentialsStore: CredentialsStore,
@@ -38,6 +36,7 @@ final class DashboardViewModel: ObservableObject {
         Task {
             if let cached = await PortfolioCache.loadAsync() {
                 snapshot = cached
+                await refresh()
             }
         }
 
@@ -93,8 +92,13 @@ final class DashboardViewModel: ObservableObject {
         guard !isLoading else { return }
 
         // No credentials: nothing to refresh.
-        guard let credentials = credentialsStore.credentials, credentials.isComplete else {
+        guard credentialsStore.credentials?.isComplete == true else {
             snapshot = .emptyLive
+            errorMessage = nil
+            return
+        }
+
+        guard !snapshot.holdings.isEmpty else {
             errorMessage = nil
             return
         }
@@ -103,15 +107,7 @@ final class DashboardViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let needsDividendBackfill = !hasAttemptedDividendBackfill
-                && snapshot.holdings.contains { $0.dividendsReceived == nil }
-            let shouldReloadPositions = shouldReloadPositionsOnNextRefresh || needsDividendBackfill
-
-            let newSnapshot = shouldReloadPositions
-                ? try await repository.loadPortfolio(credentials: credentials)
-                : try await repository.refreshPrices(for: snapshot)
-            shouldReloadPositionsOnNextRefresh = false
-            hasAttemptedDividendBackfill = hasAttemptedDividendBackfill || needsDividendBackfill
+            let newSnapshot = try await repository.refreshPrices(for: snapshot)
             snapshot = newSnapshot
             PortfolioCache.save(newSnapshot)
         } catch {
@@ -135,7 +131,6 @@ final class DashboardViewModel: ObservableObject {
 
         do {
             let newSnapshot = try await repository.loadPortfolio(credentials: credentials)
-            shouldReloadPositionsOnNextRefresh = false
             snapshot = newSnapshot
             if let selectedProviderName,
                !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
