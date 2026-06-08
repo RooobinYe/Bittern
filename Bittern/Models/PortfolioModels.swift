@@ -127,6 +127,26 @@ struct HoldingPricePoint: Identifiable, Hashable {
     }
 }
 
+enum PortfolioHistoryRange: String, CaseIterable, Identifiable {
+    case fiveDays = "5D"
+    case threeMonths = "3M"
+    case oneYear = "1Y"
+    case yearToDate = "YTD"
+
+    var id: String { rawValue }
+
+    var title: String { rawValue }
+}
+
+struct PortfolioHistoryPoint: Identifiable, Hashable {
+    let date: Date
+    let totalValue: Double
+
+    var id: TimeInterval {
+        date.timeIntervalSince1970
+    }
+}
+
 struct SnapTradeCredentials: Codable, Equatable {
     var clientId: String
     var consumerKey: String

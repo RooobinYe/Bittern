@@ -48,12 +48,34 @@ struct SettingsView: View {
                 }
 
                 NavigationLink {
+                    PortfolioHistoryView(credentialsStore: credentialsStore, dashboardViewModel: viewModel)
+                } label: {
+                    SettingsNavigationRow(
+                        title: "History",
+                        subtitle: "View total money over time",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
                 } label: {
                     SettingsNavigationRow(
                         title: "Portfolio Accounts",
                         subtitle: "Manage connected institutions",
                         systemImage: "building.columns"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    SnapTradeCredentialsView(credentialsStore: credentialsStore)
+                } label: {
+                    SettingsNavigationRow(
+                        title: "Credentials",
+                        subtitle: "View SnapTrade keys",
+                        systemImage: "key"
                     )
                 }
                 .buttonStyle(.plain)
@@ -71,6 +93,82 @@ struct SettingsView: View {
 
     private var currentAppearance: AppAppearance {
         AppAppearance(rawValue: appearanceModeRaw) ?? .automatic
+    }
+}
+
+private struct SnapTradeCredentialsView: View {
+    @ObservedObject var credentialsStore: CredentialsStore
+
+    private var credentials: SnapTradeCredentials? {
+        credentialsStore.credentials?.sanitized
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if let credentials {
+                    CredentialsValueRow(title: "Client ID", value: credentials.clientId)
+                    CredentialsValueRow(title: "Consumer Key", value: credentials.consumerKey)
+                    CredentialsValueRow(title: "User ID", value: credentials.userId)
+                    CredentialsValueRow(title: "User Key", value: credentials.userSecret)
+                } else {
+                    HStack(alignment: .top, spacing: 13) {
+                        Image(systemName: "key.slash")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(BitternTheme.blue)
+                            .frame(width: 38, height: 38)
+                            .background(BitternTheme.blue.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("No Credentials")
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                                .foregroundStyle(BitternTheme.ink)
+
+                            Text("Connect SnapTrade to create saved credentials.")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(BitternTheme.secondaryInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(14)
+                    .bitternPanel()
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 22)
+            .padding(.bottom, 34)
+        }
+        .background(BitternTheme.background.ignoresSafeArea())
+        .navigationTitle("Credentials")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .tint(BitternTheme.blue)
+    }
+}
+
+private struct CredentialsValueRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(BitternTheme.secondaryInk)
+
+            Text(value.isEmpty ? "N/A" : value)
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .foregroundStyle(BitternTheme.ink)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .bitternPanel()
     }
 }
 

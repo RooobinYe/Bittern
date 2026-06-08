@@ -85,6 +85,14 @@ struct SnapTradeClient {
         return response.positions
     }
 
+    func accountBalanceHistory(accountID: String) async throws -> SnapTradeAccountBalanceHistoryDTO {
+        let data = try await request(
+            path: "/accounts/\(accountID)/balanceHistory",
+            queryItems: userQueryItems
+        )
+        return try JSONDecoder().decode(SnapTradeAccountBalanceHistoryDTO.self, from: data)
+    }
+
     func listActivities(accountID: String, types: [String]) async throws -> [SnapTradeActivityDTO] {
         let limit = 1000
         var offset = 0
@@ -392,6 +400,51 @@ struct SnapTradeMoneyDTO: Decodable {
     }
 }
 
+struct SnapTradeAccountBalanceHistoryDTO: Decodable {
+    let history: [SnapTradeAccountBalanceHistoryPointDTO]
+    let currency: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let history = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .history) {
+            self.history = history
+        } else if let data = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .data) {
+            self.history = data
+        } else {
+            self.history = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .results) ?? []
+        }
+        currency = try container.decodeIfPresent(String.self, forKey: .currency)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case history
+        case data
+        case results
+        case currency
+    }
+}
+
+struct SnapTradeAccountBalanceHistoryPointDTO: Decodable {
+    let date: Date?
+    let totalValue: Double?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decodeDateOnlyIfPresent(forKey: .date)
+        if let totalValue = try container.decodeFlexibleDoubleIfPresent(forKey: .totalValue) {
+            self.totalValue = totalValue
+        } else {
+            self.totalValue = try container.decodeFlexibleDoubleIfPresent(forKey: .totalValueSnake)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case totalValue
+        case totalValueSnake = "total_value"
+    }
+}
+
 struct SnapTradePositionsResponseDTO: Decodable {
     let positions: [SnapTradePositionDTO]
 
@@ -599,6 +652,13 @@ private let iso8601WithFractionalFormatter: ISO8601DateFormatter = {
     return formatter
 }()
 
+private let dateOnlyFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+}()
+
 extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key) {
@@ -631,6 +691,22 @@ extension KeyedDecodingContainer {
     func decodeDateIfPresent(forKey key: Key) throws -> Date? {
         guard let value = try? decodeIfPresent(String.self, forKey: key) else {
             return nil
+        }
+
+        if let date = iso8601Formatter.date(from: value) {
+            return date
+        }
+
+        return iso8601WithFractionalFormatter.date(from: value)
+    }
+
+    func decodeDateOnlyIfPresent(forKey key: Key) throws -> Date? {
+        guard let value = try? decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+
+        if let date = dateOnlyFormatter.date(from: value) {
+            return date
         }
 
         if let date = iso8601Formatter.date(from: value) {
