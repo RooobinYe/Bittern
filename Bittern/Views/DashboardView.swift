@@ -858,17 +858,29 @@ private struct AllocationBubble: View {
 
     private let circleSize: CGFloat = 24
 
+    private var isOther: Bool { symbol == "OTHER" }
+
     var body: some View {
         HStack(spacing: 5) {
-            HoldingSymbolIcon(
-                symbol: symbol,
-                color: color,
-                size: circleSize,
-                borderColor: BitternTheme.ink.opacity(0.85),
-                borderWidth: 1
-            )
+            if isOther {
+                Text("⋯")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: circleSize, height: circleSize)
+                    .background(color)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
+            } else {
+                HoldingSymbolIcon(
+                    symbol: symbol,
+                    color: color,
+                    size: circleSize,
+                    borderColor: BitternTheme.ink.opacity(0.85),
+                    borderWidth: 1
+                )
+            }
 
-            Text(PortfolioFormat.percent(percent))
+            Text(PortfolioFormat.percent(percent, fractionDigits: 0))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
@@ -1070,19 +1082,29 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
 
     let minAllocation = total * 0.05
     let visibleHoldings = sortedHoldings.filter { $0.marketValue >= minAllocation }
+    let otherValue = sortedHoldings.filter { $0.marketValue < minAllocation }.reduce(0) { $0 + $1.marketValue }
+
+    var segments: [(symbol: String, value: Double, id: String)] = visibleHoldings.map {
+        ($0.symbol, $0.marketValue, $0.id)
+    }
+    if otherValue > 0 {
+        segments.append(("OTHER", otherValue, "other"))
+    }
+
+    guard !segments.isEmpty else { return [] }
 
     var cursor = -90.0
     let gap = 2.2
-    let shrink = gap / 2 * Double(visibleHoldings.count - 1) / Double(visibleHoldings.count)
+    let shrink = gap / 2 * Double(segments.count - 1) / Double(segments.count)
 
-    return visibleHoldings.enumerated().map { index, holding in
-        let span = holding.marketValue / total * 360
+    return segments.enumerated().map { index, item in
+        let span = item.value / total * 360
         let startAngle = cursor + min(shrink, span * 0.18)
         let endAngle = cursor + span - min(shrink, span * 0.18)
         let segment = DonutSegmentInfo(
-            id: holding.id,
-            symbol: holding.symbol,
-            value: holding.marketValue,
+            id: item.id,
+            symbol: item.symbol,
+            value: item.value,
             total: total,
             startAngle: startAngle,
             endAngle: max(startAngle, endAngle),

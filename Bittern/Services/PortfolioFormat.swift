@@ -52,11 +52,11 @@ enum PortfolioFormat {
         return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
     }
 
-    static func percent(_ value: Double, signed: Bool = false) -> String {
+    static func percent(_ value: Double, signed: Bool = false, fractionDigits: Int = 2) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .percent
-        formatter.maximumFractionDigits = 2
-        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = fractionDigits
+        formatter.minimumFractionDigits = fractionDigits
 
         let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(abs(value) * 100)%"
 
