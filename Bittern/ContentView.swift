@@ -10,6 +10,8 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var credentialsStore: CredentialsStore
     @StateObject private var viewModel: DashboardViewModel
+    @State private var wasInBackground = false
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppSettingKey.appearanceMode) private var appearanceModeRaw = AppAppearance.automatic.rawValue
 
     init() {
@@ -23,6 +25,19 @@ struct ContentView: View {
             .preferredColorScheme(currentAppearance.colorScheme)
             .task {
                 await viewModel.refresh()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .background:
+                    wasInBackground = true
+                case .active where wasInBackground:
+                    wasInBackground = false
+                    Task {
+                        await viewModel.refresh()
+                    }
+                default:
+                    break
+                }
             }
     }
 
