@@ -14,10 +14,12 @@ struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
+        debugLog("loadPortfolio started taskCancelled=\(Task.isCancelled)")
         let snapTrade = SnapTradeClient(credentials: credentials)
         let yahoo = YahooFinanceClient()
 
         let accountSources = try await loadAccountSources(from: snapTrade)
+        debugLog("loadPortfolio accountSources=\(accountSources.count)")
         let accounts = accountSources.map { source in
             let dto = source.account
             return PortfolioAccount(
@@ -34,19 +36,24 @@ struct LivePortfolioRepository: PortfolioRepository {
 
         var positionsByAccount: [(PortfolioAccount, SnapTradePositionDTO)] = []
         for account in accounts {
+            debugLog("loadPortfolio loading positions currentCount=\(positionsByAccount.count)")
             let positions = try await snapTrade.listPositions(accountID: account.id)
             positionsByAccount.append(contentsOf: positions.map { (account, $0) })
+            debugLog("loadPortfolio loaded positions batch=\(positions.count) total=\(positionsByAccount.count)")
         }
 
         let symbols = positionsByAccount.compactMap { _, position in
             position.resolvedSymbol
         }
+        debugLog("loadPortfolio loading quotes symbols=\(symbols.count)")
 
         let quotes = (try? await yahoo.quotes(for: symbols)) ?? [:]
+        debugLog("loadPortfolio loaded quotes=\(quotes.count)")
         let dividendActivitiesByAccount = await loadDividendActivitiesByAccount(
             accounts: accounts,
             snapTrade: snapTrade
         )
+        debugLog("loadPortfolio loaded dividendActivityAccounts=\(dividendActivitiesByAccount.count)")
 
         let holdings = positionsByAccount.compactMap { account, position -> PortfolioHolding? in
             guard let rawSymbol = position.resolvedSymbol?.trimmedNonEmpty else {
@@ -93,6 +100,7 @@ struct LivePortfolioRepository: PortfolioRepository {
             )
         }
 
+        debugLog("loadPortfolio completed accounts=\(accounts.count) holdings=\(holdings.count)")
         return PortfolioSnapshot.make(
             accounts: accounts,
             holdings: holdings,
@@ -139,12 +147,16 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     private func loadAccountSources(from snapTrade: SnapTradeClient) async throws -> [AccountSource] {
+        debugLog("loadAccountSources started taskCancelled=\(Task.isCancelled)")
         do {
             let connections = try await snapTrade.listConnections()
+            debugLog("loadAccountSources connections=\(connections.count)")
             guard !connections.isEmpty else {
-                return try await snapTrade.listAccounts().map {
+                let accounts = try await snapTrade.listAccounts().map {
                     AccountSource(account: $0, connection: nil)
                 }
+                debugLog("loadAccountSources fallback accounts=\(accounts.count)")
+                return accounts
             }
 
             return try await withThrowingTaskGroup(
@@ -163,13 +175,17 @@ struct LivePortfolioRepository: PortfolioRepository {
                 var sources: [AccountSource] = []
                 for try await batch in group {
                     sources.append(contentsOf: batch)
+                    debugLog("loadAccountSources collected batch=\(batch.count) total=\(sources.count)")
                 }
                 return sources
             }
         } catch {
-            return try await snapTrade.listAccounts().map {
+            debugLog("loadAccountSources failed primary path \(debugDescription(for: error)); trying accounts fallback")
+            let accounts = try await snapTrade.listAccounts().map {
                 AccountSource(account: $0, connection: nil)
             }
+            debugLog("loadAccountSources fallback after failure accounts=\(accounts.count)")
+            return accounts
         }
     }
 
@@ -177,6 +193,7 @@ struct LivePortfolioRepository: PortfolioRepository {
         accounts: [PortfolioAccount],
         snapTrade: SnapTradeClient
     ) async -> [String: [SnapTradeActivityDTO]] {
+        debugLog("loadDividendActivities started accounts=\(accounts.count) taskCancelled=\(Task.isCancelled)")
         return await withTaskGroup(
             of: (String, [SnapTradeActivityDTO])?.self,
             returning: [String: [SnapTradeActivityDTO]].self
@@ -201,6 +218,7 @@ struct LivePortfolioRepository: PortfolioRepository {
             for await pair in group {
                 if let (accountID, activities) = pair {
                     result[accountID] = activities
+                    debugLog("loadDividendActivities collected accountActivities=\(activities.count) accountCount=\(result.count)")
                 }
             }
             return result
@@ -234,6 +252,17 @@ struct LivePortfolioRepository: PortfolioRepository {
 
     private func normalized(_ symbol: String) -> String {
         symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[LivePortfolioRepository] \(message)")
+        #endif
+    }
+
+    private func debugDescription(for error: Error) -> String {
+        let nsError = error as NSError
+        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
     }
 }
 

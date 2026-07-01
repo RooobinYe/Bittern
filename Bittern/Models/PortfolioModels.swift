@@ -268,7 +268,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
         case .today:
             dayGainAmount
         case .allTime:
-            allTimeGainAmount
+            totalReturnAmount
         }
     }
 
@@ -277,7 +277,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
         case .today:
             dayGainPercent
         case .allTime:
-            allTimeGainPercent
+            totalReturnPercent
         }
     }
 }

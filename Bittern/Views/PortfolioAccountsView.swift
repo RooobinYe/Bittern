@@ -18,7 +18,6 @@ struct PortfolioAccountsView: View {
     @State private var successMessage: String?
     @State private var isSavingCredentials = false
     @State private var isOpeningPortal = false
-    @State private var isRefreshing = false
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
@@ -104,6 +103,7 @@ struct PortfolioAccountsView: View {
     }
 
     private func save() {
+        debugLog("save tapped")
         Task { await saveCredentials() }
     }
 
@@ -120,10 +120,7 @@ struct PortfolioAccountsView: View {
     }
 
     private func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
         await viewModel.fullRefresh()
-        isRefreshing = false
     }
 
     private func openConnectionPortal() async {
@@ -143,20 +140,31 @@ struct PortfolioAccountsView: View {
     }
 
     private func saveCredentials() async {
-        guard !isSavingCredentials else { return }
+        debugLog(
+            "saveCredentials requested isSaving=\(isSavingCredentials) viewModel.isLoading=\(viewModel.isLoading) taskCancelled=\(Task.isCancelled)"
+        )
+
+        guard !isSavingCredentials else {
+            debugLog("saveCredentials skipped because isSavingCredentials is already true")
+            return
+        }
+
         isSavingCredentials = true
 
         do {
             _ = try await ensureRegisteredCredentials()
+            debugLog("saveCredentials registered credentials; starting refresh")
             await refresh()
             isSavingCredentials = false
             errorMessage = nil
+            debugLog("saveCredentials completed refresh successfully")
             successMessage = "Credentials saved successfully."
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             successMessage = nil
         } catch {
             isSavingCredentials = false
             errorMessage = error.localizedDescription
+            debugLog("saveCredentials failed \(debugDescription(for: error))")
         }
     }
 
@@ -202,6 +210,17 @@ struct PortfolioAccountsView: View {
             character.isLetter || character.isNumber ? character : "-"
         }
         return "bittern-personal-\(String(normalized))"
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[PortfolioAccountsView] \(message)")
+        #endif
+    }
+
+    private func debugDescription(for error: Error) -> String {
+        let nsError = error as NSError
+        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
     }
 }
 
@@ -572,4 +591,3 @@ private struct PortfolioConnectButtonStyle: ButtonStyle {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
-

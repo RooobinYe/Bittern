@@ -213,17 +213,32 @@ struct SnapTradeClient {
             forHTTPHeaderField: "Signature"
         )
 
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
+        let requestID = String(UUID().uuidString.prefix(8))
+        let startedAt = Date()
+        let logPath = redactedLogPath(normalizedPath)
+        debugLog("\(requestID) \(method) \(logPath) started taskCancelled=\(Task.isCancelled)")
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            let duration = durationText(since: startedAt)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                debugLog("\(requestID) \(method) \(logPath) completed without HTTP response bytes=\(data.count) duration=\(duration)")
+                return data
+            }
+
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                debugLog("\(requestID) \(method) \(logPath) failed status=\(httpResponse.statusCode) bytes=\(data.count) duration=\(duration)")
+                let body = String(data: data, encoding: .utf8) ?? ""
+                throw NetworkServiceError.httpStatus(httpResponse.statusCode, body)
+            }
+
+            debugLog("\(requestID) \(method) \(logPath) succeeded status=\(httpResponse.statusCode) bytes=\(data.count) duration=\(duration)")
             return data
+        } catch {
+            debugLog("\(requestID) \(method) \(logPath) failed \(debugDescription(for: error)) duration=\(durationText(since: startedAt))")
+            throw error
         }
-
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw NetworkServiceError.httpStatus(httpResponse.statusCode, body)
-        }
-
-        return data
     }
 
     private func signature(path: String, query: String, content: Any?) throws -> String {
@@ -246,6 +261,31 @@ struct SnapTradeClient {
             URLQueryItem(name: "userId", value: credentials.userId),
             URLQueryItem(name: "userSecret", value: credentials.userSecret)
         ]
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[SnapTradeClient] \(message)")
+        #endif
+    }
+
+    private func debugDescription(for error: Error) -> String {
+        let nsError = error as NSError
+        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
+    }
+
+    private func durationText(since startedAt: Date) -> String {
+        String(format: "%.3fs", Date().timeIntervalSince(startedAt))
+    }
+
+    private func redactedLogPath(_ normalizedPath: String) -> String {
+        var components = normalizedPath.split(separator: "/").map(String.init)
+        for index in components.indices where index > 0 {
+            if components[index - 1] == "accounts" || components[index - 1] == "authorizations" {
+                components[index] = "<id>"
+            }
+        }
+        return "/" + components.joined(separator: "/")
     }
 }
 

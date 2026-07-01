@@ -79,8 +79,16 @@ private final class PortfolioHistoryViewModel: ObservableObject {
     @Published var selectedPoint: PortfolioHistoryPoint?
     @Published private(set) var allPoints: [PortfolioHistoryPoint] = []
     @Published private(set) var currencyCode = "USD"
-    @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+
+    private let reloadRunner = CancelableTaskRunner()
+
+    /// `true` while balance history is being fetched.
+    var isLoading: Bool { reloadRunner.isRunning }
+
+    init() {
+        reloadRunner.onStateChanged = { [weak self] in self?.objectWillChange.send() }
+    }
 
     var latestPoint: PortfolioHistoryPoint? {
         allPoints.last
@@ -91,51 +99,59 @@ private final class PortfolioHistoryViewModel: ObservableObject {
     }
 
     func loadIfNeeded(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot) async {
-        guard allPoints.isEmpty, !isLoading else { return }
+        guard allPoints.isEmpty else { return }
         await reload(credentials: credentials, snapshot: snapshot)
     }
 
     func reload(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot) async {
-        guard let credentials, credentials.isComplete else {
-            allPoints = []
-            errorMessage = "Connect your SnapTrade account before opening portfolio history."
-            return
-        }
+        await reloadRunner.run { [weak self] gen in
+            guard let self else { return }
 
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        do {
-            let client = SnapTradeClient(credentials: credentials)
-            let accounts = try await historyAccounts(client: client, snapshot: snapshot)
-            guard !accounts.isEmpty else {
-                throw PortfolioHistoryError.noAccounts
+            guard let credentials, credentials.isComplete else {
+                allPoints = []
+                errorMessage = "Connect your SnapTrade account before opening portfolio history."
+                return
             }
 
-            var histories: [SnapTradeAccountBalanceHistoryDTO] = []
-            for account in accounts {
-                histories.append(try await client.accountBalanceHistory(accountID: account.id))
-            }
+            errorMessage = nil
 
-            let currencies = Set(
-                histories.compactMap { history in
-                    history.currency?
-                        .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                        .nilIfEmpty
+            do {
+                let client = SnapTradeClient(credentials: credentials)
+                let accounts = try await historyAccounts(client: client, snapshot: snapshot)
+                guard !accounts.isEmpty else {
+                    throw PortfolioHistoryError.noAccounts
                 }
-            )
-            currencyCode = currencies.count == 1
-                ? (currencies.first ?? snapshot.currencyCode)
-                : snapshot.currencyCode
 
-            allPoints = aggregate(histories: histories)
-            if allPoints.isEmpty {
-                throw PortfolioHistoryError.emptyHistory
+                var histories: [SnapTradeAccountBalanceHistoryDTO] = []
+                for account in accounts {
+                    // Bail out early when a newer reload has started.
+                    guard gen == reloadRunner.generation else { return }
+                    histories.append(try await client.accountBalanceHistory(accountID: account.id))
+                }
+
+                // Discard stale results.
+                guard gen == reloadRunner.generation else { return }
+
+                let currencies = Set(
+                    histories.compactMap { history in
+                        history.currency?
+                            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                            .nilIfEmpty
+                    }
+                )
+                currencyCode = currencies.count == 1
+                    ? (currencies.first ?? snapshot.currencyCode)
+                    : snapshot.currencyCode
+
+                allPoints = aggregate(histories: histories)
+                if allPoints.isEmpty {
+                    throw PortfolioHistoryError.emptyHistory
+                }
+            } catch {
+                guard gen == reloadRunner.generation else { return }
+                allPoints = []
+                errorMessage = error.localizedDescription
             }
-        } catch {
-            allPoints = []
-            errorMessage = error.localizedDescription
         }
     }
 

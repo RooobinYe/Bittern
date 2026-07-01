@@ -16,6 +16,9 @@ struct ContentView: View {
 
     init() {
         let credentialsStore = CredentialsStore()
+        #if DEBUG
+        DebugSnapTradeCredentialsInjector.injectIfConfigured(into: credentialsStore)
+        #endif
         _credentialsStore = StateObject(wrappedValue: credentialsStore)
         _viewModel = StateObject(wrappedValue: DashboardViewModel(credentialsStore: credentialsStore))
     }
