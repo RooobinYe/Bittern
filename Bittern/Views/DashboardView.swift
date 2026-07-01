@@ -154,16 +154,12 @@ struct DashboardView: View {
             set: { _ in }
         )
 
-        let content = DashboardContent(
+        let content = PortfolioShareScreenshotContent(
             viewModel: viewModel,
             isPrivacyEnabled: privacyBinding,
-            minPriceThreshold: minPriceThreshold
+            minPriceThreshold: minPriceThreshold,
+            width: screenshotWidth
         )
-        .padding(.horizontal, 24)
-        .padding(.bottom, 34)
-        .frame(width: screenshotWidth, alignment: .top)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(BitternTheme.background)
         .environment(\.colorScheme, screenshotColorScheme)
         .environment(\.isRenderingScreenshot, true)
 
@@ -229,16 +225,12 @@ struct DashboardView: View {
         let screenshotColorScheme = colorScheme
 
         guard let image = ScreenshotRenderer.render(
-                  DashboardContent(
+                  PortfolioShareScreenshotContent(
                       viewModel: viewModel,
                       isPrivacyEnabled: .constant(false),
-                      minPriceThreshold: 0
+                      minPriceThreshold: 0,
+                      width: screenshotWidth
                   )
-                  .padding(.horizontal, 24)
-                  .padding(.bottom, 34)
-                  .frame(width: screenshotWidth, alignment: .top)
-                  .fixedSize(horizontal: false, vertical: true)
-                  .background(BitternTheme.background)
                   .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
                   width: screenshotWidth,
@@ -278,39 +270,86 @@ private extension ColorScheme {
 private struct PortfolioTopBar: View {
     let openSettings: () -> Void
     let openShare: () -> Void
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     var body: some View {
         ZStack {
             HStack {
-                Button(action: openSettings) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(uiColor: .tertiarySystemFill))
-                            .frame(width: 42, height: 42)
-
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(BitternTheme.blue)
-                            .offset(x: -1, y: -1)
+                if isForScreenshot {
+                    settingsIcon
+                } else {
+                    Button(action: openSettings) {
+                        settingsIcon
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("SnapTrade settings")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("SnapTrade settings")
 
                 Spacer()
 
-                Button(action: openShare) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(BitternTheme.secondaryInk)
+                if isForScreenshot {
+                    shareIcon
+                } else {
+                    Button(action: openShare) {
+                        shareIcon
+                    }
+                    .accessibilityLabel("Share portfolio")
                 }
-                .accessibilityLabel("Share portfolio")
             }
 
             Text("Portfolio")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(BitternTheme.ink)
         }
+    }
+
+    private var settingsIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color(uiColor: .tertiarySystemFill))
+                .frame(width: 42, height: 42)
+
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(BitternTheme.blue)
+                .offset(x: -1, y: -1)
+        }
+    }
+
+    private var shareIcon: some View {
+        Image(systemName: "square.and.arrow.up")
+            .font(.system(size: 21, weight: .semibold))
+            .foregroundStyle(BitternTheme.secondaryInk)
+    }
+}
+
+// MARK: - Share Screenshot Content
+
+private struct PortfolioShareScreenshotContent: View {
+    @ObservedObject var viewModel: DashboardViewModel
+    @Binding var isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+    let width: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PortfolioTopBar(openSettings: {}, openShare: {})
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 18)
+                .background(BitternTheme.background)
+
+            DashboardContent(
+                viewModel: viewModel,
+                isPrivacyEnabled: $isPrivacyEnabled,
+                minPriceThreshold: minPriceThreshold
+            )
+            .padding(.horizontal, 24)
+            .padding(.bottom, 34)
+        }
+        .frame(width: width, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(BitternTheme.background)
     }
 }
 
@@ -370,15 +409,28 @@ private struct AccountFilterBar: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                ScrollView(.horizontal, showsIndicators: false) {
+                if isForScreenshot {
                     HStack(spacing: 20) {
-                        if isForScreenshot {
+                        AccountTabLabel(
+                            title: "All",
+                            systemImage: nil,
+                            isSelected: selectedProviderName == nil
+                        )
+
+                        ForEach(providerNames, id: \.self) { providerName in
                             AccountTabLabel(
-                                title: "All",
+                                title: providerName,
                                 systemImage: nil,
-                                isSelected: selectedProviderName == nil
+                                isSelected: selectedProviderName == providerName
                             )
-                        } else {
+                        }
+                    }
+                    .padding(.trailing, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 20) {
                             AccountTabButton(
                                 title: "All",
                                 systemImage: nil,
@@ -388,16 +440,8 @@ private struct AccountFilterBar: View {
                                     selectedProviderName = nil
                                 }
                             }
-                        }
 
-                        ForEach(providerNames, id: \.self) { providerName in
-                            if isForScreenshot {
-                                AccountTabLabel(
-                                    title: providerName,
-                                    systemImage: nil,
-                                    isSelected: selectedProviderName == providerName
-                                )
-                            } else {
+                            ForEach(providerNames, id: \.self) { providerName in
                                 AccountTabButton(
                                     title: providerName,
                                     systemImage: nil,
@@ -409,8 +453,8 @@ private struct AccountFilterBar: View {
                                 }
                             }
                         }
+                        .padding(.trailing, 4)
                     }
-                    .padding(.trailing, 4)
                 }
 
                 if isForScreenshot {
@@ -487,9 +531,6 @@ private struct DonutPortfolioChart: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let totalStr = isPrivacyEnabled
-                ? hiddenMoney(currencyCode: snapshot.currencyCode)
-                : PortfolioFormat.wholeMoney(snapshot.totalAssets, currencyCode: snapshot.currencyCode)
             let side = min(proxy.size.width * 0.7, proxy.size.width - 80)
             let center = CGPoint(x: proxy.size.width / 2, y: side / 2 + 20)
             let labelRadius = side * 0.64
