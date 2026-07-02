@@ -983,41 +983,49 @@ private struct HoldingListRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            SymbolAvatar(symbol: holding.symbol, color: color)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                SymbolAvatar(symbol: holding.symbol, color: color)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(holding.symbol)
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(holding.symbol)
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(BitternTheme.ink)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
 
-                Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(BitternTheme.secondaryInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.64)
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 7) {
+                    Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(BitternTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.64)
+
+                    Text(performanceText)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.56)
+                }
+                .frame(width: 118, alignment: .trailing)
             }
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
 
-            Spacer(minLength: 10)
-
-            VStack(alignment: .trailing, spacing: 7) {
-                Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-
-                Text(performanceText)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.58)
-            }
+            Divider()
+                .overlay(BitternTheme.softLine.opacity(0.7))
         }
-        .padding(.vertical, 15)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
     private var performanceText: String {
@@ -1036,7 +1044,7 @@ private struct SymbolAvatar: View {
     let color: Color
 
     var body: some View {
-        HoldingSymbolIcon(symbol: symbol, color: color, size: 46)
+        HoldingSymbolIcon(symbol: symbol, color: color, size: 40)
     }
 }
 
