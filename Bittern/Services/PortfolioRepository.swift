@@ -65,15 +65,11 @@ struct LivePortfolioRepository: PortfolioRepository {
 
             let symbol = rawSymbol.uppercased()
             let quote = quotes[symbol]
-            guard let currentPrice = quote?.regularMarketPrice ?? position.price,
-                  currentPrice > 0
-            else {
-                return nil
-            }
+            let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
             let previousClose = quote?.regularMarketPreviousClose
             let averageCost = position.resolvedAverageCost
-            let currencyCode = quote?.currency ?? position.resolvedCurrency ?? account.currencyCode
-            let name = quote?.displayName ?? position.resolvedName ?? symbol
+            let currencyCode = position.resolvedCurrency ?? account.currencyCode
+            let name = position.resolvedName ?? symbol
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
                 .joined(separator: "-")
             let dividendsReceived = dividendActivitiesByAccount[account.id].map {
@@ -115,25 +111,22 @@ struct LivePortfolioRepository: PortfolioRepository {
 
         let updatedHoldings = snapshot.holdings.map { holding -> PortfolioHolding in
             let symbol = holding.symbol.uppercased()
-            guard let quote = quotes[symbol] else { return holding }
-
-            guard let currentPrice = quote.regularMarketPrice, currentPrice > 0 else {
-                return holding
-            }
-            let previousClose = quote.regularMarketPreviousClose
+            let quote = quotes[symbol]
+            let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
+            let previousClose = quote?.regularMarketPreviousClose
 
             return PortfolioHolding(
                 id: holding.id,
                 accountID: holding.accountID,
                 symbol: holding.symbol,
-                name: quote.displayName ?? holding.name,
+                name: holding.name,
                 accountName: holding.accountName,
                 quantity: holding.quantity,
                 quantityDisplay: holding.quantityDisplay,
                 averageCost: holding.averageCost,
                 currentPrice: currentPrice,
                 previousClose: previousClose,
-                currencyCode: quote.currency ?? holding.currencyCode,
+                currencyCode: holding.currencyCode,
                 dividendsReceived: holding.dividendsReceived
             )
         }

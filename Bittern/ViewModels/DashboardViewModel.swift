@@ -67,7 +67,7 @@ final class DashboardViewModel: ObservableObject {
             case .percent:
                 isOrdered(lhs.performancePercent(for: performanceMode), before: rhs.performancePercent(for: performanceMode), ascending: false)
             case .marketValue:
-                lhs.marketValue > rhs.marketValue
+                isOrdered(lhs.marketValue, before: rhs.marketValue, ascending: false)
             }
         }
     }

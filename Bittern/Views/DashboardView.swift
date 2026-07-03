@@ -515,7 +515,7 @@ private struct DonutPortfolioChart: View {
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     private var filteredHoldings: [PortfolioHolding] {
-        snapshot.holdings.filter { $0.marketValue >= minPriceThreshold }
+        snapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
     }
 
     private var performanceAmount: Double? {
@@ -527,7 +527,8 @@ private struct DonutPortfolioChart: View {
     }
 
     private var segments: [DonutSegmentInfo] {
-        makeSegments(from: filteredHoldings)
+        guard snapshot.totalMarketValue != nil else { return [] }
+        return makeSegments(from: filteredHoldings)
     }
 
     var body: some View {
@@ -553,7 +554,7 @@ private struct DonutPortfolioChart: View {
                 }
 
                 VStack(spacing: 7) {
-                    Text(isPrivacyEnabled ? hiddenMoney(currencyCode: snapshot.currencyCode) : PortfolioFormat.wholeMoney(snapshot.totalAssets, currencyCode: snapshot.currencyCode))
+                    Text(totalAssetsText)
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
@@ -601,13 +602,23 @@ private struct DonutPortfolioChart: View {
     }
 
     private var performanceText: String {
+        guard let performanceAmount, let performancePercent else { return "N/A" }
+
         if isPrivacyEnabled {
-            let sign = performanceAmount.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
+            let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
             return "\(sign)\(hiddenMoney(currencyCode: snapshot.currencyCode))"
         }
 
-        guard let performanceAmount, let performancePercent else { return "N/A" }
         return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
+    }
+
+    private var totalAssetsText: String {
+        if isPrivacyEnabled {
+            return snapshot.totalAssets == nil ? "N/A" : hiddenMoney(currencyCode: snapshot.currencyCode)
+        }
+
+        guard let totalAssets = snapshot.totalAssets else { return "N/A" }
+        return PortfolioFormat.wholeMoney(totalAssets, currencyCode: snapshot.currencyCode)
     }
 }
 
@@ -619,7 +630,7 @@ private struct HoldingsSection: View {
     let minPriceThreshold: Double
 
     private var filteredHoldings: [PortfolioHolding] {
-        viewModel.sortedHoldings.filter { $0.marketValue >= minPriceThreshold }
+        viewModel.sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
     }
 
     private var accountProviderLookup: [String: String] {
@@ -627,7 +638,7 @@ private struct HoldingsSection: View {
     }
 
     private var holdingColorLookup: [String: Color] {
-        makeHoldingColorLookup(from: viewModel.visibleSnapshot.holdings.filter { $0.marketValue >= minPriceThreshold })
+        makeHoldingColorLookup(from: viewModel.visibleSnapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? false })
     }
 
     var body: some View {
@@ -957,7 +968,7 @@ private struct HoldingsSortLabel: View {
 
 private struct HoldingListRow: View {
     let holding: PortfolioHolding
-    let totalMarketValue: Double
+    let totalMarketValue: Double?
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let providerName: String
@@ -974,8 +985,15 @@ private struct HoldingListRow: View {
             : PortfolioFormat.shares(holding.quantity)
     }
 
-    private var allocation: Double {
-        totalMarketValue == 0 ? 0 : holding.marketValue / totalMarketValue
+    private var allocation: Double? {
+        guard let marketValue = holding.marketValue,
+              let totalMarketValue,
+              totalMarketValue > 0
+        else {
+            return nil
+        }
+
+        return marketValue / totalMarketValue
     }
 
     private var performanceAmount: Double? {
@@ -1001,7 +1019,7 @@ private struct HoldingListRow: View {
 
                         Spacer(minLength: 8)
 
-                        Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
+                        Text(marketValueText)
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
@@ -1009,7 +1027,7 @@ private struct HoldingListRow: View {
                     }
 
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
+                        Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(BitternTheme.secondaryInk)
                             .lineLimit(1)
@@ -1038,13 +1056,28 @@ private struct HoldingListRow: View {
     }
 
     private var performanceText: String {
+        guard let performanceAmount, let performancePercent else { return "N/A" }
+
         if isPrivacyEnabled {
-            let sign = performanceAmount.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
+            let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
             return "\(sign)\(hiddenMoney(currencyCode: holding.currencyCode))"
         }
 
-        guard let performanceAmount, let performancePercent else { return "N/A" }
         return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
+    }
+
+    private var marketValueText: String {
+        if isPrivacyEnabled {
+            return holding.marketValue == nil ? "N/A" : hiddenMoney(currencyCode: holding.currencyCode)
+        }
+
+        guard let marketValue = holding.marketValue else { return "N/A" }
+        return PortfolioFormat.wholeMoney(marketValue, currencyCode: holding.currencyCode)
+    }
+
+    private var allocationText: String {
+        guard let allocation else { return "N/A" }
+        return PortfolioFormat.percent(allocation)
     }
 }
 
@@ -1135,15 +1168,15 @@ private struct EmptyHoldingsView: View {
 private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
     let sortedHoldings = sortedAllocationHoldings(from: holdings)
 
-    let total = sortedHoldings.reduce(0) { $0 + $1.marketValue }
+    let total = sortedHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
     guard total > 0 else { return [] }
 
     let minAllocation = total * 0.05
-    let visibleHoldings = sortedHoldings.filter { $0.marketValue >= minAllocation }
-    let otherValue = sortedHoldings.filter { $0.marketValue < minAllocation }.reduce(0) { $0 + $1.marketValue }
+    let visibleHoldings = sortedHoldings.filter { ($0.marketValue ?? 0) >= minAllocation }
+    let otherValue = sortedHoldings.filter { ($0.marketValue ?? 0) < minAllocation }.reduce(0) { $0 + ($1.marketValue ?? 0) }
 
     var segments: [(symbol: String, value: Double, id: String)] = visibleHoldings.map {
-        ($0.symbol, $0.marketValue, $0.id)
+        ($0.symbol, $0.marketValue ?? 0, $0.id)
     }
     if otherValue > 0 {
         segments.append(("OTHER", otherValue, "other"))
@@ -1183,10 +1216,10 @@ private func makeHoldingColorLookup(from holdings: [PortfolioHolding]) -> [Strin
 
 private func sortedAllocationHoldings(from holdings: [PortfolioHolding]) -> [PortfolioHolding] {
     holdings
-        .filter { $0.marketValue > 0 }
+        .filter { ($0.marketValue ?? 0) > 0 }
         .sorted { lhs, rhs in
             if lhs.marketValue != rhs.marketValue {
-                return lhs.marketValue > rhs.marketValue
+                return (lhs.marketValue ?? 0) > (rhs.marketValue ?? 0)
             }
 
             if lhs.symbol != rhs.symbol {

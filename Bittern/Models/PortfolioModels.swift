@@ -223,13 +223,14 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     let quantity: Double
     let quantityDisplay: String?
     let averageCost: Double?
-    let currentPrice: Double
+    let currentPrice: Double?
     let previousClose: Double?
     let currencyCode: String
     let dividendsReceived: Double?
 
-    var marketValue: Double {
-        quantity * currentPrice
+    var marketValue: Double? {
+        guard let currentPrice else { return nil }
+        return quantity * currentPrice
     }
 
     var costBasis: Double? {
@@ -238,17 +239,17 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     }
 
     var dayGainAmount: Double? {
-        guard let previousClose, previousClose > 0 else { return nil }
+        guard let currentPrice, let previousClose, previousClose > 0 else { return nil }
         return quantity * (currentPrice - previousClose)
     }
 
     var dayGainPercent: Double? {
-        guard let previousClose, previousClose > 0 else { return nil }
+        guard let currentPrice, let previousClose, previousClose > 0 else { return nil }
         return (currentPrice - previousClose) / abs(previousClose)
     }
 
     var allTimeGainAmount: Double? {
-        guard let costBasis else { return nil }
+        guard let marketValue, let costBasis else { return nil }
         return marketValue - costBasis
     }
 
@@ -294,8 +295,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
 struct PortfolioSnapshot: Codable {
     let accounts: [PortfolioAccount]
     let holdings: [PortfolioHolding]
-    let totalAssets: Double
-    let totalMarketValue: Double
+    let totalAssets: Double?
+    let totalMarketValue: Double?
     let dayGainAmount: Double?
     let dayGainPercent: Double?
     let allTimeGainAmount: Double?
@@ -312,6 +313,7 @@ struct PortfolioSnapshot: Codable {
         isDemo: Bool = false
     ) -> PortfolioSnapshot {
         var totalMarketValue: Double = 0
+        var hasCompleteMarketValue = true
         var hasCompleteCostBasis = true
         var totalCostBasis: Double = 0
         var hasCompleteDayGain = true
@@ -319,7 +321,11 @@ struct PortfolioSnapshot: Codable {
         var currencyCodes: Set<String> = []
 
         for h in holdings {
-            totalMarketValue += h.marketValue
+            if let mv = h.marketValue {
+                totalMarketValue += mv
+            } else {
+                hasCompleteMarketValue = false
+            }
             if let cb = h.costBasis {
                 totalCostBasis += cb
             } else {
@@ -336,12 +342,13 @@ struct PortfolioSnapshot: Codable {
             currencyCodes.insert(a.currencyCode)
         }
 
-        let dayGainAmount = hasCompleteDayGain ? totalDayGain : nil
+        let totalMarketValueOrNil = hasCompleteMarketValue ? totalMarketValue : nil
+        let dayGainAmount = hasCompleteMarketValue && hasCompleteDayGain ? totalDayGain : nil
         let dayGainPercent = dayGainAmount.flatMap { amount in
             let previousMarketValue = totalMarketValue - amount
             return previousMarketValue == 0 ? 0 : amount / abs(previousMarketValue)
         }
-        let allTimeGainAmount = hasCompleteCostBasis ? totalMarketValue - totalCostBasis : nil
+        let allTimeGainAmount = hasCompleteMarketValue && hasCompleteCostBasis ? totalMarketValue - totalCostBasis : nil
         let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
             totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
         }
@@ -350,8 +357,8 @@ struct PortfolioSnapshot: Codable {
         return PortfolioSnapshot(
             accounts: accounts,
             holdings: holdings,
-            totalAssets: totalMarketValue,
-            totalMarketValue: totalMarketValue,
+            totalAssets: totalMarketValueOrNil,
+            totalMarketValue: totalMarketValueOrNil,
             dayGainAmount: dayGainAmount,
             dayGainPercent: dayGainPercent,
             allTimeGainAmount: allTimeGainAmount,
