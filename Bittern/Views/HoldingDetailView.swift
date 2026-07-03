@@ -165,8 +165,8 @@ private struct HoldingAssetHeader: View {
     let selectedPoint: HoldingPricePoint?
     let isPrivacyEnabled: Bool
 
-    private var displayPoint: HoldingPricePoint {
-        selectedPoint ?? series.last ?? HoldingPricePoint(date: Date(), price: holding.currentPrice)
+    private var displayPoint: HoldingPricePoint? {
+        selectedPoint ?? series.last ?? holding.currentPrice.map { HoldingPricePoint(date: Date(), price: $0) }
     }
 
     private var basePrice: Double? {
@@ -177,7 +177,7 @@ private struct HoldingAssetHeader: View {
     }
 
     private var priceDelta: Double? {
-        guard let basePrice else { return nil }
+        guard let displayPoint, let basePrice else { return nil }
         return displayPoint.price - basePrice
     }
 
@@ -198,7 +198,7 @@ private struct HoldingAssetHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(isPrivacyEnabled ? hiddenDetailMoney(currencyCode: holding.currencyCode) : PortfolioFormat.price(displayPoint.price, currencyCode: holding.currencyCode))
+                    Text(priceText)
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
@@ -231,7 +231,7 @@ private struct HoldingAssetHeader: View {
                         .background(BitternTheme.performanceColor(priceDelta).opacity(0.18))
                         .clipShape(Capsule())
 
-                    Text("· \(selectedPoint == nil ? range.summaryLabel : formattedSelectionDate(displayPoint.date, range: range))")
+                    Text("· \(selectionLabel)")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .lineLimit(1)
@@ -251,7 +251,7 @@ private struct HoldingAssetHeader: View {
     private var changeAmountText: String {
         if isPrivacyEnabled {
             guard let priceDelta else {
-                return hiddenDetailMoney(currencyCode: holding.currencyCode)
+                return "N/A"
             }
 
             if priceDelta > 0 {
@@ -272,6 +272,23 @@ private struct HoldingAssetHeader: View {
     private var priceDeltaPercentText: String {
         guard let priceDeltaPercent else { return "N/A" }
         return PortfolioFormat.percent(priceDeltaPercent, signed: true)
+    }
+
+    private var priceText: String {
+        if isPrivacyEnabled {
+            return displayPoint == nil ? "N/A" : hiddenDetailMoney(currencyCode: holding.currencyCode)
+        }
+
+        guard let displayPoint else { return "N/A" }
+        return PortfolioFormat.price(displayPoint.price, currencyCode: holding.currencyCode)
+    }
+
+    private var selectionLabel: String {
+        if selectedPoint != nil, let displayPoint {
+            return formattedSelectionDate(displayPoint.date, range: range)
+        }
+
+        return range.summaryLabel
     }
 }
 
@@ -563,9 +580,15 @@ private struct HoldingInfoSection: View {
     let providerName: String
     let isPrivacyEnabled: Bool
 
-    private var allocation: Double {
-        guard snapshot.totalMarketValue > 0 else { return 0 }
-        return holding.marketValue / snapshot.totalMarketValue
+    private var allocation: Double? {
+        guard let holdingMarketValue = holding.marketValue,
+              let totalMarketValue = snapshot.totalMarketValue,
+              totalMarketValue > 0
+        else {
+            return nil
+        }
+
+        return holdingMarketValue / totalMarketValue
     }
 
     private var unitLabel: String {
@@ -634,7 +657,7 @@ private struct HoldingInfoSection: View {
 
                 Spacer(minLength: 8)
 
-                Text("\(PortfolioFormat.percent(allocation)) of portfolio")
+                Text(allocationText)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -648,7 +671,7 @@ private struct HoldingInfoSection: View {
             VStack(spacing: 0) {
                 HoldingInfoRow(
                     title: "Total",
-                    value: isPrivacyEnabled ? hiddenDetailMoney(currencyCode: holding.currencyCode) : PortfolioFormat.money(holding.marketValue, currencyCode: holding.currencyCode)
+                    value: totalText
                 )
 
                 Divider().overlay(BitternTheme.softLine)
@@ -674,6 +697,20 @@ private struct HoldingInfoSection: View {
             }
             .bitternPanel()
         }
+    }
+
+    private var allocationText: String {
+        guard let allocation else { return "N/A of portfolio" }
+        return "\(PortfolioFormat.percent(allocation)) of portfolio"
+    }
+
+    private var totalText: String {
+        if isPrivacyEnabled {
+            return holding.marketValue == nil ? "N/A" : hiddenDetailMoney(currencyCode: holding.currencyCode)
+        }
+
+        guard let marketValue = holding.marketValue else { return "N/A" }
+        return PortfolioFormat.money(marketValue, currencyCode: holding.currencyCode)
     }
 }
 

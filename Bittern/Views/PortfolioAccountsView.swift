@@ -85,9 +85,12 @@ struct PortfolioAccountsView: View {
         return groupedAccounts.map { (name, providerAccounts) in
             let accountIDs = Set(providerAccounts.map(\.id))
             let providerHoldings = holdings
-                .filter { accountIDs.contains($0.accountID) && $0.marketValue >= minPriceThreshold }
-                .sorted { $0.marketValue > $1.marketValue }
-            let totalMarketValue = providerHoldings.reduce(0) { $0 + $1.marketValue }
+                .filter { accountIDs.contains($0.accountID) && ($0.marketValue.map { $0 >= minPriceThreshold } ?? true) }
+                .sorted { ($0.marketValue ?? -Double.infinity) > ($1.marketValue ?? -Double.infinity) }
+            let hasCompleteMarketValue = providerHoldings.allSatisfy { $0.marketValue != nil }
+            let totalMarketValue = hasCompleteMarketValue
+                ? providerHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
+                : nil
 
             return PortfolioProviderGroup(
                 id: name,
@@ -99,7 +102,7 @@ struct PortfolioAccountsView: View {
                 holdings: providerHoldings
             )
         }
-        .sorted { $0.totalMarketValue > $1.totalMarketValue }
+        .sorted { ($0.totalMarketValue ?? -Double.infinity) > ($1.totalMarketValue ?? -Double.infinity) }
     }
 
     private func save() {
@@ -241,7 +244,7 @@ private struct PortfolioProviderGroup: Identifiable {
     let logoURL: URL?
     let isDisabled: Bool
     let accountCount: Int
-    let totalMarketValue: Double
+    let totalMarketValue: Double?
     let holdings: [PortfolioHolding]
 }
 
@@ -464,7 +467,7 @@ private struct ProviderHoldingRow: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 5) {
-                Text(PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
+                Text(holding.marketValue.map { PortfolioFormat.wholeMoney($0, currencyCode: holding.currencyCode) } ?? "N/A")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
