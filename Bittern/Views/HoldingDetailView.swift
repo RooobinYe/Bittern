@@ -66,6 +66,9 @@ struct HoldingDetailView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 34)
                 }
+                .refreshable {
+                    await detailModel.refreshSelectedRange()
+                }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -101,11 +104,26 @@ private final class HoldingDetailViewModel: ObservableObject {
 
     func loadSelectedRangeIfNeeded() async {
         let range = selectedRange
-        guard priceSeriesByRange[range] == nil else { return }
+        guard priceSeriesByRange[range] == nil else {
+            isLoading = false
+            return
+        }
 
-        isLoading = true
+        await loadSelectedRange(range, showsLoading: true)
+    }
+
+    func refreshSelectedRange() async {
+        let range = selectedRange
+        selectedPoint = nil
+        await loadSelectedRange(range, showsLoading: priceSeriesByRange[range] == nil)
+    }
+
+    private func loadSelectedRange(_ range: HoldingChartRange, showsLoading: Bool) async {
+        if showsLoading {
+            isLoading = true
+        }
         defer {
-            if selectedRange == range {
+            if showsLoading && selectedRange == range {
                 isLoading = false
             }
         }
@@ -210,34 +228,20 @@ private struct HoldingAssetHeader: View {
                         .lineLimit(1)
                 }
 
-                HStack(spacing: 9) {
-                    Text(changeAmountText)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(BitternTheme.performanceColor(priceDelta))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.42)
-                        .allowsTightening(true)
-                        .layoutPriority(2)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 9) {
+                        changeAmountLabel
+                            .layoutPriority(1)
+                        changePercentLabel
+                            .layoutPriority(1)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
 
-                    Text(priceDeltaPercentText)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(BitternTheme.performanceColor(priceDelta))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.42)
-                        .allowsTightening(true)
-                        .layoutPriority(2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(BitternTheme.performanceColor(priceDelta).opacity(0.18))
-                        .clipShape(Capsule())
-
-                    Text("· \(selectionLabel)")
+                    Text(selectionLabel)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.42)
-                        .allowsTightening(true)
-                        .layoutPriority(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -246,6 +250,28 @@ private struct HoldingAssetHeader: View {
             HoldingDetailAvatar(symbol: holding.symbol, size: 84)
                 .accessibilityLabel(holding.symbol)
         }
+    }
+
+    private var changeAmountLabel: some View {
+        Text(changeAmountText)
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(BitternTheme.performanceColor(priceDelta))
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .allowsTightening(true)
+    }
+
+    private var changePercentLabel: some View {
+        Text(priceDeltaPercentText)
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(BitternTheme.performanceColor(priceDelta))
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .allowsTightening(true)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(BitternTheme.performanceColor(priceDelta).opacity(0.18))
+            .clipShape(Capsule())
     }
 
     private var changeAmountText: String {
