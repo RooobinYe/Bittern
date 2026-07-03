@@ -49,6 +49,7 @@ struct HoldingDetailView: View {
 
                         HoldingChartSection(
                             series: detailModel.visibleSeries,
+                            previousClose: holding.previousClose,
                             currencyCode: holding.currencyCode,
                             range: $detailModel.selectedRange,
                             selectedPoint: $detailModel.selectedPoint,
@@ -112,26 +113,14 @@ private final class HoldingDetailViewModel: ObservableObject {
         do {
             let history = try await yahooClient.priceHistory(for: holding.symbol, range: range)
             guard !Task.isCancelled else { return }
-            priceSeriesByRange[range] = normalized(history, currentPrice: holding.currentPrice)
+            priceSeriesByRange[range] = normalized(history)
         } catch {
             priceSeriesByRange[range] = []
         }
     }
 
-    private func normalized(_ points: [HoldingPricePoint], currentPrice: Double) -> [HoldingPricePoint] {
-        let sorted = points.sorted { $0.date < $1.date }
-        guard sorted.count >= 2 else { return sorted }
-
-        let lastPoint = sorted[sorted.count - 1]
-        guard currentPrice > 0,
-              abs(lastPoint.price - currentPrice) / max(abs(currentPrice), 0.01) > 0.002
-        else {
-            return sorted
-        }
-
-        return sorted + [
-            HoldingPricePoint(date: max(Date(), lastPoint.date.addingTimeInterval(1)), price: currentPrice)
-        ]
+    private func normalized(_ points: [HoldingPricePoint]) -> [HoldingPricePoint] {
+        points.sorted { $0.date < $1.date }
     }
 
 }
@@ -181,7 +170,10 @@ private struct HoldingAssetHeader: View {
     }
 
     private var basePrice: Double? {
-        series.first?.price ?? holding.previousClose
+        range.detailChangeBasePrice(
+            previousClose: holding.previousClose,
+            seriesFirstPrice: series.first?.price
+        )
     }
 
     private var priceDelta: Double? {
@@ -312,17 +304,25 @@ private struct HoldingDetailAvatar: View {
 
 private struct HoldingChartSection: View {
     let series: [HoldingPricePoint]
+    let previousClose: Double?
     let currencyCode: String
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
 
+    private var basePrice: Double? {
+        range.detailChangeBasePrice(
+            previousClose: previousClose,
+            seriesFirstPrice: series.first?.price
+        )
+    }
+
     private var lineColor: Color {
-        guard let first = series.first?.price, let last = series.last?.price else {
+        guard let basePrice, let last = series.last?.price else {
             return BitternTheme.secondaryInk
         }
 
-        return BitternTheme.performanceColor(last - first)
+        return BitternTheme.performanceColor(last - basePrice)
     }
 
     var body: some View {
@@ -343,7 +343,7 @@ private struct HoldingChartSection: View {
                 } else {
                     HoldingPriceChart(
                         points: series,
-                        basePrice: series.first?.price,
+                        basePrice: basePrice,
                         currencyCode: currencyCode,
                         lineColor: lineColor,
                         selectedPoint: $selectedPoint
@@ -390,7 +390,10 @@ private struct HoldingPriceChart: View {
     @Binding var selectedPoint: HoldingPricePoint?
 
     private var precomputedMinMax: (min: Double, max: Double) {
-        let prices = points.map(\.price)
+        var prices = points.map(\.price)
+        if let basePrice {
+            prices.append(basePrice)
+        }
         guard let minValue = prices.min(),
               let maxValue = prices.max()
         else {

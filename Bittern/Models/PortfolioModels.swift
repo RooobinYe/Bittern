@@ -116,6 +116,15 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
             "Max"
         }
     }
+
+    func detailChangeBasePrice(previousClose: Double?, seriesFirstPrice: Double?) -> Double? {
+        switch self {
+        case .oneDay:
+            return previousClose
+        case .fiveDays, .threeMonths, .oneYear, .fiveYears, .max:
+            return seriesFirstPrice
+        }
+    }
 }
 
 struct HoldingPricePoint: Identifiable, Hashable {

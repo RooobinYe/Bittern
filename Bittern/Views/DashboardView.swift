@@ -384,6 +384,7 @@ private struct DashboardContent: View {
                 isPrivacyEnabled: isPrivacyEnabled,
                 minPriceThreshold: minPriceThreshold
             )
+            .padding(.horizontal, -8)
         }
     }
 }
@@ -678,20 +679,21 @@ private struct HoldingsList: View {
     var body: some View {
         if isForScreenshot {
             VStack(spacing: 0) {
-                ForEach(filteredHoldings) { holding in
+                ForEach(Array(filteredHoldings.enumerated()), id: \.element.id) { index, holding in
                     HoldingListRow(
                         holding: holding,
                         totalMarketValue: visibleSnapshot.totalMarketValue,
                         performanceMode: performanceMode,
                         isPrivacyEnabled: isPrivacyEnabled,
                         providerName: accountProviderLookup[holding.accountID] ?? "",
-                        color: holdingColorLookup[holding.id] ?? fallbackAllocationColor
+                        color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
+                        showsDivider: index < filteredHoldings.count - 1
                     )
                 }
             }
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(filteredHoldings) { holding in
+                ForEach(Array(filteredHoldings.enumerated()), id: \.element.id) { index, holding in
                     NavigationLink(value: holding) {
                         HoldingListRow(
                             holding: holding,
@@ -699,7 +701,8 @@ private struct HoldingsList: View {
                             performanceMode: performanceMode,
                             isPrivacyEnabled: isPrivacyEnabled,
                             providerName: accountProviderLookup[holding.accountID] ?? "",
-                            color: holdingColorLookup[holding.id] ?? fallbackAllocationColor
+                            color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
+                            showsDivider: index < filteredHoldings.count - 1
                         )
                     }
                     .buttonStyle(.plain)
@@ -959,6 +962,7 @@ private struct HoldingListRow: View {
     let isPrivacyEnabled: Bool
     let providerName: String
     let color: Color
+    let showsDivider: Bool
 
     private var unitLabel: String {
         providerName.lowercased().contains("binance") ? "tokens" : "shares"
@@ -987,44 +991,49 @@ private struct HoldingListRow: View {
             HStack(spacing: 12) {
                 SymbolAvatar(symbol: holding.symbol, color: color)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(holding.symbol)
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
-                        .foregroundStyle(BitternTheme.ink)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                VStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(holding.symbol)
+                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                            .foregroundStyle(BitternTheme.ink)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
-                    Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.64)
+                        Spacer(minLength: 8)
+
+                        Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundStyle(BitternTheme.ink)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(isPrivacyEnabled ? PortfolioFormat.percent(allocation) : "\(formattedQuantity) \(unitLabel) | \(PortfolioFormat.percent(allocation))")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(BitternTheme.secondaryInk)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+
+                        Spacer(minLength: 8)
+
+                        Text(performanceText)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
-                .layoutPriority(1)
-
-                Spacer(minLength: 8)
-
-                VStack(alignment: .trailing, spacing: 7) {
-                    Text(isPrivacyEnabled ? hiddenMoney(currencyCode: holding.currencyCode) : PortfolioFormat.wholeMoney(holding.marketValue, currencyCode: holding.currencyCode))
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(BitternTheme.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.64)
-
-                    Text(performanceText)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.56)
-                }
-                .frame(width: 118, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
 
-            Divider()
-                .overlay(BitternTheme.softLine.opacity(0.7))
+            if showsDivider {
+                Divider()
+                    .overlay(BitternTheme.softLine.opacity(0.7))
+            }
         }
     }
 
