@@ -114,11 +114,12 @@ private final class HoldingDetailViewModel: ObservableObject {
 
     func refreshSelectedRange() async {
         let range = selectedRange
-        selectedPoint = nil
+        print("[HoldingDetail] refreshSelectedRange range=\(range.title) symbol=\(holding.symbol) isCancelled=\(Task.isCancelled)")
         await loadSelectedRange(range, showsLoading: priceSeriesByRange[range] == nil)
     }
 
     private func loadSelectedRange(_ range: HoldingChartRange, showsLoading: Bool) async {
+        print("[HoldingDetail] loadSelectedRange range=\(range.title) showsLoading=\(showsLoading) isCancelled=\(Task.isCancelled)")
         if showsLoading {
             isLoading = true
         }
@@ -130,9 +131,15 @@ private final class HoldingDetailViewModel: ObservableObject {
 
         do {
             let history = try await yahooClient.priceHistory(for: holding.symbol, range: range)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                print("[HoldingDetail] fetch succeeded but task cancelled, discarding \(history.count) points")
+                return
+            }
+            selectedPoint = nil
             priceSeriesByRange[range] = normalized(history)
+            print("[HoldingDetail] saved \(history.count) points for \(range.title)")
         } catch {
+            print("[HoldingDetail] fetch failed: \(error)")
             priceSeriesByRange[range] = []
         }
     }

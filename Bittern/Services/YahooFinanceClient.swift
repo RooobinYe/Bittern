@@ -61,13 +61,22 @@ struct YahooFinanceClient {
             throw NetworkServiceError.emptySymbols
         }
 
+        print("[YahooClient] priceHistory symbol=\(symbol) range=\(range.title) candidates=\(candidates)")
+
         for candidate in candidates {
-            if let history = try? await fetchHistoryOne(candidate: candidate, range: range),
-               !history.isEmpty {
-                return history
+            do {
+                let history = try await fetchHistoryOne(candidate: candidate, range: range)
+                if !history.isEmpty {
+                    print("[YahooClient] candidate \(candidate) returned \(history.count) points")
+                    return history
+                }
+                print("[YahooClient] candidate \(candidate) returned empty history")
+            } catch {
+                print("[YahooClient] candidate \(candidate) failed: \(error)")
             }
         }
 
+        print("[YahooClient] all candidates failed for \(symbol)")
         throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
     }
 
