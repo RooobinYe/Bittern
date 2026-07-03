@@ -18,7 +18,7 @@ enum PortfolioCache {
     static func save(_ snapshot: PortfolioSnapshot) {
         guard let url = cacheURL else { return }
         do {
-            let data = try JSONEncoder().encode(snapshot.removingYahooPricing())
+            let data = try JSONEncoder().encode(snapshot)
             try data.write(to: url, options: .atomic)
         } catch {
             print("[PortfolioCache] save failed: \(error)")
@@ -32,7 +32,7 @@ enum PortfolioCache {
         }
         do {
             let snapshot = try JSONDecoder().decode(PortfolioSnapshot.self, from: data)
-            return snapshot.removingYahooPricing()
+            return snapshot
         } catch {
             print("[PortfolioCache] load failed: \(error)")
             return nil
@@ -43,33 +43,5 @@ enum PortfolioCache {
         await Task.detached {
             load()
         }.value
-    }
-}
-
-private extension PortfolioSnapshot {
-    func removingYahooPricing() -> PortfolioSnapshot {
-        let holdingsWithoutPrices = holdings.map { holding in
-            PortfolioHolding(
-                id: holding.id,
-                accountID: holding.accountID,
-                symbol: holding.symbol,
-                name: holding.name,
-                accountName: holding.accountName,
-                quantity: holding.quantity,
-                quantityDisplay: holding.quantityDisplay,
-                averageCost: holding.averageCost,
-                currentPrice: nil,
-                previousClose: nil,
-                currencyCode: holding.currencyCode,
-                dividendsReceived: holding.dividendsReceived
-            )
-        }
-
-        return PortfolioSnapshot.make(
-            accounts: accounts,
-            holdings: holdingsWithoutPrices,
-            lastUpdated: lastUpdated,
-            isDemo: isDemo
-        )
     }
 }
