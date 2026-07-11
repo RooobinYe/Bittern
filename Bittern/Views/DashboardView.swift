@@ -100,6 +100,8 @@ struct DashboardView: View {
                 minPriceThreshold: priceThreshold,
                 width: screenshotWidth
             )
+            .fontDesign(.rounded)
+            .dynamicTypeSize(.large)
             .environment(\.colorScheme, screenshotColorScheme)
             .environment(\.isRenderingScreenshot, true)
 
@@ -143,6 +145,8 @@ struct DashboardView: View {
                       minPriceThreshold: 0,
                       width: screenshotWidth
                   )
+                  .fontDesign(.rounded)
+                  .dynamicTypeSize(.large)
                   .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
                   width: screenshotWidth,
@@ -203,7 +207,7 @@ private struct PortfolioAvatarIcon: View {
 
     var body: some View {
         Image(systemName: "leaf.fill")
-            .font(.system(size: size * 0.48, weight: .bold))
+            .font(.title3.bold())
             .foregroundStyle(BitternTheme.blue)
             .frame(width: size, height: size)
             .offset(x: -1, y: -1)
@@ -219,12 +223,12 @@ private struct PortfolioShareHeader: View {
                 Spacer()
 
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
             }
 
             Text("Portfolio")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.title2.bold())
                 .foregroundStyle(BitternTheme.ink)
         }
     }
@@ -467,7 +471,7 @@ private struct AccountFilterBar: View {
 
                 if isForScreenshot {
                     Image(systemName: isPrivacyEnabled ? "eye.slash" : "eye")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.headline.weight(.semibold))
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(width: 30, height: 38)
                 } else {
@@ -477,7 +481,7 @@ private struct AccountFilterBar: View {
                         }
                     } label: {
                         Image(systemName: isPrivacyEnabled ? "eye.slash" : "eye")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.headline.weight(.semibold))
                             .foregroundStyle(BitternTheme.secondaryInk)
                             .frame(width: 30, height: 38)
                     }
@@ -571,9 +575,6 @@ private struct DonutPortfolioChart: View {
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
             let labelRadius = side * labelRadiusFactor
             let strokeWidth = max(side * 0.17, 1)
-            let totalFontSize = min(max(side * 0.13, 20), 36)
-            let performanceFontSize = min(max(side * 0.075, 14), 20)
-            let modeFontSize = min(max(side * 0.055, 12), 16)
             let centerSpacing = min(max(side * 0.025, 3), 7)
             let labelScale = min(max(canvasSide / 340, 0.78), 1.08)
 
@@ -595,13 +596,13 @@ private struct DonutPortfolioChart: View {
 
                 VStack(spacing: centerSpacing) {
                     Text(totalAssetsText)
-                        .font(.system(size: totalFontSize, weight: .bold, design: .rounded))
+                        .font(.title.bold().monospacedDigit())
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
 
                     Text(performanceText)
-                        .font(.system(size: performanceFontSize, weight: .bold, design: .rounded))
+                        .font(.headline.bold().monospacedDigit())
                         .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
                         .lineLimit(1)
                         .minimumScaleFactor(0.68)
@@ -609,8 +610,7 @@ private struct DonutPortfolioChart: View {
                     if isForScreenshot {
                         PerformanceModeLabel(
                             title: performanceMode.title,
-                            foregroundStyle: BitternTheme.ink,
-                            fontSize: modeFontSize
+                            foregroundStyle: BitternTheme.ink
                         )
                     } else {
                         Menu {
@@ -624,8 +624,7 @@ private struct DonutPortfolioChart: View {
                         } label: {
                             PerformanceModeLabel(
                                 title: performanceMode.title,
-                                foregroundStyle: BitternTheme.ink,
-                                fontSize: modeFontSize
+                                foregroundStyle: BitternTheme.ink
                             )
                         }
                     }
@@ -712,39 +711,30 @@ private struct HoldingsSection: View {
     }
 
     private var header: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 holdingsTitle
                 updatedLabel
-
-                Spacer()
-
-                sortMenu
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    holdingsTitle
-                    Spacer(minLength: 12)
-                    sortMenu
-                }
-
-                updatedLabel
-            }
+            sortMenu
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.top, 3)
         }
     }
 
     private var holdingsTitle: some View {
         Text("Holdings")
-            .font(.system(size: 23, weight: .bold, design: .rounded))
+            .font(.title2.bold())
             .foregroundStyle(BitternTheme.ink)
     }
 
     private var updatedLabel: some View {
         Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(BitternTheme.secondaryInk)
-            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var sortMenu: some View {
@@ -872,13 +862,13 @@ private struct AccountTabLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Text(title)
-                .font(.system(size: 19, weight: isSelected ? .bold : .semibold, design: .rounded))
+                .font(.title3.weight(isSelected ? .bold : .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
 
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.bold())
             }
         }
         .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
@@ -904,13 +894,13 @@ private struct AccountTabButton: View {
         Button(action: action) {
             HStack(spacing: 7) {
                 Text(title)
-                    .font(.system(size: 19, weight: isSelected ? .bold : .semibold, design: .rounded))
+                    .font(.title3.weight(isSelected ? .bold : .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
 
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.bold())
                 }
             }
             .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
@@ -949,15 +939,14 @@ private struct DonutSegmentInfo: Identifiable {
 private struct PerformanceModeLabel: View {
     let title: String
     let foregroundStyle: Color
-    let fontSize: CGFloat
 
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                .font(.callout.weight(.semibold))
 
             Image(systemName: "chevron.down")
-                .font(.system(size: fontSize * 0.75, weight: .bold))
+                .font(.caption.weight(.semibold))
         }
         .foregroundStyle(foregroundStyle)
     }
@@ -999,7 +988,7 @@ private struct AllocationBubble: View {
             symbolIcon
 
             Text(PortfolioFormat.percent(percent, fractionDigits: 0))
-                .font(.system(size: 11 * scale, weight: .semibold, design: .rounded))
+                .font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
@@ -1016,7 +1005,7 @@ private struct AllocationBubble: View {
     private var symbolIcon: some View {
         if isOther {
             Text("⋯")
-                .font(.system(size: 13 * scale, weight: .bold, design: .rounded))
+                .font(.caption.bold())
                 .foregroundStyle(.white)
                 .frame(width: circleSize, height: circleSize)
                 .background(color)
@@ -1037,12 +1026,12 @@ private struct HoldingsSortLabel: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .font(.callout.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
 
             Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .bold))
+                .font(.caption.weight(.semibold))
         }
         .foregroundStyle(BitternTheme.secondaryInk)
     }
@@ -1094,7 +1083,7 @@ private struct HoldingListRow: View {
                 VStack(spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(holding.symbol)
-                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                            .font(.headline)
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
@@ -1102,7 +1091,7 @@ private struct HoldingListRow: View {
                         Spacer(minLength: 8)
 
                         Text(marketValueText)
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .font(.headline.bold().monospacedDigit())
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -1125,37 +1114,23 @@ private struct HoldingListRow: View {
     }
 
     private var secondaryMetrics: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .foregroundStyle(BitternTheme.secondaryInk)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-                performanceLabel
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(allocationText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                performanceLabel
-                    .minimumScaleFactor(0.68)
-            }
+            performanceLabel
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 
     private var performanceLabel: some View {
         Text(performanceText)
-            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .font(.footnote.bold().monospacedDigit())
             .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
             .lineLimit(1)
     }
@@ -1207,15 +1182,9 @@ private struct HoldingSymbolIcon: View {
         return prefix.isEmpty ? "?" : prefix
     }
 
-    private var symbolFontSize: CGFloat {
-        let chars = CGFloat(max(label.count, 1))
-        let base = size / chars * 1.15
-        return min(size * 0.42, max(size * 0.25, base))
-    }
-
     var body: some View {
         Text(label)
-            .font(.system(size: symbolFontSize, weight: .bold, design: .rounded))
+            .font(.caption.bold())
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)

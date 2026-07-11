@@ -181,7 +181,7 @@ private struct HoldingAssetHeader: View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(holding.name)
-                    .font(.system(size: 31, weight: .bold, design: .rounded))
+                    .font(.title.bold())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(2)
                     .minimumScaleFactor(0.48)
@@ -190,13 +190,13 @@ private struct HoldingAssetHeader: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(priceText)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .font(.largeTitle.bold().monospacedDigit())
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
 
                     Text(holding.currencyCode)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.title3.bold())
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
                 }
@@ -211,7 +211,7 @@ private struct HoldingAssetHeader: View {
                     .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
 
                     Text(selectionLabel)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .font(.headline.bold())
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -227,7 +227,7 @@ private struct HoldingAssetHeader: View {
 
     private var changeAmountLabel: some View {
         Text(changeAmountText)
-            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .font(.headline.bold().monospacedDigit())
             .foregroundStyle(BitternTheme.performanceColor(priceDelta))
             .lineLimit(1)
             .minimumScaleFactor(0.78)
@@ -236,7 +236,7 @@ private struct HoldingAssetHeader: View {
 
     private var changePercentLabel: some View {
         Text(priceDeltaPercentText)
-            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .font(.headline.bold().monospacedDigit())
             .foregroundStyle(BitternTheme.performanceColor(priceDelta))
             .lineLimit(1)
             .minimumScaleFactor(0.78)
@@ -297,18 +297,13 @@ private struct HoldingDetailAvatar: View {
 
     var body: some View {
         Text(String(symbol.prefix(4)))
-            .font(.system(size: avatarFontSize, weight: .bold, design: .rounded))
+            .font(.title2.bold())
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.62)
             .frame(width: size, height: size)
             .background(avatarColor)
             .clipShape(Circle())
-    }
-
-    private var avatarFontSize: CGFloat {
-        let count = max(CGFloat(symbol.prefix(4).count), 1)
-        return min(size * 0.38, max(12, size / count * 0.92))
     }
 
     private var avatarColor: Color {
@@ -352,7 +347,7 @@ private struct HoldingChartSection: View {
                         .frame(maxWidth: .infinity)
                 } else if series.count < 2 {
                     Text("N/A")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.title3.bold())
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(height: 318)
                         .frame(maxWidth: .infinity)
@@ -378,7 +373,7 @@ private struct HoldingChartSection: View {
                         }
                     } label: {
                         Text(option.title)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .font(.title3.bold())
                             .foregroundStyle(range == option ? BitternTheme.gain : BitternTheme.secondaryInk)
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
@@ -444,7 +439,7 @@ private struct HoldingPriceChart: View {
                     )
 
                     let label = Text(PortfolioFormat.price(basePrice, currencyCode: currencyCode))
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.footnote.bold().monospacedDigit())
                         .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
                     context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 28, y: max(12, baseY - 16)))
                 }
@@ -649,7 +644,7 @@ private struct HoldingInfoSection: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("My Holdings")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(.title.bold())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -657,7 +652,7 @@ private struct HoldingInfoSection: View {
                 Spacer(minLength: 8)
 
                 Text(allocationText)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.subheadline.bold().monospacedDigit())
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -720,7 +715,7 @@ private struct HoldingInfoRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
             Text(title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
@@ -728,7 +723,7 @@ private struct HoldingInfoRow: View {
             Spacer(minLength: 14)
 
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.title2.bold().monospacedDigit())
                 .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.56)
@@ -809,7 +804,7 @@ private struct HoldingReturnOperator: View {
 
     var body: some View {
         Text(symbol)
-            .font(.system(size: 23, weight: .regular, design: .rounded))
+            .font(.title2)
             .foregroundStyle(BitternTheme.secondaryInk)
             .frame(width: 32, height: 32)
             .background(BitternTheme.surface)
@@ -829,20 +824,20 @@ private struct HoldingReturnMetricCell: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(metric.title)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
 
             VStack(spacing: 2) {
                 Text(amountText)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.title2.bold().monospacedDigit())
                     .foregroundStyle(metricColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
 
                 Text(percentText)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.title3.bold().monospacedDigit())
                     .foregroundStyle(metricColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)

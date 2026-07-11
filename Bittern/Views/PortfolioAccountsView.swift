@@ -274,7 +274,7 @@ private struct SnapTradeSettingsPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Image(systemName: isConnected ? "checkmark.seal.fill" : "link.badge.plus")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.headline.bold())
                     .foregroundStyle(isConnected ? BitternTheme.gain : BitternTheme.gold)
                     .frame(width: 38, height: 38)
                     .background((isConnected ? BitternTheme.gain : BitternTheme.gold).opacity(0.12))
@@ -282,11 +282,11 @@ private struct SnapTradeSettingsPanel: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("SnapTrade")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .font(.headline.bold())
                         .foregroundStyle(BitternTheme.ink)
 
                     Text(statusText)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(BitternTheme.secondaryInk)
                 }
 
@@ -369,18 +369,18 @@ private struct ProviderHoldingsSection: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "link")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.title2.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
 
                 Text(group.name)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.title2.bold())
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
                 if group.isDisabled {
                     Text("Disabled")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .font(.caption2.bold())
                         .foregroundStyle(BitternTheme.loss)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -394,7 +394,7 @@ private struct ProviderHoldingsSection: View {
 
             if group.holdings.isEmpty {
                 Text("\(group.accountCount) account\(group.accountCount == 1 ? "" : "s") connected")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .padding(.bottom, 15)
             } else {
@@ -426,12 +426,12 @@ private struct ProviderHoldingRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(holding.symbol)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.title3.bold())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
 
                 Text(holding.name)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -441,13 +441,13 @@ private struct ProviderHoldingRow: View {
 
             VStack(alignment: .trailing, spacing: 5) {
                 Text(holding.marketValue.map { PortfolioFormat.wholeMoney($0, currencyCode: holding.currencyCode) } ?? "N/A")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.headline.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
                 Text("\(formattedQuantity) \(unitLabel)")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
             }
@@ -465,7 +465,7 @@ private struct ProviderSymbolAvatar: View {
 
     var body: some View {
         Text(String(symbol.prefix(4)))
-            .font(.system(size: symbol.count > 3 ? 10 : 13, weight: .bold, design: .rounded))
+            .font(.caption2.bold())
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
             .background(avatarColor)
@@ -483,15 +483,15 @@ private struct EmptyProvidersView: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "building.columns")
-                .font(.system(size: 24, weight: .bold))
+                .font(.title2.bold())
                 .foregroundStyle(BitternTheme.secondaryInk)
 
             Text("No providers yet")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.ink)
 
             Text("Connect a brokerage through SnapTrade to see providers here.")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.footnote.weight(.semibold))
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .multilineTextAlignment(.center)
         }
