@@ -25,6 +25,7 @@ struct ContentView: View {
 
     var body: some View {
         DashboardView(viewModel: viewModel, credentialsStore: credentialsStore)
+            .fontDesign(.rounded)
             .preferredColorScheme(currentAppearance.colorScheme)
             .task {
                 await viewModel.refresh()

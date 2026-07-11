@@ -268,33 +268,33 @@ private struct PortfolioHistoryHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Total Money")
-                .font(.system(size: 31, weight: .bold, design: .rounded))
+                .font(.title.bold())
                 .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(totalValueText)
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .font(.largeTitle.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.56)
 
                 Text(currencyCode)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.title3.bold())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
             }
 
             HStack(spacing: 9) {
                 Text(changeAmountText)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.headline.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.performanceColor(valueDelta))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
                 Text(changePercentText)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.headline.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.performanceColor(valueDelta))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -304,7 +304,7 @@ private struct PortfolioHistoryHeader: View {
                     .clipShape(Capsule())
 
                 Text("· \(dateText)")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
@@ -374,7 +374,7 @@ private struct PortfolioHistoryChartSection: View {
                         .frame(maxWidth: .infinity)
                 } else if series.count < 2 {
                     Text("N/A")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.title3.bold())
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .frame(height: 318)
                         .frame(maxWidth: .infinity)
@@ -400,7 +400,7 @@ private struct PortfolioHistoryChartSection: View {
                         }
                     } label: {
                         Text(option.title)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .font(.title3.bold())
                             .foregroundStyle(range == option ? BitternTheme.gain : BitternTheme.secondaryInk)
                             .lineLimit(1)
                             .minimumScaleFactor(0.62)
@@ -465,7 +465,7 @@ private struct PortfolioHistoryChart: View {
                     )
 
                     let label = Text(PortfolioFormat.wholeMoney(baseValue, currencyCode: currencyCode))
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.footnote.bold().monospacedDigit())
                         .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
                     context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 32, y: max(12, baseY - 16)))
                 }
@@ -595,7 +595,7 @@ private struct HistoryMessagePanel: View {
     var body: some View {
         HStack(alignment: .top, spacing: 13) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .bold))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.blue)
                 .frame(width: 38, height: 38)
                 .background(BitternTheme.blue.opacity(0.12))
@@ -603,11 +603,11 @@ private struct HistoryMessagePanel: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.ink)
 
                 Text(message)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .fixedSize(horizontal: false, vertical: true)
             }

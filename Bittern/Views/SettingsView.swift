@@ -16,7 +16,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Appearance")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.title.bold())
                         .foregroundStyle(BitternTheme.ink)
                 }
 
@@ -35,7 +35,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Filters")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.title.bold())
                         .foregroundStyle(BitternTheme.ink)
                 }
 
@@ -43,7 +43,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Portfolio")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.title.bold())
                         .foregroundStyle(BitternTheme.ink)
                 }
 
@@ -113,7 +113,7 @@ private struct SnapTradeCredentialsView: View {
                 } else {
                     HStack(alignment: .top, spacing: 13) {
                         Image(systemName: "key.slash")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.headline.bold())
                             .foregroundStyle(BitternTheme.blue)
                             .frame(width: 38, height: 38)
                             .background(BitternTheme.blue.opacity(0.12))
@@ -121,11 +121,11 @@ private struct SnapTradeCredentialsView: View {
 
                         VStack(alignment: .leading, spacing: 3) {
                             Text("No Credentials")
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                                .font(.headline.bold())
                                 .foregroundStyle(BitternTheme.ink)
 
                             Text("Connect SnapTrade to create saved credentials.")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(.footnote.weight(.semibold))
                                 .foregroundStyle(BitternTheme.secondaryInk)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -156,11 +156,11 @@ private struct CredentialsValueRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.secondaryInk)
 
             Text(value.isEmpty ? "N/A" : value)
-                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .font(.footnote.monospaced().weight(.semibold))
                 .foregroundStyle(BitternTheme.ink)
                 .textSelection(.enabled)
                 .lineLimit(nil)
@@ -180,7 +180,7 @@ private struct SettingsNavigationRow: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .bold))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.blue)
                 .frame(width: 38, height: 38)
                 .background(BitternTheme.blue.opacity(0.12))
@@ -188,18 +188,18 @@ private struct SettingsNavigationRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.ink)
 
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 15, weight: .bold))
+                .font(.subheadline.bold())
                 .foregroundStyle(BitternTheme.secondaryInk)
         }
         .padding(14)
@@ -216,21 +216,21 @@ private struct AppearanceOptionRow: View {
         Button(action: action) {
             HStack(spacing: 13) {
                 Image(systemName: appearance.systemImage)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.headline.bold())
                     .foregroundStyle(isSelected ? .white : BitternTheme.blue)
                     .frame(width: 38, height: 38)
                     .background(isSelected ? BitternTheme.blue : BitternTheme.blue.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                 Text(appearance.title)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.ink)
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.bold())
                         .foregroundStyle(BitternTheme.blue)
                 }
             }
@@ -251,7 +251,7 @@ private struct MinPriceRow: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: "tag")
-                .font(.system(size: 17, weight: .bold))
+                .font(.headline.bold())
                 .foregroundStyle(BitternTheme.blue)
                 .frame(width: 38, height: 38)
                 .background(BitternTheme.blue.opacity(0.12))
@@ -259,18 +259,18 @@ private struct MinPriceRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("Minimum Market Value")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.ink)
 
                 Text(threshold == 0 ? "Show all holdings" : "Hide holdings below \(formattedThreshold)")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(BitternTheme.secondaryInk)
             }
 
             Spacer()
 
             TextField("1.00", value: $threshold, format: .number.precision(.fractionLength(0...2)))
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.headline.bold().monospacedDigit())
                 .foregroundStyle(BitternTheme.ink)
                 .multilineTextAlignment(.trailing)
                 .keyboardType(.decimalPad)
