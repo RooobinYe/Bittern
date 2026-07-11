@@ -17,6 +17,9 @@ extension EnvironmentValues {
     /// - No interactive elements (Menus become static Labels)
     /// - VStack instead of LazyVStack (all rows materialized)
     /// - No NavigationLinks
+    ///
+    /// This value must never choose the responsive layout. The layout mode is
+    /// frozen from the live dashboard viewport before export begins.
     var isRenderingScreenshot: Bool {
         get { self[ScreenshotContextKey.self] }
         set { self[ScreenshotContextKey.self] = newValue }
