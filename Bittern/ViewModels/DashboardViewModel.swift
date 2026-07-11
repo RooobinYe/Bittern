@@ -32,17 +32,20 @@ final class DashboardViewModel: ObservableObject {
 
     init(
         credentialsStore: CredentialsStore,
-        repository: PortfolioRepository? = nil
+        repository: PortfolioRepository? = nil,
+        initialSnapshot: PortfolioSnapshot? = nil
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
         refreshRunner.onStateChanged = { [weak self] in self?.objectWillChange.send() }
         fullRefreshRunner.onStateChanged = { [weak self] in self?.objectWillChange.send() }
-        snapshot = .emptyLive
-        Task {
-            if let cached = await PortfolioCache.loadAsync() {
-                snapshot = cached
-                await refresh()
+        snapshot = initialSnapshot ?? .emptyLive
+        if initialSnapshot == nil {
+            Task {
+                if let cached = await PortfolioCache.loadAsync() {
+                    snapshot = cached
+                    await refresh()
+                }
             }
         }
 

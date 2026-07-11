@@ -80,6 +80,8 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .frame(maxWidth: settingsMaximumContentWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 22)
             .padding(.bottom, 34)
@@ -137,6 +139,8 @@ private struct SnapTradeCredentialsView: View {
                     .bitternPanel()
                 }
             }
+            .frame(maxWidth: settingsMaximumContentWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 22)
             .padding(.bottom, 34)
@@ -148,6 +152,8 @@ private struct SnapTradeCredentialsView: View {
         .tint(BitternTheme.blue)
     }
 }
+
+private let settingsMaximumContentWidth: CGFloat = 720
 
 private struct CredentialsValueRow: View {
     let title: String

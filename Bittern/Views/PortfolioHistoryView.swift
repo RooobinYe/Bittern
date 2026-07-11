@@ -31,6 +31,7 @@ struct PortfolioHistoryView: View {
                     selectedPoint: $historyModel.selectedPoint,
                     isLoading: historyModel.isLoading
                 )
+                .frame(maxWidth: portfolioHistoryMaximumChartWidth)
 
                 if let errorMessage = historyModel.errorMessage {
                     HistoryMessagePanel(
@@ -46,6 +47,8 @@ struct PortfolioHistoryView: View {
                     )
                 }
             }
+            .frame(maxWidth: portfolioHistoryMaximumContentWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 22)
             .padding(.bottom, 34)
@@ -72,6 +75,9 @@ struct PortfolioHistoryView: View {
         }
     }
 }
+
+private let portfolioHistoryMaximumContentWidth: CGFloat = 900
+private let portfolioHistoryMaximumChartWidth: CGFloat = 760
 
 @MainActor
 private final class PortfolioHistoryViewModel: ObservableObject {
