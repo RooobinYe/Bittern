@@ -3,8 +3,10 @@
 //  Bittern
 //
 
+import CoreTransferable
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
@@ -12,12 +14,6 @@ struct DashboardView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @State private var isShowingSettings = false
-    @State private var isShowingShareSheet = false
-    @State private var shareImage: UIImage?
-    @State private var isGeneratingScreenshot = false
-    @State private var showScreenshotError = false
-    @State private var screenshotErrorMessage = ""
-    @State private var screenshotTask: Task<Void, Never>?
     @State private var containerWidth: CGFloat = 390
 #if DEBUG
     @State private var didRunDebugScreenshotExport = false
@@ -30,89 +26,41 @@ struct DashboardView: View {
             ZStack {
                 BitternTheme.background.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    PortfolioTopBar(
-                        openSettings: { isShowingSettings = true },
-                        openShare: {
-                            screenshotTask = Task {
-                                await generateAndShareScreenshot()
-                            }
-                        }
-                    )
-                    .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    .padding(.bottom, 18)
-                    .background(BitternTheme.background)
-
-                    DashboardContent(
-                        viewModel: viewModel,
-                        isPrivacyEnabled: $isPrivacyEnabled,
-                        minPriceThreshold: minPriceThreshold
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 20)
-                }
-
-                // Screenshot generation progress overlay
-                if isGeneratingScreenshot {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.4)
-                            .tint(.white)
-
-                        Text("Generating screenshot…")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-
-                        Button {
-                            screenshotTask?.cancel()
-                            isGeneratingScreenshot = false
-                        } label: {
-                            Text("Cancel")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 8)
-                                .background(.white.opacity(0.2))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                        .transition(.opacity)
-                    }
-                    .padding(28)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .transition(.scale.combined(with: .opacity))
-                }
-
-                // Screenshot error toast
-                if showScreenshotError {
-                    VStack {
-                        Spacer()
-                        Text(screenshotErrorMessage)
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .padding(.bottom, 40)
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                DashboardContent(
+                    viewModel: viewModel,
+                    isPrivacyEnabled: $isPrivacyEnabled,
+                    minPriceThreshold: minPriceThreshold
+                )
+                .frame(maxWidth: .infinity)
             }
-            .animation(.easeInOut(duration: 0.22), value: isGeneratingScreenshot)
-            .animation(.easeInOut(duration: 0.22), value: showScreenshotError)
+            .navigationTitle("Portfolio")
+            .navigationBarTitleDisplayMode(.large)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
                 containerWidth = newWidth
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isShowingSettings = true
+                    } label: {
+                        PortfolioAvatarIcon()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("SnapTrade settings")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(
+                        item: portfolioShareItem,
+                        preview: SharePreview("Bittern Portfolio")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share portfolio")
+                }
+            }
             .navigationDestination(isPresented: $isShowingSettings) {
                 SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
             }
@@ -122,13 +70,6 @@ struct DashboardView: View {
                     snapshot: viewModel.visibleSnapshot,
                     providerName: providerName(for: holding.accountID)
                 )
-            }
-            .sheet(isPresented: $isShowingShareSheet, onDismiss: {
-                shareImage = nil
-            }) {
-                if let shareImage {
-                    ShareSheet(items: [shareImage], colorScheme: colorScheme)
-                }
             }
 #if DEBUG
             .task {
@@ -142,76 +83,36 @@ struct DashboardView: View {
         viewModel.visibleSnapshot.accounts.first { $0.id == accountID }?.providerName ?? ""
     }
 
-    // MARK: - Screenshot
-
-    @MainActor
-    private func generateAndShareScreenshot() async {
-        guard !isGeneratingScreenshot else { return }
-        isGeneratingScreenshot = true
-        defer { isGeneratingScreenshot = false }
-
+    private var portfolioShareItem: PortfolioShareItem {
         let screenshotWidth = min(
             max(containerWidth, 1),
             DashboardLayoutMetrics.maximumExportWidth
         )
         let screenshotColorScheme = colorScheme
+        let screenshotScale = displayScale
+        let privacyEnabled = isPrivacyEnabled
+        let priceThreshold = minPriceThreshold
 
-        // Build screenshot content with the privacy value frozen at capture time.
-        let privacyBinding = Binding<Bool>(
-            get: { isPrivacyEnabled },
-            set: { _ in }
-        )
+        return PortfolioShareItem {
+            let content = PortfolioShareScreenshotContent(
+                viewModel: viewModel,
+                isPrivacyEnabled: .constant(privacyEnabled),
+                minPriceThreshold: priceThreshold,
+                width: screenshotWidth
+            )
+            .environment(\.colorScheme, screenshotColorScheme)
+            .environment(\.isRenderingScreenshot, true)
 
-        let content = PortfolioShareScreenshotContent(
-            viewModel: viewModel,
-            isPrivacyEnabled: privacyBinding,
-            minPriceThreshold: minPriceThreshold,
-            width: screenshotWidth
-        )
-        .environment(\.colorScheme, screenshotColorScheme)
-        .environment(\.isRenderingScreenshot, true)
-
-        // Race the synchronous render against a 15-second timeout.
-        // withTaskGroup ensures the continuation is resumed exactly once —
-        // whichever task finishes first, the other is cancelled.
-        let image: UIImage? = await withTaskGroup(of: UIImage?.self) { group in
-            group.addTask { @MainActor in
-                ScreenshotRenderer.render(
-                    content,
-                    width: screenshotWidth,
-                    scale: displayScale,
-                    backgroundColor: screenshotColorScheme.systemBackgroundColor
-                )
+            guard let data = ScreenshotRenderer.render(
+                content,
+                width: screenshotWidth,
+                scale: screenshotScale,
+                backgroundColor: screenshotColorScheme.systemBackgroundColor
+            )?.pngData() else {
+                throw PortfolioShareError.renderingFailed
             }
 
-            group.addTask {
-                try? await Task.sleep(for: .seconds(15))
-                return nil
-            }
-
-            let result = await group.next()!
-            group.cancelAll()
-            return result
-        }
-
-        guard !Task.isCancelled else { return }
-
-        guard let image else {
-            showError("Screenshot timed out")
-            return
-        }
-
-        shareImage = image
-        isShowingShareSheet = true
-    }
-
-    @MainActor
-    private func showError(_ message: String) {
-        screenshotErrorMessage = message
-        showScreenshotError = true
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            showScreenshotError = false
+            return data
         }
     }
 
@@ -276,61 +177,56 @@ private extension ColorScheme {
     }
 }
 
-// MARK: - Top Bar
+private struct PortfolioShareItem: Transferable, @unchecked Sendable {
+    let renderPNG: @MainActor @Sendable () throws -> Data
 
-private struct PortfolioTopBar: View {
-    let openSettings: () -> Void
-    let openShare: () -> Void
-    @Environment(\.isRenderingScreenshot) private var isForScreenshot
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .png) { item in
+            try await item.renderPNG()
+        }
+        .suggestedFileName("Bittern Portfolio.png")
+    }
+}
 
+private enum PortfolioShareError: Error {
+    case renderingFailed
+}
+
+// MARK: - Navigation and Share Header
+
+private struct PortfolioAvatarIcon: View {
+    let size: CGFloat
+
+    init(size: CGFloat = 36) {
+        self.size = size
+    }
+
+    var body: some View {
+        Image(systemName: "leaf.fill")
+            .font(.system(size: size * 0.48, weight: .bold))
+            .foregroundStyle(BitternTheme.blue)
+            .frame(width: size, height: size)
+            .offset(x: -1, y: -1)
+    }
+}
+
+private struct PortfolioShareHeader: View {
     var body: some View {
         ZStack {
             HStack {
-                if isForScreenshot {
-                    settingsIcon
-                } else {
-                    Button(action: openSettings) {
-                        settingsIcon
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("SnapTrade settings")
-                }
+                PortfolioAvatarIcon(size: 42)
 
                 Spacer()
 
-                if isForScreenshot {
-                    shareIcon
-                } else {
-                    Button(action: openShare) {
-                        shareIcon
-                    }
-                    .accessibilityLabel("Share portfolio")
-                }
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(BitternTheme.secondaryInk)
             }
 
             Text("Portfolio")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(BitternTheme.ink)
         }
-    }
-
-    private var settingsIcon: some View {
-        ZStack {
-            Circle()
-                .fill(Color(uiColor: .tertiarySystemFill))
-                .frame(width: 42, height: 42)
-
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(BitternTheme.blue)
-                .offset(x: -1, y: -1)
-        }
-    }
-
-    private var shareIcon: some View {
-        Image(systemName: "square.and.arrow.up")
-            .font(.system(size: 21, weight: .semibold))
-            .foregroundStyle(BitternTheme.secondaryInk)
     }
 }
 
@@ -344,7 +240,7 @@ private struct PortfolioShareScreenshotContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PortfolioTopBar(openSettings: {}, openShare: {})
+            PortfolioShareHeader()
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
@@ -358,7 +254,6 @@ private struct PortfolioShareScreenshotContent: View {
             )
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .padding(.horizontal, 24)
-            .padding(.bottom, 34)
         }
         .frame(width: width, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
@@ -409,9 +304,10 @@ private struct DashboardContent: View {
                     ScrollView {
                         stackedSections
                             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                            .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
                             .frame(maxWidth: .infinity)
                     }
+                    .contentMargins(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding, for: .scrollContent)
+                    .scrollEdgeEffectStyle(.soft, for: .top)
                     .refreshable { await viewModel.refresh() }
                 }
             }
@@ -489,10 +385,11 @@ private struct DashboardContent: View {
 
                         holdings
                     }
-                    .padding(.horizontal, 8)
                     .padding(.bottom, 14)
                 }
                 .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                .contentMargins(.horizontal, 8, for: .scrollContent)
+                .scrollEdgeEffectStyle(.soft, for: .top)
                 .refreshable { await viewModel.refresh() }
             }
         }
@@ -1110,8 +1007,7 @@ private struct AllocationBubble: View {
         .padding(.leading, 4 * scale)
         .padding(.trailing, 7 * scale)
         .frame(height: 34 * scale)
-        .background(BitternTheme.surface)
-        .clipShape(Capsule())
+        .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(symbol), \(PortfolioFormat.percent(percent, fractionDigits: 0))")
     }
@@ -1125,14 +1021,11 @@ private struct AllocationBubble: View {
                 .frame(width: circleSize, height: circleSize)
                 .background(color)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
         } else {
             HoldingSymbolIcon(
                 symbol: symbol,
                 color: color,
-                size: circleSize,
-                borderColor: BitternTheme.ink.opacity(0.85),
-                borderWidth: 1
+                size: circleSize
             )
         }
     }

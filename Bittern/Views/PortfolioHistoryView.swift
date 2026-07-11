@@ -49,13 +49,10 @@ struct PortfolioHistoryView: View {
             }
             .frame(maxWidth: portfolioHistoryMaximumContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
             .padding(.top, 22)
-            .padding(.bottom, 34)
         }
         .background(BitternTheme.background.ignoresSafeArea())
-        .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
+        .contentMargins(.horizontal, 24, for: .scrollContent)
         .toolbar(.visible, for: .navigationBar)
         .tint(BitternTheme.blue)
         .refreshable {

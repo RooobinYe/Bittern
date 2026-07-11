@@ -57,18 +57,15 @@ struct HoldingDetailView: View {
                     )
                 }
                 .frame(maxWidth: holdingDetailMaximumContentWidth)
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
-                .padding(.bottom, 34)
                 .frame(maxWidth: .infinity)
+                .padding(.top, 22)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentMargins(.horizontal, 24, for: .scrollContent)
             .refreshable {
                 await detailModel.refreshSelectedRange()
             }
         }
-        .navigationTitle(holding.symbol)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .tint(BitternTheme.blue)
         .task {
