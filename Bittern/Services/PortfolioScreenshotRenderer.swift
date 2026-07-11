@@ -54,23 +54,27 @@ extension EnvironmentValues {
 ///
 /// ## Memory
 ///
-/// For very tall content (> 3000 pt) the scale is automatically reduced
-/// to 1× to keep the uncompressed bitmap under ~20 MB.
+/// The output scale is automatically reduced when necessary to keep each
+/// uncompressed bitmap within a bounded pixel budget.
 enum ScreenshotRenderer {
+    /// Roughly 24 MB for one RGBA bitmap. Rendering briefly holds both the
+    /// SwiftUI result and the opaque copy, so bounding each one avoids large
+    /// memory spikes on wide iPad and Mac windows.
+    private static let maximumPixelCount: CGFloat = 6_000_000
 
     /// Renders a SwiftUI view into a shareable UIImage.
     ///
     /// - Parameters:
     ///   - content: The SwiftUI view to render.
     ///   - width: The target width in points.
-    ///   - scale: The scale factor. Defaults to `UIScreen.main.scale`.
-    ///     Auto-reduced to 1× for content taller than 3000 pt.
+    ///   - scale: The scale factor of the window that requested the image.
+    ///     Automatically reduced when the rendered content exceeds the pixel budget.
     /// - Returns: A `UIImage`, or `nil` if rendering fails.
     @MainActor
     static func render<Content: View>(
         _ content: Content,
         width: CGFloat,
-        scale: CGFloat = UIScreen.main.scale,
+        scale: CGFloat,
         backgroundColor: UIColor = .systemBackground
     ) -> UIImage? {
         guard width > 0 else { return nil }
@@ -92,8 +96,15 @@ enum ScreenshotRenderer {
         }
 
         // ---- 2. Pick effective scale ----
-        // Tall content at 3× can exceed 45 MB uncompressed — drop to 1×.
-        let effectiveScale: CGFloat = renderSize.height > 3000 ? min(scale, 1.0) : scale
+        // Base the decision on the whole bitmap rather than height alone;
+        // resizable iPad and Mac windows can be both wide and tall.
+        let pointPixelCount = renderSize.width * renderSize.height
+        let budgetScale = sqrt(maximumPixelCount / pointPixelCount)
+        let effectiveScale = min(scale, budgetScale)
+
+        guard effectiveScale > 0, effectiveScale.isFinite else {
+            return nil
+        }
 
         // ---- 3. Render ----
         // ImageRenderer generates the image directly from the SwiftUI view

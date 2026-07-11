@@ -8,7 +8,6 @@ import SwiftUI
 struct PortfolioAccountsView: View {
     @ObservedObject var credentialsStore: CredentialsStore
     @ObservedObject var viewModel: DashboardViewModel
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
 
@@ -35,12 +34,6 @@ struct PortfolioAccountsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    PortfolioAccountsTopBar(
-                        dismiss: dismiss.callAsFunction,
-                        openConnectionPortal: { Task { await openConnectionPortal() } },
-                        isOpeningPortal: isOpeningPortal
-                    )
-
                     SnapTradeSettingsPanel(
                         isConnected: credentialsStore.credentials?.isComplete == true,
                         hasAPIKey: credentialsStore.credentials?.hasAPIKey == true,
@@ -64,6 +57,8 @@ struct PortfolioAccountsView: View {
                         }
                     }
                 }
+                .frame(maxWidth: portfolioAccountsMaximumContentWidth)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 24)
                 .padding(.top, 18)
                 .padding(.bottom, 42)
@@ -72,8 +67,23 @@ struct PortfolioAccountsView: View {
                 await refresh()
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Edit Portfolio")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await openConnectionPortal() }
+                } label: {
+                    Image(systemName: isOpeningPortal ? "clock.arrow.circlepath" : "link")
+                        .fontWeight(.bold)
+                        .foregroundStyle(BitternTheme.loss)
+                }
+                .disabled(isOpeningPortal)
+                .accessibilityLabel("Open SnapTrade connection portal")
+            }
+        }
+        .tint(BitternTheme.blue)
     }
 
     private var providerGroups: [PortfolioProviderGroup] {
@@ -227,6 +237,8 @@ struct PortfolioAccountsView: View {
     }
 }
 
+private let portfolioAccountsMaximumContentWidth: CGFloat = 900
+
 private enum SnapTradeSetupError: LocalizedError {
     case missingAPIKey
 
@@ -246,43 +258,6 @@ private struct PortfolioProviderGroup: Identifiable {
     let accountCount: Int
     let totalMarketValue: Double?
     let holdings: [PortfolioHolding]
-}
-
-private struct PortfolioAccountsTopBar: View {
-    let dismiss: () -> Void
-    let openConnectionPortal: () -> Void
-    let isOpeningPortal: Bool
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Button(action: dismiss) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .frame(width: 38, height: 38)
-                    .background(BitternTheme.surface)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            Text("Edit Portfolio")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(BitternTheme.ink)
-
-            Spacer()
-
-            Button(action: openConnectionPortal) {
-                Image(systemName: isOpeningPortal ? "clock.arrow.circlepath" : "link")
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(BitternTheme.loss)
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(.plain)
-            .disabled(isOpeningPortal)
-            .accessibilityLabel("Open SnapTrade connection portal")
-        }
-    }
 }
 
 private struct SnapTradeSettingsPanel: View {

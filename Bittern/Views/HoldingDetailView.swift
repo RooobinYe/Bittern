@@ -11,7 +11,6 @@ struct HoldingDetailView: View {
     let snapshot: PortfolioSnapshot
     let providerName: String
 
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var detailModel: HoldingDetailViewModel
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
@@ -30,48 +29,48 @@ struct HoldingDetailView: View {
         ZStack {
             BitternTheme.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HoldingDetailTopBar(goBack: { dismiss() })
+            ScrollView {
+                VStack(spacing: 24) {
+                    HoldingAssetHeader(
+                        holding: holding,
+                        series: detailModel.visibleSeries,
+                        range: detailModel.selectedRange,
+                        selectedPoint: detailModel.selectedPoint,
+                        isPrivacyEnabled: isPrivacyEnabled
+                    )
+
+                    HoldingChartSection(
+                        series: detailModel.visibleSeries,
+                        previousClose: holding.previousClose,
+                        currencyCode: holding.currencyCode,
+                        range: $detailModel.selectedRange,
+                        selectedPoint: $detailModel.selectedPoint,
+                        isLoading: detailModel.isLoading
+                    )
+                    .frame(maxWidth: holdingDetailMaximumChartWidth)
+
+                    HoldingInfoSection(
+                        holding: holding,
+                        snapshot: snapshot,
+                        providerName: providerName,
+                        isPrivacyEnabled: isPrivacyEnabled
+                    )
+                }
+                .frame(maxWidth: holdingDetailMaximumContentWidth)
                 .padding(.horizontal, 24)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
-                .background(BitternTheme.background)
-
-                ScrollView {
-                    VStack(spacing: 24) {
-                        HoldingAssetHeader(
-                            holding: holding,
-                            series: detailModel.visibleSeries,
-                            range: detailModel.selectedRange,
-                            selectedPoint: detailModel.selectedPoint,
-                            isPrivacyEnabled: isPrivacyEnabled
-                        )
-
-                        HoldingChartSection(
-                            series: detailModel.visibleSeries,
-                            previousClose: holding.previousClose,
-                            currencyCode: holding.currencyCode,
-                            range: $detailModel.selectedRange,
-                            selectedPoint: $detailModel.selectedPoint,
-                            isLoading: detailModel.isLoading
-                        )
-
-                        HoldingInfoSection(
-                            holding: holding,
-                            snapshot: snapshot,
-                            providerName: providerName,
-                            isPrivacyEnabled: isPrivacyEnabled
-                        )
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 34)
-                }
-                .refreshable {
-                    await detailModel.refreshSelectedRange()
-                }
+                .padding(.top, 22)
+                .padding(.bottom, 34)
+                .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshable {
+                await detailModel.refreshSelectedRange()
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(holding.symbol)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .tint(BitternTheme.blue)
         .task {
             await detailModel.loadSelectedRangeIfNeeded()
         }
@@ -82,6 +81,9 @@ struct HoldingDetailView: View {
         }
     }
 }
+
+private let holdingDetailMaximumContentWidth: CGFloat = 900
+private let holdingDetailMaximumChartWidth: CGFloat = 760
 
 @MainActor
 private final class HoldingDetailViewModel: ObservableObject {
@@ -148,39 +150,6 @@ private final class HoldingDetailViewModel: ObservableObject {
         points.sorted { $0.date < $1.date }
     }
 
-}
-
-private struct HoldingDetailTopBar: View {
-    let goBack: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: goBack) {
-                HoldingCircleButtonLabel(systemName: "chevron.left", size: 42, background: BitternTheme.surface)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            Spacer()
-        }
-    }
-}
-
-private struct HoldingCircleButtonLabel: View {
-    let systemName: String
-    let size: CGFloat
-    let background: Color
-    var foreground: Color = BitternTheme.secondaryInk
-
-    var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: size * 0.45, weight: .bold, design: .rounded))
-            .foregroundStyle(foreground)
-            .frame(width: size, height: size)
-            .background(background)
-            .clipShape(Circle())
-            .contentShape(Circle())
-    }
 }
 
 private struct HoldingAssetHeader: View {

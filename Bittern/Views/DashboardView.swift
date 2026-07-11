@@ -10,6 +10,7 @@ struct DashboardView: View {
     @ObservedObject var viewModel: DashboardViewModel
     @ObservedObject var credentialsStore: CredentialsStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     @State private var isShowingSettings = false
     @State private var isShowingShareSheet = false
     @State private var shareImage: UIImage?
@@ -17,6 +18,7 @@ struct DashboardView: View {
     @State private var showScreenshotError = false
     @State private var screenshotErrorMessage = ""
     @State private var screenshotTask: Task<Void, Never>?
+    @State private var containerWidth: CGFloat = 390
 #if DEBUG
     @State private var didRunDebugScreenshotExport = false
 #endif
@@ -37,21 +39,19 @@ struct DashboardView: View {
                             }
                         }
                     )
+                    .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
                     .padding(.horizontal, 24)
                     .padding(.top, 16)
                     .padding(.bottom, 18)
                     .background(BitternTheme.background)
 
-                    ScrollView {
-                        DashboardContent(
-                            viewModel: viewModel,
-                            isPrivacyEnabled: $isPrivacyEnabled,
-                            minPriceThreshold: minPriceThreshold
-                        )
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 34)
-                    }
-                    .refreshable { await viewModel.refresh() }
+                    DashboardContent(
+                        viewModel: viewModel,
+                        isPrivacyEnabled: $isPrivacyEnabled,
+                        minPriceThreshold: minPriceThreshold
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 20)
                 }
 
                 // Screenshot generation progress overlay
@@ -107,6 +107,11 @@ struct DashboardView: View {
             }
             .animation(.easeInOut(duration: 0.22), value: isGeneratingScreenshot)
             .animation(.easeInOut(duration: 0.22), value: showScreenshotError)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { newWidth in
+                containerWidth = newWidth
+            }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $isShowingSettings) {
                 SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
@@ -145,7 +150,10 @@ struct DashboardView: View {
         isGeneratingScreenshot = true
         defer { isGeneratingScreenshot = false }
 
-        let screenshotWidth = UIScreen.main.bounds.width
+        let screenshotWidth = min(
+            max(containerWidth, 1),
+            DashboardLayoutMetrics.maximumExportWidth
+        )
         let screenshotColorScheme = colorScheme
 
         // Build screenshot content with the privacy value frozen at capture time.
@@ -171,7 +179,7 @@ struct DashboardView: View {
                 ScreenshotRenderer.render(
                     content,
                     width: screenshotWidth,
-                    scale: UIScreen.main.scale,
+                    scale: displayScale,
                     backgroundColor: screenshotColorScheme.systemBackgroundColor
                 )
             }
@@ -221,7 +229,10 @@ struct DashboardView: View {
 
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        let screenshotWidth = UIScreen.main.bounds.width
+        let screenshotWidth = min(
+            max(containerWidth, 1),
+            DashboardLayoutMetrics.maximumExportWidth
+        )
         let screenshotColorScheme = colorScheme
 
         guard let image = ScreenshotRenderer.render(
@@ -234,7 +245,7 @@ struct DashboardView: View {
                   .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
                   width: screenshotWidth,
-                  scale: UIScreen.main.scale,
+                  scale: displayScale,
                   backgroundColor: screenshotColorScheme.systemBackgroundColor
               ),
               let data = image.pngData(),
@@ -334,6 +345,7 @@ private struct PortfolioShareScreenshotContent: View {
     var body: some View {
         VStack(spacing: 0) {
             PortfolioTopBar(openSettings: {}, openShare: {})
+                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
                 .padding(.bottom, 18)
@@ -344,6 +356,7 @@ private struct PortfolioShareScreenshotContent: View {
                 isPrivacyEnabled: $isPrivacyEnabled,
                 minPriceThreshold: minPriceThreshold
             )
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .padding(.horizontal, 24)
             .padding(.bottom, 34)
         }
@@ -355,36 +368,133 @@ private struct PortfolioShareScreenshotContent: View {
 
 // MARK: - Dashboard Content
 
+private enum DashboardLayoutMetrics {
+    /// These are content readability bounds, not device breakpoints. The split
+    /// layout appears whenever both panes can keep their useful minimum width.
+    static let minimumChartColumnWidth: CGFloat = 320
+    static let idealChartColumnWidth: CGFloat = 440
+    static let minimumHoldingsColumnWidth: CGFloat = 360
+    static let columnSpacing: CGFloat = 28
+    static let contentHorizontalPadding: CGFloat = 24
+    static let preferredSplitWidth: CGFloat = 756
+    static let minimumSplitHeight: CGFloat = 460
+    static let maximumChartSide: CGFloat = 500
+    static let maximumContentWidth: CGFloat = 1_280
+    static let maximumExportWidth: CGFloat = maximumContentWidth + 48
+
+    static func usesColumns(in size: CGSize) -> Bool {
+        return size.width >= preferredSplitWidth
+            && size.height >= minimumSplitHeight
+    }
+}
+
 private struct DashboardContent: View {
     @ObservedObject var viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
     let minPriceThreshold: Double
+    @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
+    @ViewBuilder
     var body: some View {
-        VStack(spacing: 24) {
-            AccountFilterBar(
-                accounts: viewModel.snapshot.accounts,
-                selectedProviderName: $viewModel.selectedProviderName,
-                isPrivacyEnabled: $isPrivacyEnabled
-            )
+        if isForScreenshot {
+            stackedSections
+        } else {
+            GeometryReader { proxy in
+                if DashboardLayoutMetrics.usesColumns(in: proxy.size) {
+                    splitContent
+                        .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                        .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    ScrollView {
+                        stackedSections
+                            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                            .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .refreshable { await viewModel.refresh() }
+                }
+            }
+        }
+    }
 
-            PortfolioDonutSection(
-                snapshot: viewModel.visibleSnapshot,
-                performanceMode: $viewModel.performanceMode,
-                isPrivacyEnabled: isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold
-            )
+    private var accountFilter: some View {
+        AccountFilterBar(
+            accounts: viewModel.snapshot.accounts,
+            selectedProviderName: $viewModel.selectedProviderName,
+            isPrivacyEnabled: $isPrivacyEnabled
+        )
+    }
+
+    private var stackedDonut: some View {
+        PortfolioDonutSection(
+            snapshot: viewModel.visibleSnapshot,
+            performanceMode: $viewModel.performanceMode,
+            isPrivacyEnabled: isPrivacyEnabled,
+            minPriceThreshold: minPriceThreshold,
+            fillsAvailableSpace: false
+        )
+    }
+
+    private var splitDonut: some View {
+        PortfolioDonutSection(
+            snapshot: viewModel.visibleSnapshot,
+            performanceMode: $viewModel.performanceMode,
+            isPrivacyEnabled: isPrivacyEnabled,
+            minPriceThreshold: minPriceThreshold,
+            fillsAvailableSpace: true
+        )
+    }
+
+    private var holdings: some View {
+        HoldingsSection(
+            viewModel: viewModel,
+            isPrivacyEnabled: isPrivacyEnabled,
+            minPriceThreshold: minPriceThreshold
+        )
+    }
+
+    private var stackedSections: some View {
+        VStack(spacing: 24) {
+            accountFilter
+            stackedDonut
 
             if let errorMessage = viewModel.errorMessage {
                 ErrorBanner(message: errorMessage)
             }
 
-            HoldingsSection(
-                viewModel: viewModel,
-                isPrivacyEnabled: isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold
-            )
-            .padding(.horizontal, -8)
+            holdings
+        }
+        .padding(.bottom, 14)
+    }
+
+    private var splitContent: some View {
+        VStack(spacing: 20) {
+            accountFilter
+
+            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
+                splitDonut
+                    .frame(
+                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                        maxHeight: .infinity
+                    )
+
+                ScrollView {
+                    VStack(spacing: 16) {
+                        if let errorMessage = viewModel.errorMessage {
+                            ErrorBanner(message: errorMessage)
+                        }
+
+                        holdings
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 14)
+                }
+                .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                .refreshable { await viewModel.refresh() }
+            }
         }
     }
 }
@@ -492,18 +602,40 @@ private struct PortfolioDonutSection: View {
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
+    let fillsAvailableSpace: Bool
 
+    @ViewBuilder
     var body: some View {
-        VStack(spacing: 0) {
-            DonutPortfolioChart(
-                snapshot: snapshot,
-                performanceMode: $performanceMode,
-                isPrivacyEnabled: isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold
-            )
-            .frame(height: 300)
-            .padding(.vertical, 22)
+        if fillsAvailableSpace {
+            GeometryReader { proxy in
+                let side = max(
+                    min(
+                        proxy.size.width,
+                        proxy.size.height,
+                        DashboardLayoutMetrics.maximumChartSide
+                    ),
+                    1
+                )
+
+                chart
+                    .frame(width: side, height: side)
+                    .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            }
+        } else {
+            chart
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+                .frame(maxWidth: .infinity)
         }
+    }
+
+    private var chart: some View {
+        DonutPortfolioChart(
+            snapshot: snapshot,
+            performanceMode: $performanceMode,
+            isPrivacyEnabled: isPrivacyEnabled,
+            minPriceThreshold: minPriceThreshold
+        )
     }
 }
 
@@ -533,13 +665,24 @@ private struct DonutPortfolioChart: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let side = min(proxy.size.width * 0.7, proxy.size.width - 80)
-            let center = CGPoint(x: proxy.size.width / 2, y: side / 2 + 20)
-            let labelRadius = side * 0.64
+            let canvasSide = min(proxy.size.width, proxy.size.height)
+            let labelExtent = min(max(canvasSide * 0.19, 64), 84)
+            let labelRadiusFactor = 0.64
+            // Solve for the largest ring whose outer labels still fit in the
+            // canvas instead of tying the ring to a device or screen ratio.
+            let side = max((canvasSide - labelExtent) / (labelRadiusFactor * 2), 1)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let labelRadius = side * labelRadiusFactor
+            let strokeWidth = max(side * 0.17, 1)
+            let totalFontSize = min(max(side * 0.13, 20), 36)
+            let performanceFontSize = min(max(side * 0.075, 14), 20)
+            let modeFontSize = min(max(side * 0.055, 12), 16)
+            let centerSpacing = min(max(side * 0.025, 3), 7)
+            let labelScale = min(max(canvasSide / 340, 0.78), 1.08)
 
             ZStack {
                 Circle()
-                    .stroke(BitternTheme.surface, lineWidth: side * 0.17)
+                    .stroke(BitternTheme.surface, lineWidth: strokeWidth)
                     .frame(width: side, height: side)
                     .position(center)
 
@@ -548,26 +691,30 @@ private struct DonutPortfolioChart: View {
                         startAngle: .degrees(segment.startAngle),
                         endAngle: .degrees(segment.endAngle)
                     )
-                    .stroke(segment.color, style: StrokeStyle(lineWidth: side * 0.17, lineCap: .butt))
+                    .stroke(segment.color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
                     .frame(width: side, height: side)
                     .position(center)
                 }
 
-                VStack(spacing: 7) {
+                VStack(spacing: centerSpacing) {
                     Text(totalAssetsText)
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .font(.system(size: totalFontSize, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
 
                     Text(performanceText)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: performanceFontSize, weight: .bold, design: .rounded))
                         .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
                         .lineLimit(1)
                         .minimumScaleFactor(0.68)
 
                     if isForScreenshot {
-                        PerformanceModeLabel(title: performanceMode.title, foregroundStyle: BitternTheme.ink)
+                        PerformanceModeLabel(
+                            title: performanceMode.title,
+                            foregroundStyle: BitternTheme.ink,
+                            fontSize: modeFontSize
+                        )
                     } else {
                         Menu {
                             ForEach(PerformanceMode.allCases) { mode in
@@ -578,7 +725,11 @@ private struct DonutPortfolioChart: View {
                                 }
                             }
                         } label: {
-                            PerformanceModeLabel(title: performanceMode.title, foregroundStyle: BitternTheme.ink)
+                            PerformanceModeLabel(
+                                title: performanceMode.title,
+                                foregroundStyle: BitternTheme.ink,
+                                fontSize: modeFontSize
+                            )
                         }
                     }
                 }
@@ -589,7 +740,8 @@ private struct DonutPortfolioChart: View {
                     AllocationBubble(
                         symbol: segment.symbol,
                         percent: segment.percent,
-                        color: segment.color
+                        color: segment.color,
+                        scale: labelScale
                     )
                     .position(
                         x: center.x + cos(segment.midAngle.radians) * labelRadius,
@@ -643,23 +795,8 @@ private struct HoldingsSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Holdings")
-                    .font(.system(size: 23, weight: .bold, design: .rounded))
-                    .foregroundStyle(BitternTheme.ink)
-
-                Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-
-                Spacer()
-
-                HoldingsSortMenu(
-                    performanceMode: $viewModel.performanceMode,
-                    sortOption: $viewModel.sortOption
-                )
-            }
-            .padding(.bottom, 8)
+            header
+                .padding(.bottom, 8)
 
             if filteredHoldings.isEmpty {
                 EmptyHoldingsView()
@@ -675,6 +812,49 @@ private struct HoldingsSection: View {
                 )
             }
         }
+    }
+
+    private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                holdingsTitle
+                updatedLabel
+
+                Spacer()
+
+                sortMenu
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    holdingsTitle
+                    Spacer(minLength: 12)
+                    sortMenu
+                }
+
+                updatedLabel
+            }
+        }
+    }
+
+    private var holdingsTitle: some View {
+        Text("Holdings")
+            .font(.system(size: 23, weight: .bold, design: .rounded))
+            .foregroundStyle(BitternTheme.ink)
+    }
+
+    private var updatedLabel: some View {
+        Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(BitternTheme.secondaryInk)
+            .lineLimit(1)
+    }
+
+    private var sortMenu: some View {
+        HoldingsSortMenu(
+            performanceMode: $viewModel.performanceMode,
+            sortOption: $viewModel.sortOption
+        )
     }
 }
 
@@ -872,14 +1052,15 @@ private struct DonutSegmentInfo: Identifiable {
 private struct PerformanceModeLabel: View {
     let title: String
     let foregroundStyle: Color
+    let fontSize: CGFloat
 
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .font(.system(size: fontSize, weight: .bold, design: .rounded))
 
             Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: fontSize * 0.75, weight: .bold))
         }
         .foregroundStyle(foregroundStyle)
     }
@@ -910,42 +1091,50 @@ private struct AllocationBubble: View {
     let symbol: String
     let percent: Double
     let color: Color
+    let scale: CGFloat
 
-    private let circleSize: CGFloat = 24
+    private var circleSize: CGFloat { 24 * scale }
 
     private var isOther: Bool { symbol == "OTHER" }
 
     var body: some View {
-        HStack(spacing: 5) {
-            if isOther {
-                Text("⋯")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: circleSize, height: circleSize)
-                    .background(color)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
-            } else {
-                HoldingSymbolIcon(
-                    symbol: symbol,
-                    color: color,
-                    size: circleSize,
-                    borderColor: BitternTheme.ink.opacity(0.85),
-                    borderWidth: 1
-                )
-            }
+        HStack(spacing: 5 * scale) {
+            symbolIcon
 
             Text(PortfolioFormat.percent(percent, fractionDigits: 0))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: 11 * scale, weight: .semibold, design: .rounded))
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
-        .padding(.leading, 4)
-        .padding(.trailing, 7)
-        .frame(height: 34)
+        .padding(.leading, 4 * scale)
+        .padding(.trailing, 7 * scale)
+        .frame(height: 34 * scale)
         .background(BitternTheme.surface)
         .clipShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(symbol), \(PortfolioFormat.percent(percent, fractionDigits: 0))")
+    }
+
+    @ViewBuilder
+    private var symbolIcon: some View {
+        if isOther {
+            Text("⋯")
+                .font(.system(size: 13 * scale, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: circleSize, height: circleSize)
+                .background(color)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(BitternTheme.ink.opacity(0.85), lineWidth: 1))
+        } else {
+            HoldingSymbolIcon(
+                symbol: symbol,
+                color: color,
+                size: circleSize,
+                borderColor: BitternTheme.ink.opacity(0.85),
+                borderWidth: 1
+            )
+        }
     }
 }
 
@@ -1023,24 +1212,11 @@ private struct HoldingListRow: View {
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .minimumScaleFactor(0.7)
+                            .layoutPriority(1)
                     }
 
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(BitternTheme.secondaryInk)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-
-                        Spacer(minLength: 8)
-
-                        Text(performanceText)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+                    secondaryMetrics
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1053,6 +1229,42 @@ private struct HoldingListRow: View {
                     .overlay(BitternTheme.softLine.opacity(0.7))
             }
         }
+    }
+
+    private var secondaryMetrics: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                Spacer(minLength: 8)
+
+                performanceLabel
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(allocationText)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                performanceLabel
+                    .minimumScaleFactor(0.68)
+            }
+        }
+    }
+
+    private var performanceLabel: some View {
+        Text(performanceText)
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
+            .lineLimit(1)
     }
 
     private var performanceText: String {
@@ -1171,9 +1383,14 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
     let total = sortedHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
     guard total > 0 else { return [] }
 
-    let minAllocation = total * 0.05
-    let visibleHoldings = sortedHoldings.filter { ($0.marketValue ?? 0) >= minAllocation }
-    let otherValue = sortedHoldings.filter { ($0.marketValue ?? 0) < minAllocation }.reduce(0) { $0 + ($1.marketValue ?? 0) }
+    let minAllocation = total * 0.04 // 小于 4% 的 Holdings 进入 Others
+    let visibleHoldings = sortedHoldings.filter {
+        ($0.marketValue ?? 0) >= minAllocation
+    }
+    let visibleIDs = Set(visibleHoldings.map(\.id))
+    let otherValue = sortedHoldings
+        .filter { !visibleIDs.contains($0.id) }
+        .reduce(0) { $0 + ($1.marketValue ?? 0) }
 
     var segments: [(symbol: String, value: Double, id: String)] = visibleHoldings.map {
         ($0.symbol, $0.marketValue ?? 0, $0.id)
@@ -1262,9 +1479,26 @@ private extension PerformanceMode {
 #if DEBUG
 struct DashboardView_Previews: PreviewProvider {
     static var previews: some View {
+        Group {
+            preview(width: 393, height: 852, name: "Phone Portrait")
+            preview(width: 852, height: 393, name: "Phone Landscape")
+            preview(width: 600, height: 500, name: "Compact Window")
+            preview(width: 1_024, height: 768, name: "iPad Landscape")
+            preview(width: 1_200, height: 700, name: "Wide Window")
+        }
+    }
+
+    @MainActor
+    private static func preview(width: CGFloat, height: CGFloat, name: String) -> some View {
         let store = CredentialsStore()
-        let viewModel = DashboardViewModel(credentialsStore: store)
-        DashboardView(viewModel: viewModel, credentialsStore: store)
+        let viewModel = DashboardViewModel(
+            credentialsStore: store,
+            initialSnapshot: DemoPortfolio.snapshot
+        )
+
+        return DashboardView(viewModel: viewModel, credentialsStore: store)
+            .previewLayout(.fixed(width: width, height: height))
+            .previewDisplayName(name)
     }
 }
 #endif
