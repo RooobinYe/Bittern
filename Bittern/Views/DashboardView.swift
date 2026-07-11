@@ -983,6 +983,10 @@ private struct AllocationBubble: View {
 
     private var isOther: Bool { symbol == "OTHER" }
 
+    private var iconLabel: String {
+        isOther ? "⋯" : String(symbol.prefix(4))
+    }
+
     var body: some View {
         HStack(spacing: 5 * scale) {
             symbolIcon
@@ -1001,22 +1005,17 @@ private struct AllocationBubble: View {
         .accessibilityLabel("\(symbol), \(PortfolioFormat.percent(percent, fractionDigits: 0))")
     }
 
-    @ViewBuilder
     private var symbolIcon: some View {
-        if isOther {
-            Text("⋯")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .frame(width: circleSize, height: circleSize)
-                .background(color)
-                .clipShape(Circle())
-        } else {
-            HoldingSymbolIcon(
-                symbol: symbol,
-                color: color,
-                size: circleSize
-            )
-        }
+        Text(iconLabel)
+            .font(.caption2.bold())
+            .fontWidth(.condensed)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .allowsTightening(true)
+            .frame(width: circleSize, height: circleSize)
+            .background(color)
+            .clipShape(Circle())
     }
 }
 
