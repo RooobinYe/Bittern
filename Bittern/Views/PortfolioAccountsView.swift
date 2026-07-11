@@ -59,16 +59,14 @@ struct PortfolioAccountsView: View {
                 }
                 .frame(maxWidth: portfolioAccountsMaximumContentWidth)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
                 .padding(.top, 18)
                 .padding(.bottom, 42)
             }
+            .contentMargins(.horizontal, 24, for: .scrollContent)
             .refreshable {
                 await refresh()
             }
         }
-        .navigationTitle("Edit Portfolio")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

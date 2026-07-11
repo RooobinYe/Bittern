@@ -82,13 +82,10 @@ struct SettingsView: View {
             }
             .frame(maxWidth: settingsMaximumContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
             .padding(.top, 22)
-            .padding(.bottom, 34)
         }
         .background(BitternTheme.background.ignoresSafeArea())
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .contentMargins(.horizontal, 24, for: .scrollContent)
         .toolbar(.visible, for: .navigationBar)
         .tint(BitternTheme.blue)
     }
@@ -141,13 +138,10 @@ private struct SnapTradeCredentialsView: View {
             }
             .frame(maxWidth: settingsMaximumContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
             .padding(.top, 22)
-            .padding(.bottom, 34)
         }
         .background(BitternTheme.background.ignoresSafeArea())
-        .navigationTitle("Credentials")
-        .navigationBarTitleDisplayMode(.inline)
+        .contentMargins(.horizontal, 24, for: .scrollContent)
         .toolbar(.visible, for: .navigationBar)
         .tint(BitternTheme.blue)
     }
