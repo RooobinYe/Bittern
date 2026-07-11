@@ -5,7 +5,7 @@
 
 import Foundation
 
-enum PerformanceMode: String, CaseIterable, Identifiable {
+enum PerformanceMode: String, CaseIterable, Identifiable, Sendable {
     case today
     case allTime
 
@@ -21,7 +21,7 @@ enum PerformanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum HoldingSortOption: String, CaseIterable, Identifiable {
+enum HoldingSortOption: String, CaseIterable, Identifiable, Sendable {
     case gainAmount
     case lossAmount
     case percent
@@ -193,7 +193,7 @@ struct SnapTradeCredentials: Codable, Equatable {
     }
 }
 
-struct PortfolioAccount: Identifiable, Hashable, Codable {
+struct PortfolioAccount: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let connectionID: String?
     let name: String
@@ -214,7 +214,7 @@ struct PortfolioAccount: Identifiable, Hashable, Codable {
     }
 }
 
-struct PortfolioHolding: Identifiable, Hashable, Codable {
+struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let accountID: String
     let symbol: String
@@ -292,7 +292,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable {
     }
 }
 
-struct PortfolioSnapshot: Codable {
+struct PortfolioSnapshot: Codable, Sendable {
     let accounts: [PortfolioAccount]
     let holdings: [PortfolioHolding]
     let totalAssets: Double?

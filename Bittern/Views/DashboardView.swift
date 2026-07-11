@@ -13,8 +13,9 @@ struct DashboardView: View {
     @ObservedObject var credentialsStore: CredentialsStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isShowingSettings = false
-    @State private var containerWidth: CGFloat = 390
+    @State private var viewportSize = CGSize(width: 390, height: 844)
 #if DEBUG
     @State private var didRunDebugScreenshotExport = false
 #endif
@@ -35,10 +36,11 @@ struct DashboardView: View {
             }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { newWidth in
-                containerWidth = newWidth
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { newSize in
+                guard newSize.width > 0, newSize.height > 0 else { return }
+                viewportSize = newSize
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -84,24 +86,22 @@ struct DashboardView: View {
     }
 
     private var portfolioShareItem: PortfolioShareItem {
+        let shareSnapshot = dashboardShareSnapshot
         let screenshotWidth = min(
-            max(containerWidth, 1),
+            max(shareSnapshot.viewportSize.width, 1),
             DashboardLayoutMetrics.maximumExportWidth
         )
         let screenshotColorScheme = colorScheme
         let screenshotScale = displayScale
-        let privacyEnabled = isPrivacyEnabled
-        let priceThreshold = minPriceThreshold
+        let screenshotDynamicTypeSize = dynamicTypeSize
 
         return PortfolioShareItem {
             let content = PortfolioShareScreenshotContent(
-                viewModel: viewModel,
-                isPrivacyEnabled: .constant(privacyEnabled),
-                minPriceThreshold: priceThreshold,
+                snapshot: shareSnapshot,
                 width: screenshotWidth
             )
             .fontDesign(.rounded)
-            .dynamicTypeSize(.large)
+            .environment(\.dynamicTypeSize, screenshotDynamicTypeSize)
             .environment(\.colorScheme, screenshotColorScheme)
             .environment(\.isRenderingScreenshot, true)
 
@@ -118,6 +118,22 @@ struct DashboardView: View {
         }
     }
 
+    private var dashboardShareSnapshot: DashboardShareSnapshot {
+        DashboardShareSnapshot(
+            filterAccounts: viewModel.snapshot.accounts,
+            portfolio: viewModel.visibleSnapshot,
+            sortedHoldings: viewModel.sortedHoldings,
+            errorMessage: viewModel.errorMessage,
+            selectedProviderName: viewModel.selectedProviderName,
+            performanceMode: viewModel.performanceMode,
+            sortOption: viewModel.sortOption,
+            isPrivacyEnabled: isPrivacyEnabled,
+            minPriceThreshold: minPriceThreshold,
+            viewportSize: viewportSize,
+            layoutMode: DashboardLayoutMetrics.layoutMode(in: viewportSize)
+        )
+    }
+
     // MARK: - Debug
 
 #if DEBUG
@@ -132,21 +148,22 @@ struct DashboardView: View {
 
         try? await Task.sleep(nanoseconds: 500_000_000)
 
+        var shareSnapshot = dashboardShareSnapshot
+        shareSnapshot.isPrivacyEnabled = false
+        shareSnapshot.minPriceThreshold = 0
         let screenshotWidth = min(
-            max(containerWidth, 1),
+            max(shareSnapshot.viewportSize.width, 1),
             DashboardLayoutMetrics.maximumExportWidth
         )
         let screenshotColorScheme = colorScheme
 
         guard let image = ScreenshotRenderer.render(
                   PortfolioShareScreenshotContent(
-                      viewModel: viewModel,
-                      isPrivacyEnabled: .constant(false),
-                      minPriceThreshold: 0,
+                      snapshot: shareSnapshot,
                       width: screenshotWidth
                   )
                   .fontDesign(.rounded)
-                  .dynamicTypeSize(.large)
+                  .environment(\.dynamicTypeSize, dynamicTypeSize)
                   .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
                   width: screenshotWidth,
@@ -181,7 +198,7 @@ private extension ColorScheme {
     }
 }
 
-private struct PortfolioShareItem: Transferable, @unchecked Sendable {
+private struct PortfolioShareItem: Transferable, Sendable {
     let renderPNG: @MainActor @Sendable () throws -> Data
 
     static var transferRepresentation: some TransferRepresentation {
@@ -190,6 +207,20 @@ private struct PortfolioShareItem: Transferable, @unchecked Sendable {
         }
         .suggestedFileName("Bittern Portfolio.png")
     }
+}
+
+private struct DashboardShareSnapshot: Sendable {
+    let filterAccounts: [PortfolioAccount]
+    let portfolio: PortfolioSnapshot
+    let sortedHoldings: [PortfolioHolding]
+    let errorMessage: String?
+    let selectedProviderName: String?
+    let performanceMode: PerformanceMode
+    let sortOption: HoldingSortOption
+    var isPrivacyEnabled: Bool
+    var minPriceThreshold: Double
+    let viewportSize: CGSize
+    let layoutMode: DashboardLayoutMode
 }
 
 private enum PortfolioShareError: Error {
@@ -214,50 +245,45 @@ private struct PortfolioAvatarIcon: View {
     }
 }
 
-private struct PortfolioShareHeader: View {
+/// A deliberate document header for the exported portfolio. It is not a
+/// hand-built replacement for the system navigation bar.
+private struct PortfolioExportHeader: View {
     var body: some View {
-        ZStack {
-            HStack {
-                PortfolioAvatarIcon(size: 42)
-
-                Spacer()
-
-                Image(systemName: "square.and.arrow.up")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-            }
-
-            Text("Portfolio")
-                .font(.title2.bold())
-                .foregroundStyle(BitternTheme.ink)
-        }
+        Text("Portfolio")
+            .font(.title2.bold())
+            .foregroundStyle(BitternTheme.ink)
     }
 }
 
 // MARK: - Share Screenshot Content
 
 private struct PortfolioShareScreenshotContent: View {
-    @ObservedObject var viewModel: DashboardViewModel
-    @Binding var isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
+    let snapshot: DashboardShareSnapshot
     let width: CGFloat
 
     var body: some View {
         VStack(spacing: 0) {
-            PortfolioShareHeader()
+            PortfolioExportHeader()
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
                 .padding(.bottom, 18)
                 .background(BitternTheme.background)
 
-            DashboardContent(
-                viewModel: viewModel,
-                isPrivacyEnabled: $isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold
+            DashboardVisualContent(
+                filterAccounts: snapshot.filterAccounts,
+                portfolio: snapshot.portfolio,
+                sortedHoldings: snapshot.sortedHoldings,
+                errorMessage: snapshot.errorMessage,
+                selectedProviderName: .constant(snapshot.selectedProviderName),
+                performanceMode: .constant(snapshot.performanceMode),
+                sortOption: .constant(snapshot.sortOption),
+                isPrivacyEnabled: .constant(snapshot.isPrivacyEnabled),
+                minPriceThreshold: snapshot.minPriceThreshold,
+                layoutMode: snapshot.layoutMode,
+                purpose: .export,
+                refresh: nil
             )
-            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.horizontal, 24)
         }
         .frame(width: width, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
@@ -281,55 +307,110 @@ private enum DashboardLayoutMetrics {
     static let maximumContentWidth: CGFloat = 1_280
     static let maximumExportWidth: CGFloat = maximumContentWidth + 48
 
-    static func usesColumns(in size: CGSize) -> Bool {
-        return size.width >= preferredSplitWidth
+    static func layoutMode(in size: CGSize) -> DashboardLayoutMode {
+        size.width >= preferredSplitWidth
             && size.height >= minimumSplitHeight
+            ? .split
+            : .stacked
     }
+}
+
+private enum DashboardLayoutMode: Sendable {
+    case stacked
+    case split
+}
+
+private enum DashboardRenderPurpose {
+    case interactive
+    case export
 }
 
 private struct DashboardContent: View {
     @ObservedObject var viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
     let minPriceThreshold: Double
-    @Environment(\.isRenderingScreenshot) private var isForScreenshot
+    var body: some View {
+        GeometryReader { proxy in
+            DashboardVisualContent(
+                filterAccounts: viewModel.snapshot.accounts,
+                portfolio: viewModel.visibleSnapshot,
+                sortedHoldings: viewModel.sortedHoldings,
+                errorMessage: viewModel.errorMessage,
+                selectedProviderName: $viewModel.selectedProviderName,
+                performanceMode: $viewModel.performanceMode,
+                sortOption: $viewModel.sortOption,
+                isPrivacyEnabled: $isPrivacyEnabled,
+                minPriceThreshold: minPriceThreshold,
+                layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
+                purpose: .interactive,
+                refresh: { await viewModel.refresh() }
+            )
+        }
+    }
+}
+
+/// The single visual source for both the live dashboard and its exported image.
+/// Export changes interaction and list materialization only; the responsive
+/// layout mode always comes from the viewport that initiated the share.
+private struct DashboardVisualContent: View {
+    let filterAccounts: [PortfolioAccount]
+    let portfolio: PortfolioSnapshot
+    let sortedHoldings: [PortfolioHolding]
+    let errorMessage: String?
+    @Binding var selectedProviderName: String?
+    @Binding var performanceMode: PerformanceMode
+    @Binding var sortOption: HoldingSortOption
+    @Binding var isPrivacyEnabled: Bool
+    let minPriceThreshold: Double
+    let layoutMode: DashboardLayoutMode
+    let purpose: DashboardRenderPurpose
+    let refresh: (() async -> Void)?
 
     @ViewBuilder
     var body: some View {
-        if isForScreenshot {
-            stackedSections
-        } else {
-            GeometryReader { proxy in
-                if DashboardLayoutMetrics.usesColumns(in: proxy.size) {
-                    splitContent
-                        .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                        .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    ScrollView {
-                        stackedSections
-                            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .contentMargins(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding, for: .scrollContent)
-                    .scrollEdgeEffectStyle(.soft, for: .top)
-                    .refreshable { await viewModel.refresh() }
-                }
+        switch (layoutMode, purpose) {
+        case (.stacked, .interactive):
+            ScrollView {
+                stackedSections
+                    .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                    .frame(maxWidth: .infinity)
             }
+            .contentMargins(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .refreshable { await performRefresh() }
+
+        case (.stacked, .export):
+            stackedSections
+                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .frame(maxWidth: .infinity)
+
+        case (.split, .interactive):
+            splitContent(holdsScrollableContent: true)
+                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .frame(maxWidth: .infinity)
+
+        case (.split, .export):
+            splitContent(holdsScrollableContent: false)
+                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .frame(maxWidth: .infinity)
         }
     }
 
     private var accountFilter: some View {
         AccountFilterBar(
-            accounts: viewModel.snapshot.accounts,
-            selectedProviderName: $viewModel.selectedProviderName,
+            accounts: filterAccounts,
+            selectedProviderName: $selectedProviderName,
             isPrivacyEnabled: $isPrivacyEnabled
         )
     }
 
     private var stackedDonut: some View {
         PortfolioDonutSection(
-            snapshot: viewModel.visibleSnapshot,
-            performanceMode: $viewModel.performanceMode,
+            snapshot: portfolio,
+            performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold,
             fillsAvailableSpace: false
@@ -338,8 +419,8 @@ private struct DashboardContent: View {
 
     private var splitDonut: some View {
         PortfolioDonutSection(
-            snapshot: viewModel.visibleSnapshot,
-            performanceMode: $viewModel.performanceMode,
+            snapshot: portfolio,
+            performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold,
             fillsAvailableSpace: true
@@ -348,7 +429,10 @@ private struct DashboardContent: View {
 
     private var holdings: some View {
         HoldingsSection(
-            viewModel: viewModel,
+            sortedHoldings: sortedHoldings,
+            visibleSnapshot: portfolio,
+            performanceMode: $performanceMode,
+            sortOption: $sortOption,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold
         )
@@ -359,7 +443,7 @@ private struct DashboardContent: View {
             accountFilter
             stackedDonut
 
-            if let errorMessage = viewModel.errorMessage {
+            if let errorMessage {
                 ErrorBanner(message: errorMessage)
             }
 
@@ -368,34 +452,64 @@ private struct DashboardContent: View {
         .padding(.bottom, 14)
     }
 
-    private var splitContent: some View {
+    private func splitContent(holdsScrollableContent: Bool) -> some View {
         VStack(spacing: 20) {
             accountFilter
 
             HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                splitDonut
-                    .frame(
-                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                        maxHeight: .infinity
-                    )
+                splitChart(fillsAvailableSpace: holdsScrollableContent)
 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        if let errorMessage = viewModel.errorMessage {
-                            ErrorBanner(message: errorMessage)
-                        }
-
-                        holdings
+                if holdsScrollableContent {
+                    ScrollView {
+                        splitHoldings
                     }
-                    .padding(.bottom, 14)
+                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                    .contentMargins(.horizontal, 8, for: .scrollContent)
+                    .scrollEdgeEffectStyle(.soft, for: .top)
+                    .refreshable { await performRefresh() }
+                } else {
+                    splitHoldings
+                        .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
                 }
-                .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
-                .contentMargins(.horizontal, 8, for: .scrollContent)
-                .scrollEdgeEffectStyle(.soft, for: .top)
-                .refreshable { await viewModel.refresh() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func splitChart(fillsAvailableSpace: Bool) -> some View {
+        if fillsAvailableSpace {
+            splitDonut
+                .frame(
+                    minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                    idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                    maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                    maxHeight: .infinity
+                )
+        } else {
+            stackedDonut
+                .frame(
+                    minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                    idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                    maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                    alignment: .top
+                )
+        }
+    }
+
+    private var splitHoldings: some View {
+        VStack(spacing: 16) {
+            if let errorMessage {
+                ErrorBanner(message: errorMessage)
+            }
+
+            holdings
+        }
+        .padding(.bottom, 14)
+    }
+
+    private func performRefresh() async {
+        if let refresh {
+            await refresh()
         }
     }
 }
@@ -673,20 +787,23 @@ private struct DonutPortfolioChart: View {
 // MARK: - Holdings Section
 
 private struct HoldingsSection: View {
-    @ObservedObject var viewModel: DashboardViewModel
+    let sortedHoldings: [PortfolioHolding]
+    let visibleSnapshot: PortfolioSnapshot
+    @Binding var performanceMode: PerformanceMode
+    @Binding var sortOption: HoldingSortOption
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
 
     private var filteredHoldings: [PortfolioHolding] {
-        viewModel.sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
+        sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
     }
 
     private var accountProviderLookup: [String: String] {
-        Dictionary(uniqueKeysWithValues: viewModel.visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
+        Dictionary(uniqueKeysWithValues: visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
     }
 
     private var holdingColorLookup: [String: Color] {
-        makeHoldingColorLookup(from: viewModel.visibleSnapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? false })
+        makeHoldingColorLookup(from: visibleSnapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? false })
     }
 
     var body: some View {
@@ -700,8 +817,8 @@ private struct HoldingsSection: View {
             } else {
                 HoldingsList(
                     filteredHoldings: filteredHoldings,
-                    visibleSnapshot: viewModel.visibleSnapshot,
-                    performanceMode: viewModel.performanceMode,
+                    visibleSnapshot: visibleSnapshot,
+                    performanceMode: performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
                     accountProviderLookup: accountProviderLookup,
                     holdingColorLookup: holdingColorLookup
@@ -731,7 +848,7 @@ private struct HoldingsSection: View {
     }
 
     private var updatedLabel: some View {
-        Text("Updated \(PortfolioFormat.timeWithSeconds(viewModel.visibleSnapshot.lastUpdated))")
+        Text("Updated \(PortfolioFormat.timeWithSeconds(visibleSnapshot.lastUpdated))")
             .font(.caption.weight(.semibold))
             .foregroundStyle(BitternTheme.secondaryInk)
             .fixedSize(horizontal: false, vertical: true)
@@ -739,8 +856,8 @@ private struct HoldingsSection: View {
 
     private var sortMenu: some View {
         HoldingsSortMenu(
-            performanceMode: $viewModel.performanceMode,
-            sortOption: $viewModel.sortOption
+            performanceMode: $performanceMode,
+            sortOption: $sortOption
         )
     }
 }
