@@ -682,9 +682,10 @@ private struct DonutPortfolioChart: View {
         GeometryReader { proxy in
             let canvasSide = min(proxy.size.width, proxy.size.height)
             let labelExtent = min(max(canvasSide * 0.19, 64), 84)
-            let labelRadiusFactor = 0.64
+            let labelRadiusFactor = 0.60
             // Solve for the largest ring whose outer labels still fit in the
-            // canvas instead of tying the ring to a device or screen ratio.
+            // canvas. Keeping label centers close to the ring's outer edge
+            // lets the glass capsules refract more of each segment's color.
             let side = max((canvasSide - labelExtent) / (labelRadiusFactor * 2), 1)
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
             let labelRadius = side * labelRadiusFactor
@@ -1117,7 +1118,7 @@ private struct AllocationBubble: View {
         .padding(.leading, 4 * scale)
         .padding(.trailing, 7 * scale)
         .frame(height: 34 * scale)
-        .glassEffect(.regular, in: .capsule)
+        .glassEffect(.clear, in: .capsule)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(symbol), \(PortfolioFormat.percent(percent, fractionDigits: 0))")
     }
