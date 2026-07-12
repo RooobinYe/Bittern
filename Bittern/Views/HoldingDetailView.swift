@@ -418,73 +418,69 @@ private struct HoldingPriceChart: View {
         let minMax = precomputedMinMax
         GeometryReader { proxy in
             let size = proxy.size
-            Canvas { context, canvasSize in
-                let metrics = ChartMetrics(
-                    points: points,
-                    size: canvasSize,
-                    minPrice: minMax.min,
-                    maxPrice: minMax.max
-                )
-                guard metrics.isDrawable else { return }
+            let metrics = ChartMetrics(
+                points: points,
+                size: size,
+                minPrice: minMax.min,
+                maxPrice: minMax.max
+            )
+            let activeIndex = selectedPoint.flatMap { metrics.index(of: $0) }
 
-                if let basePrice,
-                   let baseY = metrics.y(for: basePrice) {
-                    var baseline = Path()
-                    baseline.move(to: CGPoint(x: metrics.sideInset, y: baseY))
-                    baseline.addLine(to: CGPoint(x: canvasSize.width - metrics.sideInset, y: baseY))
-                    context.stroke(
-                        baseline,
-                        with: .color(BitternTheme.softLine.opacity(0.55)),
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [7, 7])
-                    )
+            ZStack {
+                Canvas { context, canvasSize in
+                    guard metrics.isDrawable else { return }
 
-                    let label = Text(PortfolioFormat.price(basePrice, currencyCode: currencyCode))
-                        .font(.footnote.bold().monospacedDigit())
-                        .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
-                    context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 28, y: max(12, baseY - 16)))
-                }
+                    if let basePrice,
+                       let baseY = metrics.y(for: basePrice) {
+                        var baseline = Path()
+                        baseline.move(to: CGPoint(x: metrics.sideInset, y: baseY))
+                        baseline.addLine(to: CGPoint(x: canvasSize.width - metrics.sideInset, y: baseY))
+                        context.stroke(
+                            baseline,
+                            with: .color(BitternTheme.softLine.opacity(0.55)),
+                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [7, 7])
+                        )
 
-                let activeIndex = selectedPoint.flatMap { metrics.index(of: $0) }
-                let fullPath = metrics.path(through: points.indices)
+                        let label = Text(PortfolioFormat.price(basePrice, currencyCode: currencyCode))
+                            .font(.footnote.bold().monospacedDigit())
+                            .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
+                        context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 28, y: max(12, baseY - 16)))
+                    }
 
-                if let activeIndex {
-                    context.stroke(
-                        fullPath,
-                        with: .color(lineColor.opacity(0.13)),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
+                    let fullPath = metrics.path(through: points.indices)
 
-                    let selectedPath = metrics.path(through: 0...activeIndex)
-                    context.stroke(
-                        selectedPath,
-                        with: .color(lineColor),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
-                } else {
-                    context.stroke(
-                        fullPath,
-                        with: .color(lineColor),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
+                    if let activeIndex {
+                        context.stroke(
+                            fullPath,
+                            with: .color(lineColor.opacity(0.13)),
+                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        )
+
+                        let selectedPath = metrics.path(through: 0...activeIndex)
+                        context.stroke(
+                            selectedPath,
+                            with: .color(lineColor),
+                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        )
+                    } else {
+                        context.stroke(
+                            fullPath,
+                            with: .color(lineColor),
+                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        )
+                    }
                 }
 
                 let markerIndex = activeIndex ?? points.indices.last
                 if let markerIndex,
                    let marker = metrics.location(for: markerIndex) {
-                    let outerRect = CGRect(
-                        x: marker.x - 19,
-                        y: marker.y - 19,
-                        width: 38,
-                        height: 38
-                    )
-                    let innerRect = CGRect(
-                        x: marker.x - 6.5,
-                        y: marker.y - 6.5,
-                        width: 13,
-                        height: 13
-                    )
-                    context.fill(Path(ellipseIn: outerRect), with: .color(lineColor.opacity(0.16)))
-                    context.fill(Path(ellipseIn: innerRect), with: .color(lineColor))
+                    Circle()
+                        .fill(lineColor)
+                        .frame(width: 13, height: 13)
+                        .frame(width: 38, height: 38)
+                        .glassEffect(.regular, in: .circle)
+                        .position(marker)
+                        .allowsHitTesting(false)
                 }
             }
             .contentShape(Rectangle())
