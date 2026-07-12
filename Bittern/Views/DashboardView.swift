@@ -300,7 +300,7 @@ private enum DashboardLayoutMetrics {
     static let idealChartColumnWidth: CGFloat = 440
     static let minimumHoldingsColumnWidth: CGFloat = 360
     static let columnSpacing: CGFloat = 28
-    static let contentHorizontalPadding: CGFloat = 24
+    static let contentHorizontalPadding: CGFloat = 16
     static let preferredSplitWidth: CGFloat = 756
     static let minimumSplitHeight: CGFloat = 460
     static let maximumChartSide: CGFloat = 500
