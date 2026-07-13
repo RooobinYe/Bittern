@@ -185,7 +185,7 @@ private struct MinPriceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Minimum Market Value")
 
-                Text(threshold == 0 ? "Show all holdings" : "Hide holdings below \(formattedThreshold)")
+                Text("Hide holdings below \(formattedThreshold)")
                     .font(.footnote)
                     .foregroundStyle(BitternTheme.secondaryInk)
             }

@@ -1109,7 +1109,7 @@ private struct AllocationBubble: View {
     private var isOther: Bool { symbol == "OTHER" }
 
     private var iconLabel: String {
-        isOther ? "⋯" : String(symbol.prefix(4))
+        isOther ? "OTH" : String(symbol.prefix(4))
     }
 
     var body: some View {
@@ -1136,7 +1136,8 @@ private struct AllocationBubble: View {
             logoURL: logoURL,
             color: color,
             size: circleSize,
-            fallbackLabel: iconLabel
+            fallbackLabel: iconLabel,
+            fallbackForegroundColor: .white
         )
     }
 }
@@ -1347,7 +1348,7 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
     let total = sortedHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
     guard total > 0 else { return [] }
 
-    let minAllocation = total * 0.04 // 小于 4% 的 Holdings 进入 Others
+    let minAllocation = total * 0.05 // 小于 5% 的 Holdings 进入 Others
     let visibleHoldings = sortedHoldings.filter {
         ($0.marketValue ?? 0) >= minAllocation
     }
