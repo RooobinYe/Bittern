@@ -59,6 +59,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .toolbar(.visible, for: .navigationBar)
@@ -112,7 +113,9 @@ private struct SnapTradeCredentialsView: View {
         }
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Credentials")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar(.visible, for: .navigationBar)
     }
 }
