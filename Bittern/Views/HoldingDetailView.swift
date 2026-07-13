@@ -5,6 +5,7 @@
 
 import Combine
 import SwiftUI
+import OSLog
 
 struct HoldingDetailView: View {
     let holding: PortfolioHolding
@@ -117,12 +118,16 @@ private final class HoldingDetailViewModel: ObservableObject {
 
     func refreshSelectedRange() async {
         let range = selectedRange
-        print("[HoldingDetail] refreshSelectedRange range=\(range.title) symbol=\(holding.symbol) isCancelled=\(Task.isCancelled)")
+        AppLog.marketData.debug(
+            "Chart refresh requested range=\(range.title, privacy: .public) symbol=\(self.holding.symbol) taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
         await loadSelectedRange(range, showsLoading: priceSeriesByRange[range] == nil)
     }
 
     private func loadSelectedRange(_ range: HoldingChartRange, showsLoading: Bool) async {
-        print("[HoldingDetail] loadSelectedRange range=\(range.title) showsLoading=\(showsLoading) isCancelled=\(Task.isCancelled)")
+        AppLog.marketData.debug(
+            "Chart load started range=\(range.title, privacy: .public) showsLoading=\(showsLoading, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
         if showsLoading {
             isLoading = true
         }
@@ -139,14 +144,20 @@ private final class HoldingDetailViewModel: ObservableObject {
                 range: range
             )
             guard !Task.isCancelled else {
-                print("[HoldingDetail] fetch succeeded but task cancelled, discarding \(history.count) points")
+                AppLog.marketData.debug(
+                    "Chart load discarded after cancellation points=\(history.count, privacy: .public)"
+                )
                 return
             }
             selectedPoint = nil
             priceSeriesByRange[range] = normalized(history)
-            print("[HoldingDetail] saved \(history.count) points for \(range.title)")
+            AppLog.marketData.debug(
+                "Chart load saved points=\(history.count, privacy: .public) range=\(range.title, privacy: .public)"
+            )
         } catch {
-            print("[HoldingDetail] fetch failed: \(error)")
+            AppLog.marketData.warning(
+                "Chart load failed range=\(range.title, privacy: .public) symbol=\(self.holding.symbol): \(AppLog.describe(error))"
+            )
             priceSeriesByRange[range] = []
         }
     }

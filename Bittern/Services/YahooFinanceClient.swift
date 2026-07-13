@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import OSLog
 
 struct YahooQuoteRequest: Sendable {
     let symbol: String
@@ -49,8 +50,8 @@ struct YahooFinanceClient {
             throw NetworkServiceError.emptySymbols
         }
 
-        debugLog(
-            "quotes requested inputCount=\(requests.count) uniqueCount=\(normalizedRequests.count) assets=\(logAssets(normalizedRequests)) taskCancelled=\(Task.isCancelled)"
+        AppLog.marketData.debug(
+            "Quotes requested inputCount=\(requests.count, privacy: .public) uniqueCount=\(normalizedRequests.count, privacy: .public) assets=\(logAssets(normalizedRequests)) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
         // Fetch every symbol independently — the chart API accepts one
@@ -76,8 +77,8 @@ struct YahooFinanceClient {
 
         let succeeded = results.keys.sorted()
         let failed = normalizedRequests.map(\.symbol).filter { results[$0] == nil }
-        debugLog(
-            "quotes completed succeeded=\(succeeded.count)/\(normalizedRequests.count) succeededSymbols=\(logList(succeeded)) failedSymbols=\(logList(failed)) taskCancelled=\(Task.isCancelled)"
+        AppLog.marketData.debug(
+            "Quotes completed succeeded=\(succeeded.count, privacy: .public)/\(normalizedRequests.count, privacy: .public) succeededSymbols=\(AppLog.list(succeeded)) failedSymbols=\(AppLog.list(failed)) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
         return results
@@ -93,22 +94,32 @@ struct YahooFinanceClient {
             throw NetworkServiceError.emptySymbols
         }
 
-        print("[YahooClient] priceHistory symbol=\(symbol) instrumentKind=\(logKind(instrumentKind)) range=\(range.title) candidates=\(candidates)")
+        AppLog.marketData.debug(
+            "Price history requested symbol=\(symbol) instrumentKind=\(logKind(instrumentKind), privacy: .public) range=\(range.title, privacy: .public) candidates=\(AppLog.list(candidates))"
+        )
 
         for candidate in candidates {
             do {
                 let history = try await fetchHistoryOne(candidate: candidate, range: range)
                 if !history.isEmpty {
-                    print("[YahooClient] candidate \(candidate) returned \(history.count) points")
+                    AppLog.marketData.debug(
+                        "Price history candidate=\(candidate) returned points=\(history.count, privacy: .public)"
+                    )
                     return history
                 }
-                print("[YahooClient] candidate \(candidate) returned empty history")
+                AppLog.marketData.warning(
+                    "Price history candidate=\(candidate) returned no points"
+                )
             } catch {
-                print("[YahooClient] candidate \(candidate) failed: \(error)")
+                AppLog.marketData.warning(
+                    "Price history candidate=\(candidate) failed: \(AppLog.describe(error))"
+                )
             }
         }
 
-        print("[YahooClient] all candidates failed for \(symbol)")
+        AppLog.marketData.error(
+            "Price history failed for every candidate symbol=\(symbol)"
+        )
         throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
     }
 
@@ -124,15 +135,15 @@ struct YahooFinanceClient {
             instrumentKind: request.instrumentKind
         )
 
-        debugLog(
-            "quote symbol=\(upper) instrumentKind=\(logKind(request.instrumentKind)) candidates=\(logList(candidates)) started"
+        AppLog.marketData.debug(
+            "Quote symbol=\(upper) instrumentKind=\(logKind(request.instrumentKind), privacy: .public) candidates=\(AppLog.list(candidates)) started"
         )
 
         for candidate in candidates {
             do {
                 let quote = try await fetchOne(candidate: candidate)
-                debugLog(
-                    "quote symbol=\(upper) candidate=\(candidate) succeeded price=\(logValue(quote.regularMarketPrice)) previousClose=\(logValue(quote.regularMarketPreviousClose)) currency=\(quote.currency ?? "nil")"
+                AppLog.marketData.debug(
+                    "Quote symbol=\(upper) candidate=\(candidate) succeeded price=\(AppLog.optional(quote.regularMarketPrice)) previousClose=\(AppLog.optional(quote.regularMarketPreviousClose)) currency=\(quote.currency ?? "nil")"
                 )
                 // Always report back with the original ticker
                 return YahooQuoteDTO(
@@ -144,13 +155,15 @@ struct YahooFinanceClient {
                     regularMarketPreviousClose: quote.regularMarketPreviousClose
                 )
             } catch {
-                debugLog(
-                    "quote symbol=\(upper) candidate=\(candidate) failed \(debugDescription(for: error))"
+                AppLog.marketData.warning(
+                    "Quote symbol=\(upper) candidate=\(candidate) failed: \(AppLog.describe(error))"
                 )
             }
         }
 
-        debugLog("quote symbol=\(upper) failed allCandidates=\(logList(candidates))")
+        AppLog.marketData.warning(
+            "Quote symbol=\(upper) failed allCandidates=\(AppLog.list(candidates))"
+        )
         return nil
     }
 
@@ -188,49 +201,53 @@ struct YahooFinanceClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let startedAt = Date()
-        debugLog("HTTP quote candidate=\(symbol) started url=\(url.absoluteString)")
+        AppLog.marketData.debug(
+            "HTTP quote candidate=\(symbol) started url=\(url.absoluteString)"
+        )
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            debugLog(
-                "HTTP quote candidate=\(symbol) transportFailed \(debugDescription(for: error)) duration=\(durationText(since: startedAt))"
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) transport failed: \(AppLog.describe(error)) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
             )
             throw error
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            debugLog(
-                "HTTP quote candidate=\(symbol) nonHTTPResponse bytes=\(data.count) duration=\(durationText(since: startedAt))"
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) returned a non-HTTP response bytes=\(data.count, privacy: .public) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
             )
             throw NetworkServiceError.httpStatus(-1, "Yahoo returned a non-HTTP response.")
         }
 
-        let responseSummary = "status=\(httpResponse.statusCode) bytes=\(data.count) contentType=\(httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "nil") retryAfter=\(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "nil") duration=\(durationText(since: startedAt))"
+        let responseSummary = "status=\(httpResponse.statusCode) bytes=\(data.count) contentType=\(httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "nil") retryAfter=\(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "nil") duration=\(AppLog.duration(since: startedAt))"
         guard (200 ..< 300).contains(httpResponse.statusCode) else {
             let bodyPreview = responseBodyPreview(data)
-            debugLog(
-                "HTTP quote candidate=\(symbol) failed \(responseSummary) body=\(bodyPreview)"
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) failed \(responseSummary, privacy: .public) body=\(bodyPreview)"
             )
             throw NetworkServiceError.httpStatus(httpResponse.statusCode, bodyPreview)
         }
 
-        debugLog("HTTP quote candidate=\(symbol) succeeded \(responseSummary)")
+        AppLog.marketData.debug(
+            "HTTP quote candidate=\(symbol) succeeded \(responseSummary, privacy: .public)"
+        )
 
         let decoded: YahooChartResponseDTO
         do {
             decoded = try JSONDecoder().decode(YahooChartResponseDTO.self, from: data)
         } catch {
-            debugLog(
-                "HTTP quote candidate=\(symbol) decodeFailed \(debugDescription(for: error)) body=\(responseBodyPreview(data))"
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) decode failed: \(AppLog.describe(error)) body=\(responseBodyPreview(data))"
             )
             throw error
         }
 
         // The chart wrapper may carry an error even on HTTP 200
         if let chartError = decoded.chart.error {
-            debugLog(
-                "HTTP quote candidate=\(symbol) yahooError code=\(chartError.code ?? "nil") description=\(chartError.description ?? "nil")"
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) provider error code=\(chartError.code ?? "nil") description=\(chartError.description ?? "nil")"
             )
             throw NetworkServiceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")
         }
@@ -239,7 +256,9 @@ struct YahooFinanceClient {
               let meta = result.meta,
               let currentPrice = meta.regularMarketPrice
         else {
-            debugLog("HTTP quote candidate=\(symbol) missing regularMarketPrice or chart result")
+            AppLog.marketData.error(
+                "HTTP quote candidate=\(symbol) is missing regularMarketPrice or chart result"
+            )
             throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
@@ -255,21 +274,6 @@ struct YahooFinanceClient {
         )
     }
 
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print("[YahooFinanceClient] \(message)")
-        #endif
-    }
-
-    private func debugDescription(for error: Error) -> String {
-        let nsError = error as NSError
-        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
-    }
-
-    private func durationText(since startedAt: Date) -> String {
-        String(format: "%.3fs", Date().timeIntervalSince(startedAt))
-    }
-
     private func responseBodyPreview(_ data: Data) -> String {
         guard !data.isEmpty else { return "<empty>" }
 
@@ -280,15 +284,11 @@ struct YahooFinanceClient {
         return preview.isEmpty ? "<empty>" : "\"\(preview)\""
     }
 
-    private func logList(_ values: [String]) -> String {
-        values.isEmpty ? "[]" : "[\(values.joined(separator: ","))]"
-    }
-
     private func logAssets(_ requests: [YahooQuoteRequest]) -> String {
         let values = requests.map {
             "\($0.symbol):\(logKind($0.instrumentKind))"
         }
-        return logList(values)
+        return AppLog.list(values)
     }
 
     private func logKind(_ instrumentKind: PortfolioInstrumentKind?) -> String {
@@ -297,10 +297,6 @@ struct YahooFinanceClient {
 
     private func normalizedSymbol(_ symbol: String) -> String {
         symbol.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func logValue(_ value: Double?) -> String {
-        value.map { String($0) } ?? "nil"
     }
 
     private func fetchHistoryOne(candidate symbol: String, range: HoldingChartRange) async throws -> [HoldingPricePoint] {

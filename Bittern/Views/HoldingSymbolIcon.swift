@@ -6,6 +6,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import OSLog
 
 struct HoldingSymbolIcon: View {
     let symbol: String
@@ -84,8 +85,8 @@ private struct RemoteLogoImage: View {
 
     private func loadImage() async {
         image = nil
-        debugLogoLoad(
-            "requested symbol=\(symbol) url=\(redactedLogoURLDescription(url))"
+        AppLog.images.debug(
+            "Logo requested symbol=\(symbol) url=\(redactedLogoURLDescription(url))"
         )
 
         var request = URLRequest(
@@ -134,15 +135,15 @@ private struct RemoteLogoImage: View {
                 ?? Int(decodedImage.size.width * decodedImage.scale)
             let pixelHeight = decodedImage.cgImage?.height
                 ?? Int(decodedImage.size.height * decodedImage.scale)
-            debugLogoLoad(
-                "succeeded symbol=\(symbol) status=\(httpResponse.statusCode) contentType=\(contentType) pixels=\(pixelWidth)x\(pixelHeight) bytes=\(data.count) url=\(redactedLogoURLDescription(url))"
+            AppLog.images.debug(
+                "Logo succeeded symbol=\(symbol) status=\(httpResponse.statusCode, privacy: .public) contentType=\(contentType, privacy: .public) pixels=\(pixelWidth, privacy: .public)x\(pixelHeight, privacy: .public) bytes=\(data.count, privacy: .public) url=\(redactedLogoURLDescription(url))"
             )
         } catch is CancellationError {
             return
         } catch {
             image = nil
-            debugLogoLoad(
-                "failed symbol=\(symbol) error=\(logoImageErrorDescription(error)) url=\(redactedLogoURLDescription(url))"
+            AppLog.images.warning(
+                "Logo failed symbol=\(symbol) error=\(logoImageErrorDescription(error), privacy: .public) url=\(redactedLogoURLDescription(url))"
             )
         }
     }
@@ -187,10 +188,4 @@ private func logoImageErrorDescription(_ error: Error) -> String {
 
     let nsError = error as NSError
     return "domain=\(nsError.domain) code=\(nsError.code)"
-}
-
-private func debugLogoLoad(_ message: String) {
-    #if DEBUG
-    print("[HoldingLogoImage] \(message)")
-    #endif
 }

@@ -5,6 +5,7 @@
 
 import SwiftUI
 import UIKit
+import OSLog
 
 /// A standard UIActivityViewController wrapper for sharing items.
 struct ShareSheet: UIViewControllerRepresentable {
@@ -25,11 +26,11 @@ struct ShareSheet: UIViewControllerRepresentable {
 
         controller.completionWithItemsHandler = { _, completed, _, error in
             if let error {
-                print("[ShareSheet] Share failed: \(error.localizedDescription)")
+                AppLog.sharing.error("Share failed: \(AppLog.describe(error))")
             }
 
             if completed {
-                print("[ShareSheet] Share completed successfully.")
+                AppLog.sharing.debug("Share completed successfully")
             }
         }
 

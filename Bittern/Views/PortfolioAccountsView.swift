@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import OSLog
 
 struct PortfolioAccountsView: View {
     @ObservedObject var credentialsStore: CredentialsStore
@@ -112,7 +113,7 @@ struct PortfolioAccountsView: View {
     }
 
     private func save() {
-        debugLog("save tapped")
+        AppLog.credentials.debug("Save credentials tapped")
         Task { await saveCredentials() }
     }
 
@@ -125,6 +126,9 @@ struct PortfolioAccountsView: View {
             Task { await viewModel.fullRefresh() }
         } catch {
             errorMessage = error.localizedDescription
+            AppLog.credentials.error(
+                "Clearing credentials failed: \(AppLog.describe(error))"
+            )
         }
     }
 
@@ -145,16 +149,21 @@ struct PortfolioAccountsView: View {
             openURL(url)
         } catch {
             errorMessage = error.localizedDescription
+            AppLog.credentials.error(
+                "Opening connection portal failed: \(AppLog.describe(error))"
+            )
         }
     }
 
     private func saveCredentials() async {
-        debugLog(
-            "saveCredentials requested isSaving=\(isSavingCredentials) viewModel.isLoading=\(viewModel.isLoading) taskCancelled=\(Task.isCancelled)"
+        AppLog.credentials.debug(
+            "Save credentials requested isSaving=\(isSavingCredentials, privacy: .public) viewModelIsLoading=\(viewModel.isLoading, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
         guard !isSavingCredentials else {
-            debugLog("saveCredentials skipped because isSavingCredentials is already true")
+            AppLog.credentials.debug(
+                "Save credentials skipped because a save is already running"
+            )
             return
         }
 
@@ -162,18 +171,24 @@ struct PortfolioAccountsView: View {
 
         do {
             _ = try await ensureRegisteredCredentials()
-            debugLog("saveCredentials registered credentials; starting refresh")
+            AppLog.credentials.debug(
+                "Credentials registered; starting portfolio refresh"
+            )
             await refresh()
             isSavingCredentials = false
             errorMessage = nil
-            debugLog("saveCredentials completed refresh successfully")
+            AppLog.credentials.debug(
+                "Save credentials completed portfolio refresh"
+            )
             successMessage = "Credentials saved successfully."
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             successMessage = nil
         } catch {
             isSavingCredentials = false
             errorMessage = error.localizedDescription
-            debugLog("saveCredentials failed \(debugDescription(for: error))")
+            AppLog.credentials.error(
+                "Save credentials failed: \(AppLog.describe(error))"
+            )
         }
     }
 
@@ -221,16 +236,6 @@ struct PortfolioAccountsView: View {
         return "bittern-personal-\(String(normalized))"
     }
 
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print("[PortfolioAccountsView] \(message)")
-        #endif
-    }
-
-    private func debugDescription(for error: Error) -> String {
-        let nsError = error as NSError
-        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
-    }
 }
 
 private let portfolioAccountsMaximumContentWidth: CGFloat = 900

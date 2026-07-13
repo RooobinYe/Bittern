@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 protocol PortfolioRepository {
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot
@@ -15,12 +16,16 @@ struct LivePortfolioRepository: PortfolioRepository {
     private let logoURLResolver = BrandfetchLogoURLResolver()
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
-        debugLog("loadPortfolio started taskCancelled=\(Task.isCancelled)")
+        AppLog.portfolio.debug(
+            "Portfolio load started taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
         let snapTrade = SnapTradeClient(credentials: credentials)
         let yahoo = YahooFinanceClient()
 
         let accountSources = try await loadAccountSources(from: snapTrade)
-        debugLog("loadPortfolio accountSources=\(accountSources.count)")
+        AppLog.portfolio.debug(
+            "Portfolio load accountSources=\(accountSources.count, privacy: .public)"
+        )
         let accounts = accountSources.map { source in
             let dto = source.account
             return PortfolioAccount(
@@ -37,10 +42,14 @@ struct LivePortfolioRepository: PortfolioRepository {
 
         var positionsByAccount: [(PortfolioAccount, SnapTradePositionDTO)] = []
         for account in accounts {
-            debugLog("loadPortfolio loading positions currentCount=\(positionsByAccount.count)")
+            AppLog.portfolio.debug(
+                "Loading positions currentCount=\(positionsByAccount.count, privacy: .public)"
+            )
             let positions = try await snapTrade.listPositions(accountID: account.id)
             positionsByAccount.append(contentsOf: positions.map { (account, $0) })
-            debugLog("loadPortfolio loaded positions batch=\(positions.count) total=\(positionsByAccount.count)")
+            AppLog.portfolio.debug(
+                "Loaded positions batch=\(positions.count, privacy: .public) total=\(positionsByAccount.count, privacy: .public)"
+            )
         }
 
         let quoteRequests = positionsByAccount.compactMap { _, position -> YahooQuoteRequest? in
@@ -52,15 +61,21 @@ struct LivePortfolioRepository: PortfolioRepository {
                 )
             )
         }
-        debugLog("loadPortfolio loading quotes assets=\(quoteRequests.count)")
+        AppLog.portfolio.debug(
+            "Loading quotes assets=\(quoteRequests.count, privacy: .public)"
+        )
 
         let quotes = (try? await yahoo.quotes(for: quoteRequests)) ?? [:]
-        debugLog("loadPortfolio loaded quotes=\(quotes.count)")
+        AppLog.portfolio.debug(
+            "Loaded quotes=\(quotes.count, privacy: .public)"
+        )
         let dividendActivitiesByAccount = await loadDividendActivitiesByAccount(
             accounts: accounts,
             snapTrade: snapTrade
         )
-        debugLog("loadPortfolio loaded dividendActivityAccounts=\(dividendActivitiesByAccount.count)")
+        AppLog.portfolio.debug(
+            "Loaded dividend activity accounts=\(dividendActivitiesByAccount.count, privacy: .public)"
+        )
 
         let holdings = positionsByAccount.compactMap { account, position -> PortfolioHolding? in
             guard let rawSymbol = position.resolvedSymbol?.trimmedNonEmpty else {
@@ -81,8 +96,8 @@ struct LivePortfolioRepository: PortfolioRepository {
                 snapTradeValue: position.instrument?.kind
             )
             let logoURL = logoURLResolver.logoURL(for: symbol, kind: instrumentKind)
-            debugLog(
-                "logoResolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil") resolvedKind=\(instrumentKind?.rawValue ?? "nil") configured=\(logoURLResolver.isConfigured) url=\(logoURLResolver.redactedDescription(for: logoURL))"
+            AppLog.portfolio.debug(
+                "Logo resolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil", privacy: .public) resolvedKind=\(instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(logoURLResolver.isConfigured, privacy: .public) url=\(logoURLResolver.redactedDescription(for: logoURL))"
             )
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
                 .joined(separator: "-")
@@ -113,10 +128,12 @@ struct LivePortfolioRepository: PortfolioRepository {
         }
 
         let holdingsWithPreparedLogoURL = holdings.lazy.filter { $0.logoURL != nil }.count
-        debugLog(
-            "loadPortfolio logoSummary configured=\(logoURLResolver.isConfigured) urlsPrepared=\(holdingsWithPreparedLogoURL)/\(holdings.count)"
+        AppLog.portfolio.debug(
+            "Portfolio logo summary configured=\(logoURLResolver.isConfigured, privacy: .public) urlsPrepared=\(holdingsWithPreparedLogoURL, privacy: .public)/\(holdings.count, privacy: .public)"
         )
-        debugLog("loadPortfolio completed accounts=\(accounts.count) holdings=\(holdings.count)")
+        AppLog.portfolio.debug(
+            "Portfolio load completed accounts=\(accounts.count, privacy: .public) holdings=\(holdings.count, privacy: .public)"
+        )
         return PortfolioSnapshot.make(
             accounts: accounts,
             holdings: holdings,
@@ -133,22 +150,24 @@ struct LivePortfolioRepository: PortfolioRepository {
             )
         }
         let normalizedSymbols = Array(Set(quoteRequests.map { normalized($0.symbol) })).sorted()
-        debugLog(
-            "refreshPrices started holdings=\(snapshot.holdings.count) uniqueSymbols=\(normalizedSymbols.count) symbols=\(normalizedSymbols.joined(separator: ",")) taskCancelled=\(Task.isCancelled)"
+        AppLog.portfolio.debug(
+            "Price refresh started holdings=\(snapshot.holdings.count, privacy: .public) uniqueSymbols=\(normalizedSymbols.count, privacy: .public) symbols=\(normalizedSymbols.joined(separator: ",")) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
         let quotes: [String: YahooQuoteDTO]
         do {
             quotes = try await YahooFinanceClient().quotes(for: quoteRequests)
         } catch {
-            debugLog("refreshPrices quote request failed \(debugDescription(for: error))")
+            AppLog.portfolio.warning(
+                "Price refresh quote request failed: \(AppLog.describe(error))"
+            )
             quotes = [:]
         }
 
         let quoteSymbols = quotes.keys.sorted()
         let missingSymbols = normalizedSymbols.filter { quotes[$0] == nil }
-        debugLog(
-            "refreshPrices quote summary succeeded=\(quoteSymbols.count)/\(normalizedSymbols.count) quoteSymbols=\(logList(quoteSymbols)) missingSymbols=\(logList(missingSymbols))"
+        AppLog.portfolio.debug(
+            "Price refresh quote summary succeeded=\(quoteSymbols.count, privacy: .public)/\(normalizedSymbols.count, privacy: .public) quoteSymbols=\(AppLog.list(quoteSymbols)) missingSymbols=\(AppLog.list(missingSymbols))"
         )
 
         let updatedHoldings = snapshot.holdings.map { holding -> PortfolioHolding in
@@ -157,8 +176,8 @@ struct LivePortfolioRepository: PortfolioRepository {
             let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
             let previousClose = quote?.regularMarketPreviousClose
 
-            debugLog(
-                "refreshPrices holding symbol=\(symbol) quoteFound=\(quote != nil) oldPrice=\(logValue(holding.currentPrice)) newPrice=\(logValue(currentPrice)) oldPreviousClose=\(logValue(holding.previousClose)) newPreviousClose=\(logValue(previousClose))"
+            AppLog.portfolio.debug(
+                "Price refresh holding symbol=\(symbol) quoteFound=\(quote != nil, privacy: .public) oldPrice=\(AppLog.optional(holding.currentPrice)) newPrice=\(AppLog.optional(currentPrice)) oldPreviousClose=\(AppLog.optional(holding.previousClose)) newPreviousClose=\(AppLog.optional(previousClose))"
             )
 
             return PortfolioHolding(
@@ -188,15 +207,21 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     private func loadAccountSources(from snapTrade: SnapTradeClient) async throws -> [AccountSource] {
-        debugLog("loadAccountSources started taskCancelled=\(Task.isCancelled)")
+        AppLog.portfolio.debug(
+            "Account source load started taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
         do {
             let connections = try await snapTrade.listConnections()
-            debugLog("loadAccountSources connections=\(connections.count)")
+            AppLog.portfolio.debug(
+                "Account source connections=\(connections.count, privacy: .public)"
+            )
             guard !connections.isEmpty else {
                 let accounts = try await snapTrade.listAccounts().map {
                     AccountSource(account: $0, connection: nil)
                 }
-                debugLog("loadAccountSources fallback accounts=\(accounts.count)")
+                AppLog.portfolio.debug(
+                    "Account source fallback accounts=\(accounts.count, privacy: .public)"
+                )
                 return accounts
             }
 
@@ -216,16 +241,22 @@ struct LivePortfolioRepository: PortfolioRepository {
                 var sources: [AccountSource] = []
                 for try await batch in group {
                     sources.append(contentsOf: batch)
-                    debugLog("loadAccountSources collected batch=\(batch.count) total=\(sources.count)")
+                    AppLog.portfolio.debug(
+                        "Account sources collected batch=\(batch.count, privacy: .public) total=\(sources.count, privacy: .public)"
+                    )
                 }
                 return sources
             }
         } catch {
-            debugLog("loadAccountSources failed primary path \(debugDescription(for: error)); trying accounts fallback")
+            AppLog.portfolio.warning(
+                "Account source primary path failed; trying fallback: \(AppLog.describe(error))"
+            )
             let accounts = try await snapTrade.listAccounts().map {
                 AccountSource(account: $0, connection: nil)
             }
-            debugLog("loadAccountSources fallback after failure accounts=\(accounts.count)")
+            AppLog.portfolio.debug(
+                "Account source fallback after failure accounts=\(accounts.count, privacy: .public)"
+            )
             return accounts
         }
     }
@@ -234,7 +265,9 @@ struct LivePortfolioRepository: PortfolioRepository {
         accounts: [PortfolioAccount],
         snapTrade: SnapTradeClient
     ) async -> [String: [SnapTradeActivityDTO]] {
-        debugLog("loadDividendActivities started accounts=\(accounts.count) taskCancelled=\(Task.isCancelled)")
+        AppLog.portfolio.debug(
+            "Dividend activity load started accounts=\(accounts.count, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
         return await withTaskGroup(
             of: (String, [SnapTradeActivityDTO])?.self,
             returning: [String: [SnapTradeActivityDTO]].self
@@ -259,7 +292,9 @@ struct LivePortfolioRepository: PortfolioRepository {
             for await pair in group {
                 if let (accountID, activities) = pair {
                     result[accountID] = activities
-                    debugLog("loadDividendActivities collected accountActivities=\(activities.count) accountCount=\(result.count)")
+                    AppLog.portfolio.debug(
+                        "Dividend activities collected accountActivities=\(activities.count, privacy: .public) accountCount=\(result.count, privacy: .public)"
+                    )
                 }
             }
             return result
@@ -295,24 +330,6 @@ struct LivePortfolioRepository: PortfolioRepository {
         symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 
-    private func logList(_ values: [String]) -> String {
-        values.isEmpty ? "[]" : "[\(values.joined(separator: ","))]"
-    }
-
-    private func logValue(_ value: Double?) -> String {
-        value.map { String($0) } ?? "nil"
-    }
-
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print("[LivePortfolioRepository] \(message)")
-        #endif
-    }
-
-    private func debugDescription(for error: Error) -> String {
-        let nsError = error as NSError
-        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
-    }
 }
 
 private struct AccountSource {
