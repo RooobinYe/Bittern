@@ -56,6 +56,42 @@ enum HoldingSortOption: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum PortfolioInstrumentKind: String, Codable, Sendable {
+    case stock
+    case etf
+    case crypto
+    case mutualFund = "mutualfund"
+    case adr
+    case closedEndFund = "cef"
+    case future
+    case option
+    case cfd
+    case other
+
+    init?(snapTradeValue: String?) {
+        guard let value = snapTradeValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !value.isEmpty
+        else {
+            return nil
+        }
+
+        switch value {
+        case "stock": self = .stock
+        case "etf": self = .etf
+        case "crypto": self = .crypto
+        case "mutualfund": self = .mutualFund
+        case "adr": self = .adr
+        case "cef": self = .closedEndFund
+        case "future": self = .future
+        case "option": self = .option
+        case "cfd": self = .cfd
+        default: self = .other
+        }
+    }
+}
+
 enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
     case oneDay = "1D"
     case fiveDays = "5D"
@@ -219,6 +255,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let accountID: String
     let symbol: String
     let name: String
+    let instrumentKind: PortfolioInstrumentKind?
+    let logoURL: URL?
     let accountName: String
     let quantity: Double
     let quantityDisplay: String?

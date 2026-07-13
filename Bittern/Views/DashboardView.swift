@@ -239,7 +239,7 @@ private struct PortfolioAvatarIcon: View {
     var body: some View {
         Image(systemName: "leaf.fill")
             .font(.title3.bold())
-            .foregroundStyle(BitternTheme.blue)
+            .foregroundStyle(BitternTheme.accent)
             .frame(width: size, height: size)
             .offset(x: -1, y: -1)
     }
@@ -750,6 +750,7 @@ private struct DonutPortfolioChart: View {
                 ForEach(segments) { segment in
                     AllocationBubble(
                         symbol: segment.symbol,
+                        logoURL: segment.logoURL,
                         percent: segment.percent,
                         color: segment.color,
                         scale: labelScale
@@ -804,7 +805,11 @@ private struct HoldingsSection: View {
     }
 
     private var holdingColorLookup: [String: Color] {
-        makeHoldingColorLookup(from: visibleSnapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? false })
+        BitternTheme.holdingAllocationColors(
+            for: visibleSnapshot.holdings.filter {
+                $0.marketValue.map { $0 >= minPriceThreshold } ?? false
+            }
+        )
     }
 
     var body: some View {
@@ -994,7 +999,7 @@ private struct AccountTabLabel: View {
         .overlay(alignment: .bottom) {
             if isSelected {
                 Rectangle()
-                    .fill(BitternTheme.blue)
+                    .fill(BitternTheme.accent)
                     .frame(height: 2)
                     .offset(y: 1)
             }
@@ -1026,7 +1031,7 @@ private struct AccountTabButton: View {
             .overlay(alignment: .bottom) {
                 if isSelected {
                     Rectangle()
-                        .fill(BitternTheme.blue)
+                        .fill(BitternTheme.accent)
                         .frame(height: 2)
                         .offset(y: 1)
                 }
@@ -1039,6 +1044,7 @@ private struct AccountTabButton: View {
 private struct DonutSegmentInfo: Identifiable {
     let id: String
     let symbol: String
+    let logoURL: URL?
     let value: Double
     let total: Double
     let startAngle: Double
@@ -1093,6 +1099,7 @@ private struct DonutSegmentShape: Shape {
 
 private struct AllocationBubble: View {
     let symbol: String
+    let logoURL: URL?
     let percent: Double
     let color: Color
     let scale: CGFloat
@@ -1124,16 +1131,13 @@ private struct AllocationBubble: View {
     }
 
     private var symbolIcon: some View {
-        Text(iconLabel)
-            .font(.caption2.bold())
-            .fontWidth(.condensed)
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .allowsTightening(true)
-            .frame(width: circleSize, height: circleSize)
-            .background(color)
-            .clipShape(Circle())
+        HoldingSymbolIcon(
+            symbol: symbol,
+            logoURL: logoURL,
+            color: color,
+            size: circleSize,
+            fallbackLabel: iconLabel
+        )
     }
 }
 
@@ -1195,12 +1199,16 @@ private struct HoldingListRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                SymbolAvatar(symbol: holding.symbol, color: color)
+                SymbolAvatar(
+                    symbol: holding.symbol,
+                    logoURL: holding.logoURL,
+                    color: color
+                )
 
                 VStack(spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(holding.symbol)
-                            .font(.headline)
+                            .font(.title3.weight(.semibold))
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
@@ -1208,7 +1216,7 @@ private struct HoldingListRow: View {
                         Spacer(minLength: 8)
 
                         Text(marketValueText)
-                            .font(.headline.bold().monospacedDigit())
+                            .font(.title3.bold().monospacedDigit())
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -1280,39 +1288,16 @@ private struct HoldingListRow: View {
 
 private struct SymbolAvatar: View {
     let symbol: String
+    let logoURL: URL?
     let color: Color
 
     var body: some View {
-        HoldingSymbolIcon(symbol: symbol, color: color, size: 40)
-    }
-}
-
-private struct HoldingSymbolIcon: View {
-    let symbol: String
-    let color: Color
-    let size: CGFloat
-    var borderColor: Color? = nil
-    var borderWidth: CGFloat = 0
-
-    private var label: String {
-        let prefix = String(symbol.prefix(4))
-        return prefix.isEmpty ? "?" : prefix
-    }
-
-    var body: some View {
-        Text(label)
-            .font(.caption.bold())
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(width: size, height: size)
-            .background(color)
-            .clipShape(Circle())
-            .overlay {
-                if let borderColor, borderWidth > 0 {
-                    Circle().stroke(borderColor, lineWidth: borderWidth)
-                }
-            }
+        HoldingSymbolIcon(
+            symbol: symbol,
+            logoURL: logoURL,
+            color: color,
+            size: 40
+        )
     }
 }
 
@@ -1322,7 +1307,7 @@ private struct ErrorBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(BitternTheme.loss)
+                .foregroundStyle(Color(uiColor: .systemRed))
 
             Text(message)
                 .font(.footnote)
@@ -1332,7 +1317,7 @@ private struct ErrorBanner: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(BitternTheme.loss.opacity(0.12))
+        .background(Color(uiColor: .systemRed).opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
@@ -1357,7 +1342,7 @@ private struct EmptyHoldingsView: View {
 // MARK: - Helpers
 
 private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
-    let sortedHoldings = sortedAllocationHoldings(from: holdings)
+    let sortedHoldings = BitternTheme.sortedAllocationHoldings(holdings)
 
     let total = sortedHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
     guard total > 0 else { return [] }
@@ -1371,11 +1356,11 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
         .filter { !visibleIDs.contains($0.id) }
         .reduce(0) { $0 + ($1.marketValue ?? 0) }
 
-    var segments: [(symbol: String, value: Double, id: String)] = visibleHoldings.map {
-        ($0.symbol, $0.marketValue ?? 0, $0.id)
+    var segments: [(symbol: String, logoURL: URL?, value: Double, id: String)] = visibleHoldings.map {
+        ($0.symbol, $0.logoURL, $0.marketValue ?? 0, $0.id)
     }
     if otherValue > 0 {
-        segments.append(("OTHER", otherValue, "other"))
+        segments.append(("OTHER", nil, otherValue, "other"))
     }
 
     guard !segments.isEmpty else { return [] }
@@ -1391,47 +1376,20 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
         let segment = DonutSegmentInfo(
             id: item.id,
             symbol: item.symbol,
+            logoURL: item.logoURL,
             value: item.value,
             total: total,
             startAngle: startAngle,
             endAngle: max(startAngle, endAngle),
-            color: allocationColor(at: index)
+            color: BitternTheme.allocationColor(at: index)
         )
         cursor += span
         return segment
     }
 }
 
-private func makeHoldingColorLookup(from holdings: [PortfolioHolding]) -> [String: Color] {
-    Dictionary(
-        uniqueKeysWithValues: sortedAllocationHoldings(from: holdings).enumerated().map { index, holding in
-            (holding.id, allocationColor(at: index))
-        }
-    )
-}
-
-private func sortedAllocationHoldings(from holdings: [PortfolioHolding]) -> [PortfolioHolding] {
-    holdings
-        .filter { ($0.marketValue ?? 0) > 0 }
-        .sorted { lhs, rhs in
-            if lhs.marketValue != rhs.marketValue {
-                return (lhs.marketValue ?? 0) > (rhs.marketValue ?? 0)
-            }
-
-            if lhs.symbol != rhs.symbol {
-                return lhs.symbol < rhs.symbol
-            }
-
-            return lhs.id < rhs.id
-        }
-}
-
-private func allocationColor(at index: Int) -> Color {
-    BitternTheme.allocationColors[index % BitternTheme.allocationColors.count]
-}
-
 private var fallbackAllocationColor: Color {
-    BitternTheme.allocationColors.first ?? BitternTheme.blue
+    BitternTheme.allocationColor(at: 0)
 }
 
 private func hiddenMoney(currencyCode: String) -> String {

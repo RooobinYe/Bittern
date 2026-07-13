@@ -38,13 +38,13 @@ struct PortfolioAccountsView: View {
                         isConnected: credentialsStore.credentials?.isComplete == true,
                         hasAPIKey: credentialsStore.credentials?.hasAPIKey == true,
                         isSaving: isSavingCredentials,
+                        isConnecting: isOpeningPortal,
                         clientId: $clientId,
                         consumerKey: $consumerKey,
                         errorMessage: errorMessage ?? viewModel.errorMessage,
                         successMessage: successMessage,
                         save: save,
-                        connect: { Task { await openConnectionPortal() } },
-                        clear: clear
+                        connect: { Task { await openConnectionPortal() } }
                     )
 
                     VStack(alignment: .leading, spacing: 18) {
@@ -70,18 +70,15 @@ struct PortfolioAccountsView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await openConnectionPortal() }
+                Button(role: .destructive) {
+                    clear()
                 } label: {
-                    Image(systemName: isOpeningPortal ? "clock.arrow.circlepath" : "link")
+                    Image(systemName: "trash")
                         .fontWeight(.bold)
-                        .foregroundStyle(BitternTheme.loss)
                 }
-                .disabled(isOpeningPortal)
-                .accessibilityLabel("Open SnapTrade connection portal")
+                .accessibilityLabel("Clear credentials")
             }
         }
-        .tint(BitternTheme.blue)
     }
 
     private var providerGroups: [PortfolioProviderGroup] {
@@ -262,22 +259,22 @@ private struct SnapTradeSettingsPanel: View {
     let isConnected: Bool
     let hasAPIKey: Bool
     let isSaving: Bool
+    let isConnecting: Bool
     @Binding var clientId: String
     @Binding var consumerKey: String
     let errorMessage: String?
     let successMessage: String?
     let save: () -> Void
     let connect: () -> Void
-    let clear: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Image(systemName: isConnected ? "checkmark.seal.fill" : "link.badge.plus")
                     .font(.headline.bold())
-                    .foregroundStyle(isConnected ? BitternTheme.gain : BitternTheme.gold)
+                    .foregroundStyle(statusColor)
                     .frame(width: 38, height: 38)
-                    .background((isConnected ? BitternTheme.gain : BitternTheme.gold).opacity(0.12))
+                    .background(statusColor.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -301,14 +298,14 @@ private struct SnapTradeSettingsPanel: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
-                    .foregroundStyle(BitternTheme.loss)
+                    .foregroundStyle(Color(uiColor: .systemRed))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let successMessage {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(BitternTheme.gain)
+                        .foregroundStyle(Color(uiColor: .systemGreen))
 
                     Text(successMessage)
                         .font(.footnote)
@@ -318,7 +315,7 @@ private struct SnapTradeSettingsPanel: View {
                     Spacer(minLength: 0)
                 }
                 .padding(12)
-                .background(BitternTheme.gain.opacity(0.12))
+                .background(Color(uiColor: .systemGreen).opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
@@ -327,22 +324,18 @@ private struct SnapTradeSettingsPanel: View {
                     Label(isSaving ? "Saving" : "Save", systemImage: isSaving ? "clock.arrow.circlepath" : "checkmark")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PortfolioPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(isSaving)
 
                 Button(action: connect) {
-                    Image(systemName: "plus")
-                        .frame(width: 48)
+                    Label(isConnecting ? "Connecting" : "Connect", systemImage: isConnecting ? "clock.arrow.circlepath" : "link")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PortfolioConnectButtonStyle())
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(isConnecting)
                 .accessibilityLabel("Connect brokerage")
-
-                Button(action: clear) {
-                    Image(systemName: "trash")
-                        .frame(width: 48)
-                }
-                .buttonStyle(PortfolioDeleteButtonStyle())
-                .accessibilityLabel("Clear credentials")
             }
         }
         .padding(15)
@@ -359,6 +352,10 @@ private struct SnapTradeSettingsPanel: View {
         }
 
         return "Add API credentials. User ID and User Secret are created automatically."
+    }
+
+    private var statusColor: Color {
+        isConnected ? Color(uiColor: .systemGreen) : BitternTheme.warning
     }
 }
 
@@ -381,10 +378,10 @@ private struct ProviderHoldingsSection: View {
                 if group.isDisabled {
                     Text("Disabled")
                         .font(.caption2.bold())
-                        .foregroundStyle(BitternTheme.loss)
+                        .foregroundStyle(BitternTheme.warning)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(BitternTheme.loss.opacity(0.12))
+                        .background(BitternTheme.warning.opacity(0.12))
                         .clipShape(Capsule())
                 }
 
@@ -466,9 +463,9 @@ private struct ProviderSymbolAvatar: View {
     var body: some View {
         Text(String(symbol.prefix(4)))
             .font(.caption2.bold())
-            .foregroundStyle(.white)
+            .foregroundStyle(BitternTheme.ink)
             .frame(width: 44, height: 44)
-            .background(avatarColor)
+            .background(avatarColor.opacity(0.15))
             .clipShape(Circle())
     }
 
@@ -532,38 +529,5 @@ private struct PortfolioCredentialField: View {
                     .stroke(BitternTheme.softLine, lineWidth: 1)
             }
         }
-    }
-}
-
-private struct PortfolioPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(height: 48)
-            .background(BitternTheme.blue.opacity(configuration.isPressed ? 0.80 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct PortfolioDeleteButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundStyle(BitternTheme.loss)
-            .frame(height: 48)
-            .background(BitternTheme.loss.opacity(configuration.isPressed ? 0.16 : 0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct PortfolioConnectButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(height: 48)
-            .background(Color(uiColor: .systemPurple).opacity(configuration.isPressed ? 0.80 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

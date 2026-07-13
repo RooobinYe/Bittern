@@ -7,6 +7,7 @@ import Foundation
 
 enum DemoPortfolio {
     static var snapshot: PortfolioSnapshot {
+        let logoURLResolver = BrandfetchLogoURLResolver()
         let account = PortfolioAccount(
             id: "demo-brokerage",
             connectionID: "demo-connection",
@@ -24,6 +25,8 @@ enum DemoPortfolio {
                 accountID: account.id,
                 symbol: "AAPL",
                 name: "Apple Inc.",
+                instrumentKind: .stock,
+                logoURL: logoURLResolver.logoURL(for: "AAPL", kind: .stock),
                 accountName: account.name,
                 quantity: 84,
                 quantityDisplay: "84",
@@ -38,6 +41,8 @@ enum DemoPortfolio {
                 accountID: account.id,
                 symbol: "MSFT",
                 name: "Microsoft Corp.",
+                instrumentKind: .stock,
+                logoURL: logoURLResolver.logoURL(for: "MSFT", kind: .stock),
                 accountName: account.name,
                 quantity: 41,
                 quantityDisplay: "41",
@@ -52,6 +57,8 @@ enum DemoPortfolio {
                 accountID: account.id,
                 symbol: "NVDA",
                 name: "NVIDIA Corp.",
+                instrumentKind: .stock,
+                logoURL: logoURLResolver.logoURL(for: "NVDA", kind: .stock),
                 accountName: account.name,
                 quantity: 120,
                 quantityDisplay: "120",
@@ -66,6 +73,8 @@ enum DemoPortfolio {
                 accountID: account.id,
                 symbol: "VOO",
                 name: "Vanguard S&P 500 ETF",
+                instrumentKind: .etf,
+                logoURL: logoURLResolver.logoURL(for: "VOO", kind: .etf),
                 accountName: account.name,
                 quantity: 58,
                 quantityDisplay: "58",
@@ -80,6 +89,8 @@ enum DemoPortfolio {
                 accountID: account.id,
                 symbol: "TSLA",
                 name: "Tesla Inc.",
+                instrumentKind: .stock,
+                logoURL: logoURLResolver.logoURL(for: "TSLA", kind: .stock),
                 accountName: account.name,
                 quantity: 32,
                 quantityDisplay: "32",

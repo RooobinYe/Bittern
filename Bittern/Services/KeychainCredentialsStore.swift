@@ -95,7 +95,7 @@ private struct KeychainCredentialsStorage {
     }
 
     func delete() throws {
-        try delete(allowMissing: false)
+        try delete(allowMissing: true)
     }
 
     private func delete(allowMissing: Bool) throws {
