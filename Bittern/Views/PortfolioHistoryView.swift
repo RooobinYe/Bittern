@@ -53,6 +53,7 @@ struct PortfolioHistoryView: View {
         }
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .toolbar(.visible, for: .navigationBar)
         .refreshable {
             await historyModel.reload(
