@@ -14,6 +14,7 @@ struct HoldingSymbolIcon: View {
     let size: CGFloat
     var fallbackLabel: String? = nil
     var fallbackFont: Font = .caption.bold()
+    var fallbackForegroundColor: Color = BitternTheme.ink
     var borderColor: Color? = nil
     var borderWidth: CGFloat = 0
 
@@ -50,7 +51,7 @@ struct HoldingSymbolIcon: View {
     private var fallback: some View {
         Text(label)
             .font(fallbackFont)
-            .foregroundStyle(BitternTheme.ink)
+            .foregroundStyle(fallbackForegroundColor)
             .lineLimit(1)
             .minimumScaleFactor(0.62)
             .frame(width: size, height: size)
