@@ -36,7 +36,11 @@ struct HoldingDetailView: View {
                         series: detailModel.visibleSeries,
                         range: detailModel.selectedRange,
                         selectedPoint: detailModel.selectedPoint,
-                        isPrivacyEnabled: isPrivacyEnabled
+                        isPrivacyEnabled: isPrivacyEnabled,
+                        avatarColor: BitternTheme.holdingAllocationColor(
+                            for: holding,
+                            in: snapshot.holdings
+                        )
                     )
 
                     HoldingChartSection(
@@ -67,7 +71,6 @@ struct HoldingDetailView: View {
             }
         }
         .toolbar(.visible, for: .navigationBar)
-        .tint(BitternTheme.blue)
         .task {
             await detailModel.loadSelectedRangeIfNeeded()
         }
@@ -129,7 +132,11 @@ private final class HoldingDetailViewModel: ObservableObject {
         }
 
         do {
-            let history = try await yahooClient.priceHistory(for: holding.symbol, range: range)
+            let history = try await yahooClient.priceHistory(
+                for: holding.symbol,
+                instrumentKind: holding.instrumentKind,
+                range: range
+            )
             guard !Task.isCancelled else {
                 print("[HoldingDetail] fetch succeeded but task cancelled, discarding \(history.count) points")
                 return
@@ -155,6 +162,7 @@ private struct HoldingAssetHeader: View {
     let range: HoldingChartRange
     let selectedPoint: HoldingPricePoint?
     let isPrivacyEnabled: Bool
+    let avatarColor: Color
 
     private var displayPoint: HoldingPricePoint? {
         selectedPoint ?? series.last ?? holding.currentPrice.map { HoldingPricePoint(date: Date(), price: $0) }
@@ -220,7 +228,12 @@ private struct HoldingAssetHeader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
 
-            HoldingDetailAvatar(symbol: holding.symbol, size: 84)
+            HoldingDetailAvatar(
+                symbol: holding.symbol,
+                logoURL: holding.logoURL,
+                color: avatarColor,
+                size: 84
+            )
                 .accessibilityLabel(holding.symbol)
         }
     }
@@ -293,23 +306,18 @@ private struct HoldingAssetHeader: View {
 
 private struct HoldingDetailAvatar: View {
     let symbol: String
+    let logoURL: URL?
+    let color: Color
     let size: CGFloat
 
     var body: some View {
-        Text(String(symbol.prefix(4)))
-            .font(.title2.bold())
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.62)
-            .frame(width: size, height: size)
-            .background(avatarColor)
-            .clipShape(Circle())
-    }
-
-    private var avatarColor: Color {
-        let palette = BitternTheme.allocationColors
-        let sum = symbol.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[sum % palette.count]
+        HoldingSymbolIcon(
+            symbol: symbol,
+            logoURL: logoURL,
+            color: color,
+            size: size,
+            fallbackFont: .title2.bold()
+        )
     }
 }
 
@@ -328,239 +336,20 @@ private struct HoldingChartSection: View {
         )
     }
 
-    private var lineColor: Color {
-        guard let basePrice, let last = series.last?.price else {
-            return BitternTheme.secondaryInk
-        }
-
-        return BitternTheme.performanceColor(last - basePrice)
-    }
-
     var body: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                if isLoading {
-                    ProgressView()
-                        .tint(BitternTheme.secondaryInk)
-                        .scaleEffect(1.2)
-                        .frame(height: 318)
-                        .frame(maxWidth: .infinity)
-                } else if series.count < 2 {
-                    Text("N/A")
-                        .font(.title3.bold())
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                        .frame(height: 318)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    HoldingPriceChart(
-                        points: series,
-                        basePrice: basePrice,
-                        currencyCode: currencyCode,
-                        lineColor: lineColor,
-                        selectedPoint: $selectedPoint
-                    )
-                    .frame(height: 318)
-                    .padding(.horizontal, -holdingChartSideInset)
-                }
-            }
-
-            HStack(spacing: 0) {
-                ForEach(HoldingChartRange.allCases) { option in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            range = option
-                            selectedPoint = nil
-                        }
-                    } label: {
-                        Text(option.title)
-                            .font(.title3.bold())
-                            .foregroundStyle(range == option ? BitternTheme.gain : BitternTheme.secondaryInk)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                            .frame(maxWidth: .infinity, minHeight: 42)
-                            .background {
-                                if range == option {
-                                    Capsule()
-                                        .fill(BitternTheme.gain.opacity(0.17))
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(option.title) chart range")
-                }
-            }
-        }
-    }
-}
-
-private struct HoldingPriceChart: View {
-    let points: [HoldingPricePoint]
-    let basePrice: Double?
-    let currencyCode: String
-    let lineColor: Color
-    @Binding var selectedPoint: HoldingPricePoint?
-
-    private var precomputedMinMax: (min: Double, max: Double) {
-        var prices = points.map(\.price)
-        if let basePrice {
-            prices.append(basePrice)
-        }
-        guard let minValue = prices.min(),
-              let maxValue = prices.max()
-        else {
-            return (0, 1)
-        }
-        let padding = 0.01
-        return (max(0, minValue - padding), maxValue + padding)
-    }
-
-    var body: some View {
-        let minMax = precomputedMinMax
-        GeometryReader { proxy in
-            let size = proxy.size
-            let metrics = ChartMetrics(
-                points: points,
-                size: size,
-                minPrice: minMax.min,
-                maxPrice: minMax.max
-            )
-            let activeIndex = selectedPoint.flatMap { metrics.index(of: $0) }
-
-            ZStack {
-                Canvas { context, canvasSize in
-                    guard metrics.isDrawable else { return }
-
-                    if let basePrice,
-                       let baseY = metrics.y(for: basePrice) {
-                        var baseline = Path()
-                        baseline.move(to: CGPoint(x: metrics.sideInset, y: baseY))
-                        baseline.addLine(to: CGPoint(x: canvasSize.width - metrics.sideInset, y: baseY))
-                        context.stroke(
-                            baseline,
-                            with: .color(BitternTheme.softLine.opacity(0.55)),
-                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [7, 7])
-                        )
-
-                        let label = Text(PortfolioFormat.price(basePrice, currencyCode: currencyCode))
-                            .font(.footnote.bold().monospacedDigit())
-                            .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
-                        context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 28, y: max(12, baseY - 16)))
-                    }
-
-                    let fullPath = metrics.path(through: points.indices)
-
-                    if let activeIndex {
-                        context.stroke(
-                            fullPath,
-                            with: .color(lineColor.opacity(0.13)),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                        )
-
-                        let selectedPath = metrics.path(through: 0...activeIndex)
-                        context.stroke(
-                            selectedPath,
-                            with: .color(lineColor),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                        )
-                    } else {
-                        context.stroke(
-                            fullPath,
-                            with: .color(lineColor),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                        )
-                    }
-                }
-
-                let markerIndex = activeIndex ?? points.indices.last
-                if let markerIndex,
-                   let marker = metrics.location(for: markerIndex) {
-                    Circle()
-                        .fill(lineColor)
-                        .frame(width: 13, height: 13)
-                        .frame(width: 38, height: 38)
-                        .glassEffect(.regular, in: .circle)
-                        .position(marker)
-                        .allowsHitTesting(false)
-                }
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        selectedPoint = nearestPoint(to: value.location.x, in: size.width)
-                    }
-                    .onEnded { _ in
-                        selectedPoint = nil
-                    }
-            )
-        }
-    }
-
-    private func nearestPoint(to xPosition: CGFloat, in width: CGFloat) -> HoldingPricePoint? {
-        guard points.count > 1, width > holdingChartSideInset * 2 else { return points.last }
-        let clamped = min(max(xPosition, holdingChartSideInset), width - holdingChartSideInset)
-        let progress = (clamped - holdingChartSideInset) / (width - holdingChartSideInset * 2)
-        let index = Int((progress * CGFloat(points.count - 1)).rounded())
-        return points[min(max(index, 0), points.count - 1)]
-    }
-}
-
-private let holdingChartSideInset: CGFloat = 19
-
-private struct ChartMetrics {
-    let points: [HoldingPricePoint]
-    let size: CGSize
-    let minPrice: Double
-    let maxPrice: Double
-    let topInset: CGFloat = 12
-    let bottomInset: CGFloat = 28
-    let sideInset: CGFloat = holdingChartSideInset
-
-    init(points: [HoldingPricePoint], size: CGSize, minPrice: Double, maxPrice: Double) {
-        self.points = points
-        self.size = size
-        self.minPrice = minPrice
-        self.maxPrice = maxPrice
-    }
-
-    var isDrawable: Bool {
-        points.count >= 2 && size.width > sideInset * 2 && size.height > topInset + bottomInset
-    }
-
-    func index(of point: HoldingPricePoint) -> Int? {
-        points.firstIndex(of: point)
-    }
-
-    func location(for index: Int) -> CGPoint? {
-        guard points.indices.contains(index) else { return nil }
-        let plotWidth = size.width - sideInset * 2
-        let x = points.count == 1 ? size.width / 2 : sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
-        guard let y = y(for: points[index].price) else { return nil }
-        return CGPoint(x: x, y: y)
-    }
-
-    func y(for price: Double) -> CGFloat? {
-        guard maxPrice > minPrice else { return nil }
-        let height = size.height - topInset - bottomInset
-        let progress = (price - minPrice) / (maxPrice - minPrice)
-        return topInset + (1 - CGFloat(progress)) * height
-    }
-
-    func path<R: Sequence>(through indices: R) -> Path where R.Element == Int {
-        var path = Path()
-        var didMove = false
-
-        for index in indices {
-            guard let location = location(for: index) else { continue }
-            if didMove {
-                path.addLine(to: location)
-            } else {
-                path.move(to: location)
-                didMove = true
-            }
-        }
-
-        return path
+        PerformanceLineChartSection(
+            points: series,
+            value: { $0.price },
+            baseValue: basePrice,
+            baselineLabel: basePrice.map {
+                PortfolioFormat.price($0, currencyCode: currencyCode)
+            },
+            ranges: HoldingChartRange.allCases,
+            rangeTitle: { $0.title },
+            selectedRange: $range,
+            selectedPoint: $selectedPoint,
+            isLoading: isLoading
+        )
     }
 }
 
@@ -649,12 +438,12 @@ private struct HoldingInfoSection: View {
 
                 Text(allocationText)
                     .font(.subheadline.bold().monospacedDigit())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(BitternTheme.blue.opacity(0.86))
+                    .background(Color(uiColor: .secondarySystemFill))
                     .clipShape(Capsule())
             }
 

@@ -12,86 +12,56 @@ struct SettingsView: View {
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Appearance")
-                        .font(.title.bold())
-                        .foregroundStyle(BitternTheme.ink)
-                }
-
-                VStack(spacing: 10) {
+        Form {
+            Section("Appearance") {
+                Picker("Appearance", selection: $appearanceModeRaw) {
                     ForEach(AppAppearance.allCases) { appearance in
-                        AppearanceOptionRow(
-                            appearance: appearance,
-                            isSelected: currentAppearance == appearance
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                appearanceModeRaw = appearance.rawValue
-                            }
-                        }
+                        Text(appearance.title)
+                            .tag(appearance.rawValue)
                     }
                 }
+                .pickerStyle(.segmented)
+            }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Filters")
-                        .font(.title.bold())
-                        .foregroundStyle(BitternTheme.ink)
-                }
-
+            Section("Filters") {
                 MinPriceRow(threshold: $minPriceThreshold)
+            }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Portfolio")
-                        .font(.title.bold())
-                        .foregroundStyle(BitternTheme.ink)
-                }
-
+            Section("Portfolio") {
                 NavigationLink {
                     PortfolioHistoryView(credentialsStore: credentialsStore, dashboardViewModel: viewModel)
                 } label: {
-                    SettingsNavigationRow(
+                    SettingsNavigationLabel(
                         title: "History",
                         subtitle: "View total money over time",
                         systemImage: "chart.xyaxis.line"
                     )
                 }
-                .buttonStyle(.plain)
 
                 NavigationLink {
                     PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
                 } label: {
-                    SettingsNavigationRow(
+                    SettingsNavigationLabel(
                         title: "Portfolio Accounts",
                         subtitle: "Manage connected institutions",
                         systemImage: "building.columns"
                     )
                 }
-                .buttonStyle(.plain)
 
                 NavigationLink {
                     SnapTradeCredentialsView(credentialsStore: credentialsStore)
                 } label: {
-                    SettingsNavigationRow(
+                    SettingsNavigationLabel(
                         title: "Credentials",
                         subtitle: "View SnapTrade keys",
                         systemImage: "key"
                     )
                 }
-                .buttonStyle(.plain)
             }
-            .frame(maxWidth: settingsMaximumContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 22)
         }
-        .background(BitternTheme.background.ignoresSafeArea())
-        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar(.visible, for: .navigationBar)
-        .tint(BitternTheme.blue)
-    }
-
-    private var currentAppearance: AppAppearance {
-        AppAppearance(rawValue: appearanceModeRaw) ?? .automatic
     }
 }
 
@@ -114,9 +84,9 @@ private struct SnapTradeCredentialsView: View {
                     HStack(alignment: .top, spacing: 13) {
                         Image(systemName: "key.slash")
                             .font(.headline.bold())
-                            .foregroundStyle(BitternTheme.blue)
+                            .foregroundStyle(BitternTheme.accent)
                             .frame(width: 38, height: 38)
-                            .background(BitternTheme.blue.opacity(0.12))
+                            .background(BitternTheme.accent.opacity(0.12))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 3) {
@@ -142,8 +112,8 @@ private struct SnapTradeCredentialsView: View {
         }
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
+        .navigationTitle("Credentials")
         .toolbar(.visible, for: .navigationBar)
-        .tint(BitternTheme.blue)
     }
 }
 
@@ -172,72 +142,25 @@ private struct CredentialsValueRow: View {
     }
 }
 
-private struct SettingsNavigationRow: View {
+private struct SettingsNavigationLabel: View {
     let title: String
     let subtitle: String
     let systemImage: String
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: systemImage)
-                .font(.headline.bold())
-                .foregroundStyle(BitternTheme.blue)
-                .frame(width: 38, height: 38)
-                .background(BitternTheme.blue.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline.bold())
                     .foregroundStyle(BitternTheme.ink)
 
                 Text(subtitle)
-                    .font(.footnote.weight(.semibold))
+                    .font(.footnote)
                     .foregroundStyle(BitternTheme.secondaryInk)
             }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.subheadline.bold())
-                .foregroundStyle(BitternTheme.secondaryInk)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(BitternTheme.accent)
         }
-        .padding(14)
-        .bitternPanel()
-    }
-}
-
-private struct AppearanceOptionRow: View {
-    let appearance: AppAppearance
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 13) {
-                Image(systemName: appearance.systemImage)
-                    .font(.headline.bold())
-                    .foregroundStyle(isSelected ? .white : BitternTheme.blue)
-                    .frame(width: 38, height: 38)
-                    .background(isSelected ? BitternTheme.blue : BitternTheme.blue.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                Text(appearance.title)
-                    .font(.headline.bold())
-                    .foregroundStyle(BitternTheme.ink)
-
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(BitternTheme.blue)
-                }
-            }
-            .padding(14)
-            .bitternPanel()
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -249,48 +172,20 @@ private struct MinPriceRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: "tag")
-                .font(.headline.bold())
-                .foregroundStyle(BitternTheme.blue)
-                .frame(width: 38, height: 38)
-                .background(BitternTheme.blue.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Minimum Market Value")
-                    .font(.headline.bold())
-                    .foregroundStyle(BitternTheme.ink)
-
-                Text(threshold == 0 ? "Show all holdings" : "Hide holdings below \(formattedThreshold)")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-            }
-
-            Spacer()
-
+        LabeledContent {
             TextField("1.00", value: $threshold, format: .number.precision(.fractionLength(0...2)))
-                .font(.headline.bold().monospacedDigit())
-                .foregroundStyle(BitternTheme.ink)
+                .font(.body.monospacedDigit())
                 .multilineTextAlignment(.trailing)
                 .keyboardType(.decimalPad)
                 .frame(width: 72)
-        }
-        .padding(14)
-        .bitternPanel()
-    }
-}
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Minimum Market Value")
 
-private extension AppAppearance {
-    var systemImage: String {
-        switch self {
-        case .automatic:
-            "circle.lefthalf.filled"
-        case .light:
-            "sun.max"
-        case .dark:
-            "moon"
+                Text(threshold == 0 ? "Show all holdings" : "Hide holdings below \(formattedThreshold)")
+                    .font(.footnote)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+            }
         }
     }
-
 }

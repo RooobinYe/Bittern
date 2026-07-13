@@ -12,10 +12,10 @@ enum BitternTheme {
     static let ink = Color(uiColor: .label)
     static let secondaryInk = Color(uiColor: .secondaryLabel)
     static let softLine = Color(uiColor: .separator)
-    static let gain = Color(uiColor: .systemGreen)
-    static let loss = Color(uiColor: .systemPink)
-    static let blue = Color(uiColor: .systemTeal)
-    static let gold = Color(uiColor: .systemYellow)
+    static let accent = Color.accentColor
+    static let positivePerformance = Color(uiColor: .systemGreen)
+    static let negativePerformance = Color(uiColor: .systemRed)
+    static let warning = Color(uiColor: .systemOrange)
 
     static let allocationColors = [
         Color(uiColor: .systemTeal),
@@ -28,13 +28,55 @@ enum BitternTheme {
         Color(uiColor: .systemPurple)
     ]
 
+    static func allocationColor(at index: Int) -> Color {
+        allocationColors[index % allocationColors.count]
+    }
+
+    static func holdingAllocationColors(
+        for holdings: [PortfolioHolding]
+    ) -> [String: Color] {
+        Dictionary(
+            uniqueKeysWithValues: sortedAllocationHoldings(holdings)
+                .enumerated()
+                .map { index, holding in
+                    (holding.id, allocationColor(at: index))
+                }
+        )
+    }
+
+    static func holdingAllocationColor(
+        for holding: PortfolioHolding,
+        in holdings: [PortfolioHolding]
+    ) -> Color {
+        holdingAllocationColors(for: holdings)[holding.id]
+            ?? allocationColor(at: 0)
+    }
+
+    static func sortedAllocationHoldings(
+        _ holdings: [PortfolioHolding]
+    ) -> [PortfolioHolding] {
+        holdings
+            .filter { ($0.marketValue ?? 0) > 0 }
+            .sorted { lhs, rhs in
+                if lhs.marketValue != rhs.marketValue {
+                    return (lhs.marketValue ?? 0) > (rhs.marketValue ?? 0)
+                }
+
+                if lhs.symbol != rhs.symbol {
+                    return lhs.symbol < rhs.symbol
+                }
+
+                return lhs.id < rhs.id
+            }
+    }
+
     static func performanceColor(_ value: Double) -> Color {
         if value > 0 {
-            return gain
+            return positivePerformance
         }
 
         if value < 0 {
-            return loss
+            return negativePerformance
         }
 
         return secondaryInk
@@ -47,8 +89,6 @@ enum BitternTheme {
 }
 
 struct PanelModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-
     func body(content: Content) -> some View {
         content
             .background(BitternTheme.surface)
@@ -57,7 +97,6 @@ struct PanelModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(BitternTheme.softLine.opacity(0.65), lineWidth: 1)
             }
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.08), radius: 16, x: 0, y: 8)
     }
 }
 

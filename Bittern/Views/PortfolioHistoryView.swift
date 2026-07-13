@@ -54,7 +54,6 @@ struct PortfolioHistoryView: View {
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
         .toolbar(.visible, for: .navigationBar)
-        .tint(BitternTheme.blue)
         .refreshable {
             await historyModel.reload(
                 credentials: credentialsStore.credentials,
@@ -353,237 +352,22 @@ private struct PortfolioHistoryChartSection: View {
     @Binding var selectedPoint: PortfolioHistoryPoint?
     let isLoading: Bool
 
-    private var lineColor: Color {
-        guard let first = series.first?.totalValue,
-              let last = series.last?.totalValue
-        else {
-            return BitternTheme.secondaryInk
-        }
-
-        return BitternTheme.performanceColor(last - first)
-    }
-
     var body: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                if isLoading {
-                    ProgressView()
-                        .tint(BitternTheme.secondaryInk)
-                        .scaleEffect(1.2)
-                        .frame(height: 318)
-                        .frame(maxWidth: .infinity)
-                } else if series.count < 2 {
-                    Text("N/A")
-                        .font(.title3.bold())
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                        .frame(height: 318)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    PortfolioHistoryChart(
-                        points: series,
-                        baseValue: series.first?.totalValue,
-                        currencyCode: currencyCode,
-                        lineColor: lineColor,
-                        selectedPoint: $selectedPoint
-                    )
-                    .frame(height: 318)
-                    .padding(.horizontal, -portfolioHistoryChartSideInset)
-                }
-            }
+        let baseValue = series.first?.totalValue
 
-            HStack(spacing: 0) {
-                ForEach(PortfolioHistoryRange.allCases) { option in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            range = option
-                            selectedPoint = nil
-                        }
-                    } label: {
-                        Text(option.title)
-                            .font(.title3.bold())
-                            .foregroundStyle(range == option ? BitternTheme.gain : BitternTheme.secondaryInk)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.62)
-                            .frame(maxWidth: .infinity, minHeight: 42)
-                            .background {
-                                if range == option {
-                                    Capsule()
-                                        .fill(BitternTheme.gain.opacity(0.17))
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(option.title) history range")
-                }
-            }
-        }
-    }
-}
-
-private struct PortfolioHistoryChart: View {
-    let points: [PortfolioHistoryPoint]
-    let baseValue: Double?
-    let currencyCode: String
-    let lineColor: Color
-    @Binding var selectedPoint: PortfolioHistoryPoint?
-
-    private var precomputedMinMax: (min: Double, max: Double) {
-        let values = points.map(\.totalValue)
-        guard let minValue = values.min(),
-              let maxValue = values.max()
-        else {
-            return (0, 1)
-        }
-
-        let span = maxValue - minValue
-        let padding = max(span * 0.08, max(abs(maxValue) * 0.002, 1))
-        return (max(0, minValue - padding), maxValue + padding)
-    }
-
-    var body: some View {
-        let minMax = precomputedMinMax
-        GeometryReader { proxy in
-            let size = proxy.size
-            Canvas { context, canvasSize in
-                let metrics = PortfolioHistoryChartMetrics(
-                    points: points,
-                    size: canvasSize,
-                    minValue: minMax.min,
-                    maxValue: minMax.max
-                )
-                guard metrics.isDrawable else { return }
-
-                if let baseValue,
-                   let baseY = metrics.y(for: baseValue) {
-                    var baseline = Path()
-                    baseline.move(to: CGPoint(x: metrics.sideInset, y: baseY))
-                    baseline.addLine(to: CGPoint(x: canvasSize.width - metrics.sideInset, y: baseY))
-                    context.stroke(
-                        baseline,
-                        with: .color(BitternTheme.softLine.opacity(0.55)),
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [7, 7])
-                    )
-
-                    let label = Text(PortfolioFormat.wholeMoney(baseValue, currencyCode: currencyCode))
-                        .font(.footnote.bold().monospacedDigit())
-                        .foregroundColor(BitternTheme.secondaryInk.opacity(0.62))
-                    context.draw(label, at: CGPoint(x: canvasSize.width - metrics.sideInset - 32, y: max(12, baseY - 16)))
-                }
-
-                let activeIndex = selectedPoint.flatMap { metrics.index(of: $0) }
-                let fullPath = metrics.path(through: points.indices)
-
-                if let activeIndex {
-                    context.stroke(
-                        fullPath,
-                        with: .color(lineColor.opacity(0.13)),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
-
-                    let selectedPath = metrics.path(through: 0...activeIndex)
-                    context.stroke(
-                        selectedPath,
-                        with: .color(lineColor),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
-                } else {
-                    context.stroke(
-                        fullPath,
-                        with: .color(lineColor),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-                    )
-                }
-
-                let markerIndex = activeIndex ?? points.indices.last
-                if let markerIndex,
-                   let marker = metrics.location(for: markerIndex) {
-                    let outerRect = CGRect(
-                        x: marker.x - 19,
-                        y: marker.y - 19,
-                        width: 38,
-                        height: 38
-                    )
-                    let innerRect = CGRect(
-                        x: marker.x - 6.5,
-                        y: marker.y - 6.5,
-                        width: 13,
-                        height: 13
-                    )
-                    context.fill(Path(ellipseIn: outerRect), with: .color(lineColor.opacity(0.16)))
-                    context.fill(Path(ellipseIn: innerRect), with: .color(lineColor))
-                }
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        selectedPoint = nearestPoint(to: value.location.x, in: size.width)
-                    }
-                    .onEnded { _ in
-                        selectedPoint = nil
-                    }
-            )
-        }
-    }
-
-    private func nearestPoint(to xPosition: CGFloat, in width: CGFloat) -> PortfolioHistoryPoint? {
-        guard points.count > 1, width > portfolioHistoryChartSideInset * 2 else { return points.last }
-        let clamped = min(max(xPosition, portfolioHistoryChartSideInset), width - portfolioHistoryChartSideInset)
-        let progress = (clamped - portfolioHistoryChartSideInset) / (width - portfolioHistoryChartSideInset * 2)
-        let index = Int((progress * CGFloat(points.count - 1)).rounded())
-        return points[min(max(index, 0), points.count - 1)]
-    }
-}
-
-private let portfolioHistoryChartSideInset: CGFloat = 19
-
-private struct PortfolioHistoryChartMetrics {
-    let points: [PortfolioHistoryPoint]
-    let size: CGSize
-    let minValue: Double
-    let maxValue: Double
-    let topInset: CGFloat = 12
-    let bottomInset: CGFloat = 28
-    let sideInset: CGFloat = portfolioHistoryChartSideInset
-
-    var isDrawable: Bool {
-        points.count >= 2 && size.width > sideInset * 2 && size.height > topInset + bottomInset
-    }
-
-    func index(of point: PortfolioHistoryPoint) -> Int? {
-        points.firstIndex(of: point)
-    }
-
-    func location(for index: Int) -> CGPoint? {
-        guard points.indices.contains(index) else { return nil }
-        let plotWidth = size.width - sideInset * 2
-        let x = points.count == 1 ? size.width / 2 : sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
-        guard let y = y(for: points[index].totalValue) else { return nil }
-        return CGPoint(x: x, y: y)
-    }
-
-    func y(for value: Double) -> CGFloat? {
-        guard maxValue > minValue else { return nil }
-        let height = size.height - topInset - bottomInset
-        let progress = (value - minValue) / (maxValue - minValue)
-        return topInset + (1 - CGFloat(progress)) * height
-    }
-
-    func path<R: Sequence>(through indices: R) -> Path where R.Element == Int {
-        var path = Path()
-        var didMove = false
-
-        for index in indices {
-            guard let location = location(for: index) else { continue }
-            if didMove {
-                path.addLine(to: location)
-            } else {
-                path.move(to: location)
-                didMove = true
-            }
-        }
-
-        return path
+        PerformanceLineChartSection(
+            points: series,
+            value: { $0.totalValue },
+            baseValue: baseValue,
+            baselineLabel: baseValue.map {
+                PortfolioFormat.wholeMoney($0, currencyCode: currencyCode)
+            },
+            ranges: PortfolioHistoryRange.allCases,
+            rangeTitle: { $0.title },
+            selectedRange: $range,
+            selectedPoint: $selectedPoint,
+            isLoading: isLoading
+        )
     }
 }
 
@@ -596,9 +380,9 @@ private struct HistoryMessagePanel: View {
         HStack(alignment: .top, spacing: 13) {
             Image(systemName: systemImage)
                 .font(.headline.bold())
-                .foregroundStyle(BitternTheme.blue)
+                .foregroundStyle(BitternTheme.accent)
                 .frame(width: 38, height: 38)
-                .background(BitternTheme.blue.opacity(0.12))
+                .background(BitternTheme.accent.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {

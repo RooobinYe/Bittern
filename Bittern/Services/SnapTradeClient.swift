@@ -82,6 +82,15 @@ struct SnapTradeClient {
             queryItems: userQueryItems
         )
         let response = try JSONDecoder().decode(SnapTradePositionsResponseDTO.self, from: data)
+        let instrumentSummary = response.positions.map { position in
+            let symbol = position.resolvedSymbol ?? "<missing-symbol>"
+            let kind = position.instrument?.kind ?? "<missing-kind>"
+            return "\(symbol):\(kind)"
+        }
+        .joined(separator: ",")
+        debugLog(
+            "listPositions decoded count=\(response.positions.count) instruments=[\(instrumentSummary)]"
+        )
         return response.positions
     }
 
@@ -645,6 +654,7 @@ struct SnapTradePositionDTO: Decodable {
 
 struct SnapTradeInstrumentDTO: Decodable {
     let id: String?
+    let kind: String?
     let symbol: String?
     let rawSymbol: String?
     let description: String?
@@ -653,6 +663,7 @@ struct SnapTradeInstrumentDTO: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id
+        case kind
         case symbol
         case rawSymbol = "raw_symbol"
         case description

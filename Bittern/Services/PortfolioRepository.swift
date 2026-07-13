@@ -12,6 +12,7 @@ protocol PortfolioRepository {
 
 struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
+    private let logoURLResolver = BrandfetchLogoURLResolver()
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
         debugLog("loadPortfolio started taskCancelled=\(Task.isCancelled)")
@@ -42,12 +43,18 @@ struct LivePortfolioRepository: PortfolioRepository {
             debugLog("loadPortfolio loaded positions batch=\(positions.count) total=\(positionsByAccount.count)")
         }
 
-        let symbols = positionsByAccount.compactMap { _, position in
-            position.resolvedSymbol
+        let quoteRequests = positionsByAccount.compactMap { _, position -> YahooQuoteRequest? in
+            guard let symbol = position.resolvedSymbol else { return nil }
+            return YahooQuoteRequest(
+                symbol: symbol,
+                instrumentKind: PortfolioInstrumentKind(
+                    snapTradeValue: position.instrument?.kind
+                )
+            )
         }
-        debugLog("loadPortfolio loading quotes symbols=\(symbols.count)")
+        debugLog("loadPortfolio loading quotes assets=\(quoteRequests.count)")
 
-        let quotes = (try? await yahoo.quotes(for: symbols)) ?? [:]
+        let quotes = (try? await yahoo.quotes(for: quoteRequests)) ?? [:]
         debugLog("loadPortfolio loaded quotes=\(quotes.count)")
         let dividendActivitiesByAccount = await loadDividendActivitiesByAccount(
             accounts: accounts,
@@ -70,6 +77,13 @@ struct LivePortfolioRepository: PortfolioRepository {
             let averageCost = position.resolvedAverageCost
             let currencyCode = position.resolvedCurrency ?? account.currencyCode
             let name = position.resolvedName ?? symbol
+            let instrumentKind = PortfolioInstrumentKind(
+                snapTradeValue: position.instrument?.kind
+            )
+            let logoURL = logoURLResolver.logoURL(for: symbol, kind: instrumentKind)
+            debugLog(
+                "logoResolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil") resolvedKind=\(instrumentKind?.rawValue ?? "nil") configured=\(logoURLResolver.isConfigured) url=\(logoURLResolver.redactedDescription(for: logoURL))"
+            )
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
                 .joined(separator: "-")
             let dividendsReceived = dividendActivitiesByAccount[account.id].map {
@@ -85,6 +99,8 @@ struct LivePortfolioRepository: PortfolioRepository {
                 accountID: account.id,
                 symbol: symbol,
                 name: name,
+                instrumentKind: instrumentKind,
+                logoURL: logoURL,
                 accountName: account.name,
                 quantity: units,
                 quantityDisplay: position.unitsDisplay,
@@ -96,6 +112,10 @@ struct LivePortfolioRepository: PortfolioRepository {
             )
         }
 
+        let holdingsWithPreparedLogoURL = holdings.lazy.filter { $0.logoURL != nil }.count
+        debugLog(
+            "loadPortfolio logoSummary configured=\(logoURLResolver.isConfigured) urlsPrepared=\(holdingsWithPreparedLogoURL)/\(holdings.count)"
+        )
         debugLog("loadPortfolio completed accounts=\(accounts.count) holdings=\(holdings.count)")
         return PortfolioSnapshot.make(
             accounts: accounts,
@@ -106,20 +126,48 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot {
-        let symbols = snapshot.holdings.map(\.symbol)
-        let quotes = (try? await YahooFinanceClient().quotes(for: symbols)) ?? [:]
+        let quoteRequests = snapshot.holdings.map {
+            YahooQuoteRequest(
+                symbol: $0.symbol,
+                instrumentKind: $0.instrumentKind
+            )
+        }
+        let normalizedSymbols = Array(Set(quoteRequests.map { normalized($0.symbol) })).sorted()
+        debugLog(
+            "refreshPrices started holdings=\(snapshot.holdings.count) uniqueSymbols=\(normalizedSymbols.count) symbols=\(normalizedSymbols.joined(separator: ",")) taskCancelled=\(Task.isCancelled)"
+        )
+
+        let quotes: [String: YahooQuoteDTO]
+        do {
+            quotes = try await YahooFinanceClient().quotes(for: quoteRequests)
+        } catch {
+            debugLog("refreshPrices quote request failed \(debugDescription(for: error))")
+            quotes = [:]
+        }
+
+        let quoteSymbols = quotes.keys.sorted()
+        let missingSymbols = normalizedSymbols.filter { quotes[$0] == nil }
+        debugLog(
+            "refreshPrices quote summary succeeded=\(quoteSymbols.count)/\(normalizedSymbols.count) quoteSymbols=\(logList(quoteSymbols)) missingSymbols=\(logList(missingSymbols))"
+        )
 
         let updatedHoldings = snapshot.holdings.map { holding -> PortfolioHolding in
-            let symbol = holding.symbol.uppercased()
+            let symbol = normalized(holding.symbol)
             let quote = quotes[symbol]
             let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
             let previousClose = quote?.regularMarketPreviousClose
+
+            debugLog(
+                "refreshPrices holding symbol=\(symbol) quoteFound=\(quote != nil) oldPrice=\(logValue(holding.currentPrice)) newPrice=\(logValue(currentPrice)) oldPreviousClose=\(logValue(holding.previousClose)) newPreviousClose=\(logValue(previousClose))"
+            )
 
             return PortfolioHolding(
                 id: holding.id,
                 accountID: holding.accountID,
                 symbol: holding.symbol,
                 name: holding.name,
+                instrumentKind: holding.instrumentKind,
+                logoURL: holding.logoURL,
                 accountName: holding.accountName,
                 quantity: holding.quantity,
                 quantityDisplay: holding.quantityDisplay,
@@ -245,6 +293,14 @@ struct LivePortfolioRepository: PortfolioRepository {
 
     private func normalized(_ symbol: String) -> String {
         symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func logList(_ values: [String]) -> String {
+        values.isEmpty ? "[]" : "[\(values.joined(separator: ","))]"
+    }
+
+    private func logValue(_ value: Double?) -> String {
+        value.map { String($0) } ?? "nil"
     }
 
     private func debugLog(_ message: String) {
