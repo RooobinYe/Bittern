@@ -5,6 +5,7 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 enum NetworkServiceError: LocalizedError {
     case invalidURL
@@ -88,8 +89,8 @@ struct SnapTradeClient {
             return "\(symbol):\(kind)"
         }
         .joined(separator: ",")
-        debugLog(
-            "listPositions decoded count=\(response.positions.count) instruments=[\(instrumentSummary)]"
+        AppLog.snapTrade.debug(
+            "Positions decoded count=\(response.positions.count, privacy: .public) instruments=[\(instrumentSummary)]"
         )
         return response.positions
     }
@@ -225,29 +226,41 @@ struct SnapTradeClient {
         let requestID = String(UUID().uuidString.prefix(8))
         let startedAt = Date()
         let logPath = redactedLogPath(normalizedPath)
-        debugLog("\(requestID) \(method) \(logPath) started taskCancelled=\(Task.isCancelled)")
+        AppLog.snapTrade.debug(
+            "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) started taskCancelled=\(Task.isCancelled, privacy: .public)"
+        )
 
+        let data: Data
+        let response: URLResponse
         do {
-            let (data, response) = try await session.data(for: request)
-            let duration = durationText(since: startedAt)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                debugLog("\(requestID) \(method) \(logPath) completed without HTTP response bytes=\(data.count) duration=\(duration)")
-                return data
-            }
-
-            guard (200..<300).contains(httpResponse.statusCode) else {
-                debugLog("\(requestID) \(method) \(logPath) failed status=\(httpResponse.statusCode) bytes=\(data.count) duration=\(duration)")
-                let body = String(data: data, encoding: .utf8) ?? ""
-                throw NetworkServiceError.httpStatus(httpResponse.statusCode, body)
-            }
-
-            debugLog("\(requestID) \(method) \(logPath) succeeded status=\(httpResponse.statusCode) bytes=\(data.count) duration=\(duration)")
-            return data
+            (data, response) = try await session.data(for: request)
         } catch {
-            debugLog("\(requestID) \(method) \(logPath) failed \(debugDescription(for: error)) duration=\(durationText(since: startedAt))")
+            AppLog.snapTrade.error(
+                "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) transport failed: \(AppLog.describe(error)) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
+            )
             throw error
         }
+
+        let duration = AppLog.duration(since: startedAt)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            AppLog.snapTrade.warning(
+                "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) completed without HTTP response bytes=\(data.count, privacy: .public) duration=\(duration, privacy: .public)"
+            )
+            return data
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            AppLog.snapTrade.error(
+                "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) duration=\(duration, privacy: .public)"
+            )
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw NetworkServiceError.httpStatus(httpResponse.statusCode, body)
+        }
+
+        AppLog.snapTrade.debug(
+            "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) succeeded status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) duration=\(duration, privacy: .public)"
+        )
+        return data
     }
 
     private func signature(path: String, query: String, content: Any?) throws -> String {
@@ -270,21 +283,6 @@ struct SnapTradeClient {
             URLQueryItem(name: "userId", value: credentials.userId),
             URLQueryItem(name: "userSecret", value: credentials.userSecret)
         ]
-    }
-
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print("[SnapTradeClient] \(message)")
-        #endif
-    }
-
-    private func debugDescription(for error: Error) -> String {
-        let nsError = error as NSError
-        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
-    }
-
-    private func durationText(since startedAt: Date) -> String {
-        String(format: "%.3fs", Date().timeIntervalSince(startedAt))
     }
 
     private func redactedLogPath(_ normalizedPath: String) -> String {

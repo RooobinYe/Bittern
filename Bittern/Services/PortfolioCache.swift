@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 enum PortfolioCache {
     private static let fileName = "portfolio_cache.json"
@@ -21,7 +22,9 @@ enum PortfolioCache {
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: url, options: .atomic)
         } catch {
-            print("[PortfolioCache] save failed: \(error)")
+            AppLog.persistence.error(
+                "Cache save failed: \(AppLog.describe(error))"
+            )
         }
     }
 
@@ -34,7 +37,9 @@ enum PortfolioCache {
             let snapshot = try JSONDecoder().decode(PortfolioSnapshot.self, from: data)
             return snapshot
         } catch {
-            print("[PortfolioCache] load failed: \(error)")
+            AppLog.persistence.error(
+                "Cache load failed: \(AppLog.describe(error))"
+            )
             return nil
         }
     }

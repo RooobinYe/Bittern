@@ -5,6 +5,7 @@
 
 import Foundation
 import Combine
+import OSLog
 
 @MainActor
 final class DashboardViewModel: ObservableObject {
@@ -100,37 +101,45 @@ final class DashboardViewModel: ObservableObject {
         await refreshRunner.run { [weak self] gen in
             guard let self else { return }
 
-            debugLog(
-                "refresh requested isLoading=\(isLoading) holdings=\(snapshot.holdings.count) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true) taskCancelled=\(Task.isCancelled) existingError=\(errorMessage ?? "nil")"
+            AppLog.portfolio.debug(
+                "Price refresh requested isLoading=\(isLoading, privacy: .public) holdings=\(snapshot.holdings.count, privacy: .public) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public) existingError=\(errorMessage ?? "nil")"
             )
 
             // No credentials: nothing to refresh.
             guard credentialsStore.credentials?.isComplete == true else {
                 snapshot = .emptyLive
                 errorMessage = nil
-                debugLog("refresh skipped because credentials are incomplete")
+                AppLog.portfolio.debug(
+                    "Price refresh skipped because credentials are incomplete"
+                )
                 return
             }
 
             guard !snapshot.holdings.isEmpty else {
                 errorMessage = nil
-                debugLog("refresh skipped because snapshot has no holdings")
+                AppLog.portfolio.debug(
+                    "Price refresh skipped because snapshot has no holdings"
+                )
                 return
             }
 
             errorMessage = nil
-            debugLog("refresh started price refresh")
+            AppLog.portfolio.debug("Price refresh started")
 
             do {
                 let newSnapshot = try await repository.refreshPrices(for: snapshot)
                 guard gen == refreshRunner.generation else { return }
                 snapshot = newSnapshot
                 PortfolioCache.save(newSnapshot)
-                debugLog("refresh saved updated snapshot holdings=\(newSnapshot.holdings.count)")
+                AppLog.portfolio.debug(
+                    "Price refresh saved snapshot holdings=\(newSnapshot.holdings.count, privacy: .public)"
+                )
             } catch {
                 guard gen == refreshRunner.generation else { return }
                 errorMessage = error.localizedDescription
-                debugLog("refresh failed \(debugDescription(for: error))")
+                AppLog.portfolio.error(
+                    "Price refresh failed: \(AppLog.describe(error))"
+                )
             }
         }
     }
@@ -139,19 +148,21 @@ final class DashboardViewModel: ObservableObject {
         await fullRefreshRunner.run { [weak self] gen in
             guard let self else { return }
 
-            debugLog(
-                "fullRefresh requested isLoading=\(isLoading) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true) taskCancelled=\(Task.isCancelled) existingError=\(errorMessage ?? "nil")"
+            AppLog.portfolio.debug(
+                "Full refresh requested isLoading=\(isLoading, privacy: .public) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public) existingError=\(errorMessage ?? "nil")"
             )
 
             guard let credentials = credentialsStore.credentials, credentials.isComplete else {
                 snapshot = .emptyLive
                 errorMessage = nil
-                debugLog("fullRefresh skipped because credentials are incomplete")
+                AppLog.portfolio.debug(
+                    "Full refresh skipped because credentials are incomplete"
+                )
                 return
             }
 
             errorMessage = nil
-            debugLog("fullRefresh started portfolio load")
+            AppLog.portfolio.debug("Full refresh started portfolio load")
 
             do {
                 let newSnapshot = try await repository.loadPortfolio(credentials: credentials)
@@ -163,11 +174,15 @@ final class DashboardViewModel: ObservableObject {
                     self.selectedProviderName = nil
                 }
                 PortfolioCache.save(newSnapshot)
-                debugLog("fullRefresh saved new snapshot accounts=\(newSnapshot.accounts.count) holdings=\(newSnapshot.holdings.count)")
+                AppLog.portfolio.debug(
+                    "Full refresh saved snapshot accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"
+                )
             } catch {
                 guard gen == fullRefreshRunner.generation else { return }
                 errorMessage = error.localizedDescription
-                debugLog("fullRefresh failed \(debugDescription(for: error))")
+                AppLog.portfolio.error(
+                    "Full refresh failed: \(AppLog.describe(error))"
+                )
             }
         }
     }
@@ -185,14 +200,4 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print("[DashboardViewModel] \(message)")
-        #endif
-    }
-
-    private func debugDescription(for error: Error) -> String {
-        let nsError = error as NSError
-        return "type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code) taskCancelled=\(Task.isCancelled) message=\"\(error.localizedDescription)\""
-    }
 }

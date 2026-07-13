@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import OSLog
 
 enum DebugSnapTradeCredentialsInjector {
     private enum EnvironmentKey {
@@ -19,16 +20,17 @@ enum DebugSnapTradeCredentialsInjector {
         }
 
         guard credentialsStore.credentials?.sanitized != credentials else {
-            debugLog("environment credentials already saved")
+            AppLog.credentials.debug("Environment credentials already saved")
             return
         }
 
         do {
             try credentialsStore.save(credentials)
-            debugLog("saved complete credentials from environment")
+            AppLog.credentials.debug("Saved complete credentials from environment")
         } catch {
-            let nsError = error as NSError
-            debugLog("failed to save environment credentials domain=\(nsError.domain) code=\(nsError.code) message=\"\(error.localizedDescription)\"")
+            AppLog.credentials.error(
+                "Failed to save environment credentials: \(AppLog.describe(error))"
+            )
         }
     }
 
@@ -57,11 +59,9 @@ enum DebugSnapTradeCredentialsInjector {
         }
 
         let missingKeys = keys.filter { environment[$0]?.isTrimmedNonEmpty != true }
-        debugLog("environment credentials ignored because missing keys=\(missingKeys.joined(separator: ","))")
-    }
-
-    private static func debugLog(_ message: String) {
-        print("[DebugSnapTradeCredentialsInjector] \(message)")
+        AppLog.credentials.warning(
+            "Environment credentials ignored; missing keys=\(missingKeys.joined(separator: ","), privacy: .public)"
+        )
     }
 }
 
