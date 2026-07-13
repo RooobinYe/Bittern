@@ -16,6 +16,26 @@ struct YahooQuoteRequest: Sendable {
     let instrumentKind: PortfolioInstrumentKind?
 }
 
+enum YahooFinanceError: LocalizedError {
+    case invalidURL
+    case emptySymbols
+    case invalidResponse
+    case httpStatus(Int, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            "The Yahoo service URL is invalid."
+        case .emptySymbols:
+            "There are no symbols to quote."
+        case .invalidResponse:
+            "Yahoo returned a non-HTTP response."
+        case .httpStatus(let status, let body):
+            "Yahoo request failed with HTTP \(status). \(body)"
+        }
+    }
+}
+
 struct YahooFinanceClient {
     private let session: URLSession
     private let baseURL = "https://query1.finance.yahoo.com/v8/finance/chart"
@@ -47,7 +67,7 @@ struct YahooFinanceClient {
         let normalizedRequests = requestsBySymbol.values.sorted { $0.symbol < $1.symbol }
 
         guard !normalizedRequests.isEmpty else {
-            throw NetworkServiceError.emptySymbols
+            throw YahooFinanceError.emptySymbols
         }
 
         AppLog.marketData.debug(
@@ -91,7 +111,7 @@ struct YahooFinanceClient {
     ) async throws -> [HoldingPricePoint] {
         let candidates = candidateSymbols(for: symbol, instrumentKind: instrumentKind)
         guard !candidates.isEmpty else {
-            throw NetworkServiceError.emptySymbols
+            throw YahooFinanceError.emptySymbols
         }
 
         AppLog.marketData.debug(
@@ -120,7 +140,7 @@ struct YahooFinanceClient {
         AppLog.marketData.error(
             "Price history failed for every candidate symbol=\(symbol)"
         )
-        throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
+        throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
     }
 
     // MARK: - Private
@@ -194,44 +214,15 @@ struct YahooFinanceClient {
         ]
 
         guard let url = components?.url else {
-            throw NetworkServiceError.invalidURL
+            throw YahooFinanceError.invalidURL
         }
 
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let startedAt = Date()
-        AppLog.marketData.debug(
-            "HTTP quote candidate=\(symbol) started url=\(url.absoluteString)"
-        )
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            AppLog.marketData.error(
-                "HTTP quote candidate=\(symbol) transport failed: \(AppLog.describe(error)) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
-            )
-            throw error
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            AppLog.marketData.error(
-                "HTTP quote candidate=\(symbol) returned a non-HTTP response bytes=\(data.count, privacy: .public) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
-            )
-            throw NetworkServiceError.httpStatus(-1, "Yahoo returned a non-HTTP response.")
-        }
-
-        let responseSummary = "status=\(httpResponse.statusCode) bytes=\(data.count) contentType=\(httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "nil") retryAfter=\(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "nil") duration=\(AppLog.duration(since: startedAt))"
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            let bodyPreview = responseBodyPreview(data)
-            AppLog.marketData.error(
-                "HTTP quote candidate=\(symbol) failed \(responseSummary, privacy: .public) body=\(bodyPreview)"
-            )
-            throw NetworkServiceError.httpStatus(httpResponse.statusCode, bodyPreview)
-        }
-
-        AppLog.marketData.debug(
-            "HTTP quote candidate=\(symbol) succeeded \(responseSummary, privacy: .public)"
+        let data = try await send(
+            request,
+            operation: "quote candidate=\(symbol)"
         )
 
         let decoded: YahooChartResponseDTO
@@ -249,7 +240,7 @@ struct YahooFinanceClient {
             AppLog.marketData.error(
                 "HTTP quote candidate=\(symbol) provider error code=\(chartError.code ?? "nil") description=\(chartError.description ?? "nil")"
             )
-            throw NetworkServiceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")
+            throw YahooFinanceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")
         }
 
         guard let result = decoded.chart.result?.first,
@@ -259,7 +250,7 @@ struct YahooFinanceClient {
             AppLog.marketData.error(
                 "HTTP quote candidate=\(symbol) is missing regularMarketPrice or chart result"
             )
-            throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
+            throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
         let previousClose = meta.chartPreviousClose
@@ -282,6 +273,63 @@ struct YahooFinanceClient {
             .replacingOccurrences(of: "\r", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return preview.isEmpty ? "<empty>" : "\"\(preview)\""
+    }
+
+    private func send(_ request: URLRequest, operation: String) async throws -> Data {
+        let startedAt = Date()
+        AppLog.marketData.debug(
+            "HTTP \(operation) started url=\(request.url?.absoluteString ?? "nil")"
+        )
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                AppLog.marketData.error(
+                    "HTTP \(operation) returned a non-HTTP response bytes=\(data.count, privacy: .public) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
+                )
+                throw YahooFinanceError.invalidResponse
+            }
+
+            let responseSummary = responseSummary(
+                httpResponse,
+                byteCount: data.count,
+                startedAt: startedAt
+            )
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                let bodyPreview = responseBodyPreview(data)
+                AppLog.marketData.error(
+                    "HTTP \(operation) failed \(responseSummary, privacy: .public) body=\(bodyPreview)"
+                )
+                throw YahooFinanceError.httpStatus(
+                    httpResponse.statusCode,
+                    bodyPreview
+                )
+            }
+
+            AppLog.marketData.debug(
+                "HTTP \(operation) succeeded \(responseSummary, privacy: .public)"
+            )
+            return data
+        } catch let error as YahooFinanceError {
+            throw error
+        } catch {
+            AppLog.marketData.error(
+                "HTTP \(operation) transport failed: \(AppLog.describe(error)) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
+            )
+            throw error
+        }
+    }
+
+    private func responseSummary(
+        _ response: HTTPURLResponse,
+        byteCount: Int,
+        startedAt: Date
+    ) -> String {
+        let contentType = response.value(forHTTPHeaderField: "Content-Type")
+            ?? "nil"
+        let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
+            ?? "nil"
+        return "status=\(response.statusCode) bytes=\(byteCount) contentType=\(contentType) retryAfter=\(retryAfter) duration=\(AppLog.duration(since: startedAt))"
     }
 
     private func logAssets(_ requests: [YahooQuoteRequest]) -> String {
@@ -309,30 +357,28 @@ struct YahooFinanceClient {
         ]
 
         guard let url = components?.url else {
-            throw NetworkServiceError.invalidURL
+            throw YahooFinanceError.invalidURL
         }
 
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
-
-        if let httpResponse = response as? HTTPURLResponse,
-           !(200 ..< 300).contains(httpResponse.statusCode) {
-            throw NetworkServiceError.httpStatus(httpResponse.statusCode, "")
-        }
+        let data = try await send(
+            request,
+            operation: "price-history candidate=\(symbol) range=\(range.title)"
+        )
 
         let decoded = try JSONDecoder().decode(YahooChartResponseDTO.self, from: data)
 
         if let chartError = decoded.chart.error {
-            throw NetworkServiceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")
+            throw YahooFinanceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")
         }
 
         guard let result = decoded.chart.result?.first,
               let timestamps = result.timestamp,
               let closes = result.indicators?.quote?.first?.close
         else {
-            throw NetworkServiceError.httpStatus(-1, "Empty chart result for \(symbol)")
+            throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
         let points = zip(timestamps, closes).compactMap { timestamp, close -> HoldingPricePoint? in
@@ -344,7 +390,7 @@ struct YahooFinanceClient {
         }
 
         guard points.count >= 2 else {
-            throw NetworkServiceError.httpStatus(-1, "Not enough chart points for \(symbol)")
+            throw YahooFinanceError.httpStatus(-1, "Not enough chart points for \(symbol)")
         }
 
         return points

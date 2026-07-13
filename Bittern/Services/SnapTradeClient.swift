@@ -7,19 +7,16 @@ import Foundation
 import CryptoKit
 import OSLog
 
-enum NetworkServiceError: LocalizedError {
+enum SnapTradeError: LocalizedError {
     case invalidURL
-    case emptySymbols
     case httpStatus(Int, String)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL:
-            "The service URL is invalid."
-        case .emptySymbols:
-            "There are no symbols to quote."
+            "The SnapTrade service URL is invalid."
         case .httpStatus(let status, let body):
-            "Request failed with HTTP \(status). \(body)"
+            "SnapTrade request failed with HTTP \(status). \(body)"
         }
     }
 }
@@ -46,7 +43,7 @@ struct SnapTradeClient {
             return try JSONDecoder().decode(SnapTradeRegisteredUserDTO.self, from: data)
         } catch {
             let bodyPreview = String(data: data, encoding: .utf8) ?? "<not UTF-8>"
-            throw NetworkServiceError.httpStatus(
+            throw SnapTradeError.httpStatus(
                 -1,
                 "Decoding registerUser response failed. Body: \(bodyPreview.prefix(500))"
             )
@@ -153,7 +150,7 @@ struct SnapTradeClient {
         )
         let response = try JSONDecoder().decode(SnapTradeConnectionPortalResponseDTO.self, from: data)
         guard let url = URL(string: response.redirectURI) else {
-            throw NetworkServiceError.invalidURL
+            throw SnapTradeError.invalidURL
         }
         return url
     }
@@ -204,7 +201,7 @@ struct SnapTradeClient {
         ]
 
         guard let url = components?.url else {
-            throw NetworkServiceError.invalidURL
+            throw SnapTradeError.invalidURL
         }
 
         var request = URLRequest(url: url)
@@ -254,7 +251,7 @@ struct SnapTradeClient {
                 "Request \(requestID, privacy: .public) \(method, privacy: .public) \(logPath, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) duration=\(duration, privacy: .public)"
             )
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw NetworkServiceError.httpStatus(httpResponse.statusCode, body)
+            throw SnapTradeError.httpStatus(httpResponse.statusCode, body)
         }
 
         AppLog.snapTrade.debug(

@@ -13,7 +13,7 @@ protocol PortfolioRepository {
 
 struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
-    private let logoURLResolver = BrandfetchLogoURLResolver()
+    private let brandfetch = BrandfetchClient()
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
         AppLog.portfolio.debug(
@@ -95,9 +95,9 @@ struct LivePortfolioRepository: PortfolioRepository {
             let instrumentKind = PortfolioInstrumentKind(
                 snapTradeValue: position.instrument?.kind
             )
-            let logoURL = logoURLResolver.logoURL(for: symbol, kind: instrumentKind)
+            let logoURL = brandfetch.logoURL(for: symbol, kind: instrumentKind)
             AppLog.portfolio.debug(
-                "Logo resolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil", privacy: .public) resolvedKind=\(instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(logoURLResolver.isConfigured, privacy: .public) url=\(logoURLResolver.redactedDescription(for: logoURL))"
+                "Logo resolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil", privacy: .public) resolvedKind=\(instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(brandfetch.isConfigured, privacy: .public) url=\(brandfetch.redactedDescription(for: logoURL))"
             )
             let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
                 .joined(separator: "-")
@@ -129,7 +129,7 @@ struct LivePortfolioRepository: PortfolioRepository {
 
         let holdingsWithPreparedLogoURL = holdings.lazy.filter { $0.logoURL != nil }.count
         AppLog.portfolio.debug(
-            "Portfolio logo summary configured=\(logoURLResolver.isConfigured, privacy: .public) urlsPrepared=\(holdingsWithPreparedLogoURL, privacy: .public)/\(holdings.count, privacy: .public)"
+            "Portfolio logo summary configured=\(brandfetch.isConfigured, privacy: .public) urlsPrepared=\(holdingsWithPreparedLogoURL, privacy: .public)/\(holdings.count, privacy: .public)"
         )
         AppLog.portfolio.debug(
             "Portfolio load completed accounts=\(accounts.count, privacy: .public) holdings=\(holdings.count, privacy: .public)"

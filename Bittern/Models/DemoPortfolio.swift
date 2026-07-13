@@ -7,7 +7,7 @@ import Foundation
 
 enum DemoPortfolio {
     static var snapshot: PortfolioSnapshot {
-        let logoURLResolver = BrandfetchLogoURLResolver()
+        let brandfetch = BrandfetchClient()
         let account = PortfolioAccount(
             id: "demo-brokerage",
             connectionID: "demo-connection",
@@ -26,7 +26,7 @@ enum DemoPortfolio {
                 symbol: "AAPL",
                 name: "Apple Inc.",
                 instrumentKind: .stock,
-                logoURL: logoURLResolver.logoURL(for: "AAPL", kind: .stock),
+                logoURL: brandfetch.logoURL(for: "AAPL", kind: .stock),
                 accountName: account.name,
                 quantity: 84,
                 quantityDisplay: "84",
@@ -42,7 +42,7 @@ enum DemoPortfolio {
                 symbol: "MSFT",
                 name: "Microsoft Corp.",
                 instrumentKind: .stock,
-                logoURL: logoURLResolver.logoURL(for: "MSFT", kind: .stock),
+                logoURL: brandfetch.logoURL(for: "MSFT", kind: .stock),
                 accountName: account.name,
                 quantity: 41,
                 quantityDisplay: "41",
@@ -58,7 +58,7 @@ enum DemoPortfolio {
                 symbol: "NVDA",
                 name: "NVIDIA Corp.",
                 instrumentKind: .stock,
-                logoURL: logoURLResolver.logoURL(for: "NVDA", kind: .stock),
+                logoURL: brandfetch.logoURL(for: "NVDA", kind: .stock),
                 accountName: account.name,
                 quantity: 120,
                 quantityDisplay: "120",
@@ -74,7 +74,7 @@ enum DemoPortfolio {
                 symbol: "VOO",
                 name: "Vanguard S&P 500 ETF",
                 instrumentKind: .etf,
-                logoURL: logoURLResolver.logoURL(for: "VOO", kind: .etf),
+                logoURL: brandfetch.logoURL(for: "VOO", kind: .etf),
                 accountName: account.name,
                 quantity: 58,
                 quantityDisplay: "58",
@@ -90,7 +90,7 @@ enum DemoPortfolio {
                 symbol: "TSLA",
                 name: "Tesla Inc.",
                 instrumentKind: .stock,
-                logoURL: logoURLResolver.logoURL(for: "TSLA", kind: .stock),
+                logoURL: brandfetch.logoURL(for: "TSLA", kind: .stock),
                 accountName: account.name,
                 quantity: 32,
                 quantityDisplay: "32",
