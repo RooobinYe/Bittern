@@ -14,9 +14,11 @@ struct HoldingSymbolIcon: View {
     let size: CGFloat
     var fallbackLabel: String? = nil
     var fallbackFont: Font = .caption.bold()
-    var fallbackForegroundColor: Color = BitternTheme.ink
+    var fallbackForegroundColor: Color = .white
     var borderColor: Color? = nil
     var borderWidth: CGFloat = 0
+    @Environment(\.isRenderingScreenshot) private var isRenderingScreenshot
+    @Environment(\.screenshotLogoData) private var screenshotLogoData
 
     private var label: String {
         if let fallbackLabel {
@@ -31,7 +33,11 @@ struct HoldingSymbolIcon: View {
             Circle().fill(color)
             fallback
 
-            if let logoURL {
+            if let logoURL,
+               let logoData = screenshotLogoData[logoURL],
+               let image = UIImage(data: logoData) {
+                HoldingLogoBitmap(image: image, size: size)
+            } else if let logoURL, !isRenderingScreenshot {
                 RemoteLogoImage(
                     symbol: symbol,
                     url: logoURL,
@@ -58,6 +64,20 @@ struct HoldingSymbolIcon: View {
     }
 }
 
+private struct HoldingLogoBitmap: View {
+    let image: UIImage
+    let size: CGFloat
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .background(Color.white)
+            .clipShape(Circle())
+    }
+}
+
 private struct RemoteLogoImage: View {
     let symbol: String
     let url: URL
@@ -69,12 +89,7 @@ private struct RemoteLogoImage: View {
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .background(Color.white)
-                    .clipShape(Circle())
+                HoldingLogoBitmap(image: image, size: size)
             } else {
                 Color.clear
             }

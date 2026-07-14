@@ -12,6 +12,10 @@ struct ScreenshotContextKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+struct ScreenshotLogoDataKey: EnvironmentKey {
+    static let defaultValue: [URL: Data] = [:]
+}
+
 extension EnvironmentValues {
     /// When true, views should render in screenshot-friendly mode:
     /// - No interactive elements (Menus become static Labels)
@@ -23,6 +27,52 @@ extension EnvironmentValues {
     var isRenderingScreenshot: Bool {
         get { self[ScreenshotContextKey.self] }
         set { self[ScreenshotContextKey.self] = newValue }
+    }
+
+    /// Logo bitmaps prepared before ImageRenderer starts. Async image loading
+    /// inside the rendered view cannot finish before the bitmap is produced.
+    var screenshotLogoData: [URL: Data] {
+        get { self[ScreenshotLogoDataKey.self] }
+        set { self[ScreenshotLogoDataKey.self] = newValue }
+    }
+}
+
+// MARK: - Screenshot Assets
+
+enum ScreenshotLogoLoader {
+    static func load(for holdings: [PortfolioHolding]) async -> [URL: Data] {
+        var requests: [URL: String] = [:]
+        for holding in holdings {
+            guard let logoURL = holding.logoURL else { continue }
+            requests[logoURL] = requests[logoURL] ?? holding.symbol
+        }
+
+        return await withTaskGroup(
+            of: (URL, Data?).self,
+            returning: [URL: Data].self
+        ) { group in
+            for (url, symbol) in requests {
+                group.addTask {
+                    do {
+                        let image = try await BrandfetchClient().image(
+                            for: symbol,
+                            at: url
+                        )
+                        return (url, image.pngData())
+                    } catch {
+                        return (url, nil)
+                    }
+                }
+            }
+
+            var result: [URL: Data] = [:]
+            for await (url, data) in group {
+                if let data {
+                    result[url] = data
+                }
+            }
+            return result
+        }
     }
 }
 
