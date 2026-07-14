@@ -22,14 +22,43 @@ final class DashboardViewModel: ObservableObject {
         }
     }
     @Published var selectedProviderName: String?
+    @Published private(set) var isLoading = false
 
     private let credentialsStore: CredentialsStore
     private let repository: PortfolioRepository
-    private let refreshRunner = CancelableTaskRunner()
-    private let fullRefreshRunner = CancelableTaskRunner()
+    private var bootstrapTask: Task<Void, Never>?
+    private var cacheLoadFlight: CacheLoadFlight?
+    private var refreshFlight: RefreshFlight?
+    private var nextFlightID: UInt64 = 0
+    private var didLoadCache = false
+    private var cacheWasHit = false
+    private var didBootstrap = false
+    private var hasPortfolioBaseline: Bool
+    private var baselineCredentials: SnapTradeCredentials?
 
-    /// `true` while either a price refresh or a full portfolio reload is in flight.
-    var isLoading: Bool { refreshRunner.isRunning || fullRefreshRunner.isRunning }
+    private enum RefreshKind: Int {
+        case price
+        case full
+
+        var logName: String {
+            switch self {
+            case .price: "price"
+            case .full: "full"
+            }
+        }
+    }
+
+    private struct CacheLoadFlight {
+        let id: UInt64
+        let task: Task<PortfolioSnapshot?, Never>
+    }
+
+    private struct RefreshFlight {
+        let id: UInt64
+        let kind: RefreshKind
+        let credentials: SnapTradeCredentials
+        let task: Task<Void, Never>
+    }
 
     init(
         credentialsStore: CredentialsStore,
@@ -38,17 +67,13 @@ final class DashboardViewModel: ObservableObject {
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
-        refreshRunner.onStateChanged = { [weak self] in self?.objectWillChange.send() }
-        fullRefreshRunner.onStateChanged = { [weak self] in self?.objectWillChange.send() }
         snapshot = initialSnapshot ?? .emptyLive
-        if initialSnapshot == nil {
-            Task {
-                if let cached = await PortfolioCache.loadAsync() {
-                    snapshot = cached
-                    await refresh()
-                }
-            }
-        }
+        hasPortfolioBaseline = initialSnapshot != nil
+        baselineCredentials = initialSnapshot == nil
+            ? nil
+            : credentialsStore.credentials?.sanitized
+        didLoadCache = initialSnapshot != nil
+        cacheWasHit = initialSnapshot != nil
 
         if let rawMode = UserDefaults.standard.string(forKey: AppSettingKey.performanceMode),
            let mode = PerformanceMode(rawValue: rawMode) {
@@ -97,94 +122,281 @@ final class DashboardViewModel: ObservableObject {
         )
     }
 
-    func refresh() async {
-        await refreshRunner.run { [weak self] gen in
-            guard let self else { return }
-
-            AppLog.portfolio.debug(
-                "Price refresh requested isLoading=\(isLoading, privacy: .public) holdings=\(snapshot.holdings.count, privacy: .public) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public) existingError=\(errorMessage ?? "nil")"
-            )
-
-            // No credentials: nothing to refresh.
-            guard credentialsStore.credentials?.isComplete == true else {
-                snapshot = .emptyLive
-                errorMessage = nil
-                AppLog.portfolio.debug(
-                    "Price refresh skipped because credentials are incomplete"
-                )
-                return
-            }
-
-            guard !snapshot.holdings.isEmpty else {
-                errorMessage = nil
-                AppLog.portfolio.debug(
-                    "Price refresh skipped because snapshot has no holdings"
-                )
-                return
-            }
-
-            errorMessage = nil
-            AppLog.portfolio.debug("Price refresh started")
-
-            do {
-                let newSnapshot = try await repository.refreshPrices(for: snapshot)
-                guard gen == refreshRunner.generation else { return }
-                snapshot = newSnapshot
-                PortfolioCache.save(newSnapshot)
-                AppLog.portfolio.debug(
-                    "Price refresh saved snapshot holdings=\(newSnapshot.holdings.count, privacy: .public)"
-                )
-            } catch {
-                guard gen == refreshRunner.generation else { return }
-                errorMessage = error.localizedDescription
-                AppLog.portfolio.error(
-                    "Price refresh failed: \(AppLog.describe(error))"
-                )
-            }
+    /// Loads the cached snapshot once, then performs the appropriate initial
+    /// network load. Concurrent callers share this bootstrap task.
+    func bootstrap() async {
+        if didBootstrap {
+            return
         }
+
+        if let bootstrapTask {
+            await bootstrapTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await performBootstrap()
+        }
+        bootstrapTask = task
+        await task.value
+        bootstrapTask = nil
+        didBootstrap = true
+    }
+
+    func refresh() async {
+        guard didBootstrap else {
+            await bootstrap()
+            return
+        }
+
+        await requestRefresh(.price)
     }
 
     func fullRefresh() async {
-        await fullRefreshRunner.run { [weak self] gen in
-            guard let self else { return }
+        _ = await ensureCacheLoaded()
+        await requestRefresh(.full)
+    }
+
+    private func performBootstrap() async {
+        let foundCachedSnapshot = await ensureCacheLoaded()
+        await requestRefresh(foundCachedSnapshot ? .price : .full)
+    }
+
+    /// Serializes the one-time cache read ahead of every network load so a late
+    /// cache result can never overwrite a fresh network snapshot.
+    private func ensureCacheLoaded() async -> Bool {
+        if didLoadCache {
+            return cacheWasHit
+        }
+
+        if let cacheLoadFlight {
+            let cachedSnapshot = await cacheLoadFlight.task.value
+            completeCacheLoad(
+                cachedSnapshot,
+                flightID: cacheLoadFlight.id
+            )
+            return cacheWasHit
+        }
+
+        let flightID = makeFlightID()
+        let task = Task { await PortfolioCache.loadAsync() }
+        let flight = CacheLoadFlight(id: flightID, task: task)
+        cacheLoadFlight = flight
+
+        let cachedSnapshot = await task.value
+        completeCacheLoad(cachedSnapshot, flightID: flightID)
+        return cacheWasHit
+    }
+
+    private func completeCacheLoad(
+        _ cachedSnapshot: PortfolioSnapshot?,
+        flightID: UInt64
+    ) {
+        guard !didLoadCache, cacheLoadFlight?.id == flightID else {
+            return
+        }
+
+        if let cachedSnapshot {
+            snapshot = cachedSnapshot
+            cacheWasHit = true
+            hasPortfolioBaseline = true
+            baselineCredentials = credentialsStore.credentials?.sanitized
+            AppLog.portfolio.debug(
+                "Bootstrap loaded cached snapshot accounts=\(cachedSnapshot.accounts.count, privacy: .public) holdings=\(cachedSnapshot.holdings.count, privacy: .public)"
+            )
+        } else {
+            AppLog.portfolio.debug("Bootstrap cache miss")
+        }
+
+        didLoadCache = true
+        cacheLoadFlight = nil
+    }
+
+    /// Runs at most one logical network load at a time. A full refresh satisfies
+    /// a price request, while a full request cancels and supersedes a price load.
+    private func requestRefresh(_ requestedKind: RefreshKind) async {
+        guard let credentials = credentialsStore.credentials?.sanitized,
+              credentials.isComplete else {
+            resetForMissingCredentials()
+            return
+        }
+
+        var effectiveKind = requestedKind
+        if requestedKind == .price
+            && (!hasPortfolioBaseline || baselineCredentials != credentials) {
+            effectiveKind = .full
+            AppLog.portfolio.debug(
+                "Price refresh promoted to full refresh because no matching portfolio baseline exists"
+            )
+        }
+
+        if effectiveKind == .price && snapshot.holdings.isEmpty {
+            errorMessage = nil
+            AppLog.portfolio.debug(
+                "Price refresh skipped because the loaded portfolio has no holdings"
+            )
+            return
+        }
+
+        if let current = refreshFlight {
+            let credentialsMatch = current.credentials == credentials
+            let currentSatisfiesRequest = credentialsMatch
+                && current.kind.rawValue >= effectiveKind.rawValue
+
+            if currentSatisfiesRequest {
+                AppLog.portfolio.debug(
+                    "Refresh joined in-flight task current=\(current.kind.logName, privacy: .public) requested=\(effectiveKind.logName, privacy: .public) flight=\(current.id, privacy: .public)"
+                )
+                await awaitFlight(current, satisfying: effectiveKind)
+                return
+            }
+
+            if !credentialsMatch {
+                effectiveKind = .full
+            }
 
             AppLog.portfolio.debug(
-                "Full refresh requested isLoading=\(isLoading, privacy: .public) hasCompleteCredentials=\(credentialsStore.credentials?.isComplete == true, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public) existingError=\(errorMessage ?? "nil")"
+                "Refresh superseding in-flight task current=\(current.kind.logName, privacy: .public) requested=\(effectiveKind.logName, privacy: .public) flight=\(current.id, privacy: .public)"
             )
+            current.task.cancel()
+        }
 
-            guard let credentials = credentialsStore.credentials, credentials.isComplete else {
-                snapshot = .emptyLive
-                errorMessage = nil
+        let flight = startRefresh(effectiveKind, credentials: credentials)
+        await awaitFlight(flight, satisfying: effectiveKind)
+    }
+
+    private func startRefresh(
+        _ kind: RefreshKind,
+        credentials: SnapTradeCredentials
+    ) -> RefreshFlight {
+        let flightID = makeFlightID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await performRefresh(kind, credentials: credentials, flightID: flightID)
+            finishRefresh(flightID: flightID)
+        }
+        let flight = RefreshFlight(
+            id: flightID,
+            kind: kind,
+            credentials: credentials,
+            task: task
+        )
+
+        refreshFlight = flight
+        errorMessage = nil
+        isLoading = true
+        AppLog.portfolio.debug(
+            "Refresh started kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
+        )
+        return flight
+    }
+
+    private func performRefresh(
+        _ kind: RefreshKind,
+        credentials: SnapTradeCredentials,
+        flightID: UInt64
+    ) async {
+        guard canCommit(flightID: flightID, credentials: credentials) else {
+            return
+        }
+
+        do {
+            let newSnapshot: PortfolioSnapshot
+            switch kind {
+            case .price:
+                let baseSnapshot = snapshot
+                newSnapshot = try await repository.refreshPrices(for: baseSnapshot)
+            case .full:
+                newSnapshot = try await repository.loadPortfolio(credentials: credentials)
+            }
+
+            guard canCommit(flightID: flightID, credentials: credentials) else {
                 AppLog.portfolio.debug(
-                    "Full refresh skipped because credentials are incomplete"
+                    "Refresh discarded stale result kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
                 )
                 return
             }
 
-            errorMessage = nil
-            AppLog.portfolio.debug("Full refresh started portfolio load")
-
-            do {
-                let newSnapshot = try await repository.loadPortfolio(credentials: credentials)
-                // Discard stale results when a newer refresh has already started.
-                guard gen == fullRefreshRunner.generation else { return }
-                snapshot = newSnapshot
-                if let selectedProviderName,
-                   !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
-                    self.selectedProviderName = nil
-                }
-                PortfolioCache.save(newSnapshot)
-                AppLog.portfolio.debug(
-                    "Full refresh saved snapshot accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"
-                )
-            } catch {
-                guard gen == fullRefreshRunner.generation else { return }
-                errorMessage = error.localizedDescription
-                AppLog.portfolio.error(
-                    "Full refresh failed: \(AppLog.describe(error))"
-                )
+            snapshot = newSnapshot
+            hasPortfolioBaseline = true
+            baselineCredentials = credentials
+            if kind == .full,
+               let selectedProviderName,
+               !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
+                self.selectedProviderName = nil
             }
+            PortfolioCache.save(newSnapshot)
+            AppLog.portfolio.debug(
+                "Refresh saved snapshot kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public) accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"
+            )
+        } catch {
+            guard canCommit(flightID: flightID, credentials: credentials) else {
+                return
+            }
+            errorMessage = error.localizedDescription
+            AppLog.portfolio.error(
+                "Refresh failed kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public): \(AppLog.describe(error))"
+            )
         }
+    }
+
+    /// If the task was superseded, keep the original caller waiting for the
+    /// replacement full refresh that now satisfies its request.
+    private func awaitFlight(
+        _ initialFlight: RefreshFlight,
+        satisfying requestedKind: RefreshKind
+    ) async {
+        var awaitedFlight = initialFlight
+
+        while true {
+            await awaitedFlight.task.value
+            guard awaitedFlight.task.isCancelled,
+                  let replacement = refreshFlight,
+                  replacement.id != awaitedFlight.id,
+                  replacement.kind.rawValue >= requestedKind.rawValue else {
+                return
+            }
+            awaitedFlight = replacement
+        }
+    }
+
+    private func canCommit(
+        flightID: UInt64,
+        credentials: SnapTradeCredentials
+    ) -> Bool {
+        !Task.isCancelled
+            && refreshFlight?.id == flightID
+            && credentialsStore.credentials?.sanitized == credentials
+    }
+
+    private func finishRefresh(flightID: UInt64) {
+        guard refreshFlight?.id == flightID else {
+            return
+        }
+        refreshFlight = nil
+        isLoading = false
+    }
+
+    private func resetForMissingCredentials() {
+        if let refreshFlight {
+            refreshFlight.task.cancel()
+            self.refreshFlight = nil
+        }
+        snapshot = .emptyLive
+        selectedProviderName = nil
+        errorMessage = nil
+        hasPortfolioBaseline = false
+        baselineCredentials = nil
+        isLoading = false
+        AppLog.portfolio.debug(
+            "Refresh skipped and current flight invalidated because credentials are incomplete"
+        )
+    }
+
+    private func makeFlightID() -> UInt64 {
+        nextFlightID &+= 1
+        return nextFlightID
     }
 
     private func isOrdered(_ lhs: Double?, before rhs: Double?, ascending: Bool) -> Bool {

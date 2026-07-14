@@ -28,7 +28,7 @@ struct ContentView: View {
             .fontDesign(.rounded)
             .preferredColorScheme(currentAppearance.colorScheme)
             .task {
-                await viewModel.refresh()
+                await viewModel.bootstrap()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {

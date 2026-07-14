@@ -40,16 +40,33 @@ struct LivePortfolioRepository: PortfolioRepository {
             )
         }
 
-        var positionsByAccount: [(PortfolioAccount, SnapTradePositionDTO)] = []
-        for account in accounts {
-            AppLog.portfolio.debug(
-                "Loading positions currentCount=\(positionsByAccount.count, privacy: .public)"
+        let positionsByAccount = try await withThrowingTaskGroup(
+            of: (Int, [SnapTradePositionDTO]).self,
+            returning: [(PortfolioAccount, SnapTradePositionDTO)].self
+        ) { group in
+            for (index, account) in accounts.enumerated() {
+                group.addTask {
+                    let positions = try await snapTrade.listPositions(accountID: account.id)
+                    return (index, positions)
+                }
+            }
+
+            var batches = Array<[SnapTradePositionDTO]?>(
+                repeating: nil,
+                count: accounts.count
             )
-            let positions = try await snapTrade.listPositions(accountID: account.id)
-            positionsByAccount.append(contentsOf: positions.map { (account, $0) })
-            AppLog.portfolio.debug(
-                "Loaded positions batch=\(positions.count, privacy: .public) total=\(positionsByAccount.count, privacy: .public)"
-            )
+            var loadedPositionCount = 0
+            for try await (index, positions) in group {
+                batches[index] = positions
+                loadedPositionCount += positions.count
+                AppLog.portfolio.debug(
+                    "Loaded positions batch=\(positions.count, privacy: .public) total=\(loadedPositionCount, privacy: .public)"
+                )
+            }
+
+            return batches.enumerated().flatMap { index, positions in
+                (positions ?? []).map { (accounts[index], $0) }
+            }
         }
 
         let quoteRequests = positionsByAccount.compactMap { _, position -> YahooQuoteRequest? in
@@ -276,13 +293,9 @@ struct LivePortfolioRepository: PortfolioRepository {
                 group.addTask { [dividendActivityTypes] in
                     if let activities = try? await snapTrade.listActivities(
                         accountID: account.id,
-                        types: []
+                        types: dividendActivityTypes
                     ) {
-                        let filtered = activities.filter { activity in
-                            guard let type = activity.type?.uppercased() else { return false }
-                            return dividendActivityTypes.contains(type)
-                        }
-                        return (account.id, filtered)
+                        return (account.id, activities)
                     }
                     return nil
                 }

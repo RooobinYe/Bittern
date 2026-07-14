@@ -125,11 +125,21 @@ private final class PortfolioHistoryViewModel: ObservableObject {
                     throw PortfolioHistoryError.noAccounts
                 }
 
-                var histories: [SnapTradeAccountBalanceHistoryDTO] = []
-                for account in accounts {
-                    // Bail out early when a newer reload has started.
-                    guard gen == reloadRunner.generation else { return }
-                    histories.append(try await client.accountBalanceHistory(accountID: account.id))
+                let histories = try await withThrowingTaskGroup(
+                    of: SnapTradeAccountBalanceHistoryDTO.self,
+                    returning: [SnapTradeAccountBalanceHistoryDTO].self
+                ) { group in
+                    for account in accounts {
+                        group.addTask {
+                            try await client.accountBalanceHistory(accountID: account.id)
+                        }
+                    }
+
+                    var histories: [SnapTradeAccountBalanceHistoryDTO] = []
+                    for try await history in group {
+                        histories.append(history)
+                    }
+                    return histories
                 }
 
                 // Discard stale results.
