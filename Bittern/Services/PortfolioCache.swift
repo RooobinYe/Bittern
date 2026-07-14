@@ -7,16 +7,16 @@ import Foundation
 import OSLog
 
 enum PortfolioCache {
-    private static let fileName = "portfolio_cache.json"
+    private nonisolated static let fileName = "portfolio_cache.json"
 
-    private static var cacheURL: URL? {
+    private nonisolated static var cacheURL: URL? {
         FileManager.default
             .urls(for: .cachesDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent(fileName)
     }
 
-    static func save(_ snapshot: PortfolioSnapshot) {
+    nonisolated static func save(_ snapshot: PortfolioSnapshot) {
         guard let url = cacheURL else { return }
         do {
             let data = try JSONEncoder().encode(snapshot)
@@ -28,7 +28,7 @@ enum PortfolioCache {
         }
     }
 
-    static func load() -> PortfolioSnapshot? {
+    nonisolated static func load() -> PortfolioSnapshot? {
         guard let url = cacheURL,
               let data = try? Data(contentsOf: url) else {
             return nil
@@ -44,7 +44,7 @@ enum PortfolioCache {
         }
     }
 
-    static func loadAsync() async -> PortfolioSnapshot? {
+    nonisolated static func loadAsync() async -> PortfolioSnapshot? {
         await Task.detached {
             load()
         }.value
