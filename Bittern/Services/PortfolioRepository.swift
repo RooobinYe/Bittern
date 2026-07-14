@@ -82,7 +82,9 @@ struct LivePortfolioRepository: PortfolioRepository {
             "Loading quotes assets=\(quoteRequests.count, privacy: .public)"
         )
 
-        let quotes = (try? await yahoo.quotes(for: quoteRequests)) ?? [:]
+        let quotes = quoteRequests.isEmpty
+            ? [:]
+            : try await yahoo.quotes(for: quoteRequests)
         AppLog.portfolio.debug(
             "Loaded quotes=\(quotes.count, privacy: .public)"
         )
@@ -178,7 +180,7 @@ struct LivePortfolioRepository: PortfolioRepository {
             AppLog.portfolio.warning(
                 "Price refresh quote request failed: \(AppLog.describe(error))"
             )
-            quotes = [:]
+            throw error
         }
 
         let quoteSymbols = quotes.keys.sorted()

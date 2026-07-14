@@ -101,6 +101,10 @@ struct YahooFinanceClient {
             "Quotes completed succeeded=\(succeeded.count, privacy: .public)/\(normalizedRequests.count, privacy: .public) succeededSymbols=\(AppLog.list(succeeded)) failedSymbols=\(AppLog.list(failed)) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
+        guard !results.isEmpty else {
+            throw YahooFinanceError.httpStatus(-1, "No market data was returned.")
+        }
+
         return results
     }
 
@@ -118,6 +122,7 @@ struct YahooFinanceClient {
             "Price history requested symbol=\(symbol) instrumentKind=\(logKind(instrumentKind), privacy: .public) range=\(range.title, privacy: .public) candidates=\(AppLog.list(candidates))"
         )
 
+        var lastError: Error?
         for candidate in candidates {
             do {
                 let history = try await fetchHistoryOne(candidate: candidate, range: range)
@@ -131,6 +136,7 @@ struct YahooFinanceClient {
                     "Price history candidate=\(candidate) returned no points"
                 )
             } catch {
+                lastError = error
                 AppLog.marketData.warning(
                     "Price history candidate=\(candidate) failed: \(AppLog.describe(error))"
                 )
@@ -140,7 +146,7 @@ struct YahooFinanceClient {
         AppLog.marketData.error(
             "Price history failed for every candidate symbol=\(symbol)"
         )
-        throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
+        throw lastError ?? YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
     }
 
     // MARK: - Private
