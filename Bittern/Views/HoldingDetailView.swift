@@ -176,6 +176,8 @@ private struct HoldingAssetHeader: View {
     let isPrivacyEnabled: Bool
     let avatarColor: Color
 
+    @ScaledMetric(relativeTo: .largeTitle) private var priceRowMinimumHeight: CGFloat = 41
+
     private var displayPoint: HoldingPricePoint? {
         selectedPoint ?? series.last ?? holding.currentPrice.map { HoldingPricePoint(date: Date(), price: $0) }
     }
@@ -220,6 +222,7 @@ private struct HoldingAssetHeader: View {
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
                 }
+                .frame(minHeight: priceRowMinimumHeight, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 9) {
@@ -439,7 +442,7 @@ private struct HoldingInfoSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 Text("My Holdings")
                     .font(.title.bold())
                     .foregroundStyle(BitternTheme.ink)

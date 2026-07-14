@@ -79,6 +79,7 @@ struct DashboardView: View {
             }
 #endif
         }
+        .fontDesign(.default)
     }
 
     private func providerName(for accountID: String) -> String {
@@ -100,7 +101,7 @@ struct DashboardView: View {
                 snapshot: shareSnapshot,
                 width: screenshotWidth
             )
-            .fontDesign(.rounded)
+            .fontDesign(.default)
             .environment(\.dynamicTypeSize, screenshotDynamicTypeSize)
             .environment(\.colorScheme, screenshotColorScheme)
             .environment(\.isRenderingScreenshot, true)
@@ -162,7 +163,7 @@ struct DashboardView: View {
                       snapshot: shareSnapshot,
                       width: screenshotWidth
                   )
-                  .fontDesign(.rounded)
+                  .fontDesign(.default)
                   .environment(\.dynamicTypeSize, dynamicTypeSize)
                   .environment(\.colorScheme, screenshotColorScheme)
                   .environment(\.isRenderingScreenshot, true),
@@ -265,7 +266,7 @@ private struct PortfolioShareScreenshotContent: View {
         VStack(spacing: 0) {
             PortfolioExportHeader()
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal, 24)
+                .padding(.horizontal)
                 .padding(.top, 16)
                 .padding(.bottom, 18)
                 .background(BitternTheme.background)
@@ -300,7 +301,6 @@ private enum DashboardLayoutMetrics {
     static let idealChartColumnWidth: CGFloat = 440
     static let minimumHoldingsColumnWidth: CGFloat = 360
     static let columnSpacing: CGFloat = 28
-    static let contentHorizontalPadding: CGFloat = 16
     static let preferredSplitWidth: CGFloat = 756
     static let minimumSplitHeight: CGFloat = 460
     static let maximumChartSide: CGFloat = 500
@@ -373,28 +373,28 @@ private struct DashboardVisualContent: View {
             ScrollView {
                 stackedSections
                     .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                    .padding(.horizontal)
                     .frame(maxWidth: .infinity)
             }
-            .contentMargins(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable { await performRefresh() }
 
         case (.stacked, .export):
             stackedSections
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .padding(.horizontal)
                 .frame(maxWidth: .infinity)
 
         case (.split, .interactive):
             splitContent(holdsScrollableContent: true)
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .padding(.horizontal)
                 .frame(maxWidth: .infinity)
 
         case (.split, .export):
             splitContent(holdsScrollableContent: false)
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal, DashboardLayoutMetrics.contentHorizontalPadding)
+                .padding(.horizontal)
                 .frame(maxWidth: .infinity)
         }
     }

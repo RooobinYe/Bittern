@@ -13,7 +13,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Appearance") {
+            Section {
                 Picker("Appearance", selection: $appearanceModeRaw) {
                     ForEach(AppAppearance.allCases) { appearance in
                         Text(appearance.title)
@@ -21,30 +21,55 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
+                .listRowInsets(.vertical, 0)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("System follows the appearance selected for your iPhone.")
             }
 
-            Section("Filters") {
-                MinPriceRow(threshold: $minPriceThreshold)
+            Section {
+                NavigationLink {
+                    MinimumMarketValueView(
+                        threshold: $minPriceThreshold,
+                        currencyCode: viewModel.visibleSnapshot.currencyCode
+                    )
+                } label: {
+                    SettingsValueLabel(
+                        title: "Minimum Market Value",
+                        value: formattedMinimumMarketValue
+                    )
+                }
+            } header: {
+                Text("Filters")
+            } footer: {
+                Text("Holdings below this value are hidden from your portfolio.")
             }
 
-            Section("Portfolio") {
+            Section {
                 NavigationLink {
                     PortfolioHistoryView(credentialsStore: credentialsStore, dashboardViewModel: viewModel)
+                        .navigationTitle("History")
+                        .navigationBarTitleDisplayMode(.inline)
                 } label: {
                     SettingsNavigationLabel(
                         title: "History",
-                        subtitle: "View total money over time",
                         systemImage: "chart.xyaxis.line"
                     )
                 }
 
                 NavigationLink {
                     PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
+                        .navigationTitle("Portfolio Accounts")
+                        .navigationBarTitleDisplayMode(.inline)
                 } label: {
                     SettingsNavigationLabel(
                         title: "Portfolio Accounts",
-                        subtitle: "Manage connected institutions",
-                        systemImage: "building.columns"
+                        systemImage: "building.columns",
+                        value: connectedAccountsValue
                     )
                 }
 
@@ -53,16 +78,30 @@ struct SettingsView: View {
                 } label: {
                     SettingsNavigationLabel(
                         title: "Credentials",
-                        subtitle: "View SnapTrade keys",
                         systemImage: "key"
                     )
                 }
+            } header: {
+                Text("Portfolio")
             }
         }
+        .fontDesign(.default)
         .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .toolbar(.visible, for: .navigationBar)
+    }
+
+    private var formattedMinimumMarketValue: String {
+        PortfolioFormat.price(
+            max(minPriceThreshold, 0),
+            currencyCode: viewModel.visibleSnapshot.currencyCode
+        )
+    }
+
+    private var connectedAccountsValue: String {
+        let count = viewModel.snapshot.accounts.count
+        return count == 0 ? "None" : "\(count)"
     }
 }
 
@@ -74,121 +113,159 @@ private struct SnapTradeCredentialsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let credentials {
+        Form {
+            if let credentials {
+                Section {
                     CredentialsValueRow(title: "Client ID", value: credentials.clientId)
                     CredentialsValueRow(title: "Consumer Key", value: credentials.consumerKey)
                     CredentialsValueRow(title: "User ID", value: credentials.userId)
                     CredentialsValueRow(title: "User Key", value: credentials.userSecret)
-                } else {
+                } header: {
+                    Text("SnapTrade")
+                } footer: {
+                    Text("Touch and hold a value to select or copy it.")
+                }
+            } else {
+                Section {
                     HStack(alignment: .top, spacing: 13) {
                         Image(systemName: "key.slash")
-                            .font(.headline.bold())
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(BitternTheme.accent)
-                            .frame(width: 38, height: 38)
-                            .background(BitternTheme.accent.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .frame(width: 24)
+                            .accessibilityHidden(true)
 
                         VStack(alignment: .leading, spacing: 3) {
                             Text("No Credentials")
-                                .font(.headline.bold())
-                                .foregroundStyle(BitternTheme.ink)
 
                             Text("Connect SnapTrade to create saved credentials.")
-                                .font(.footnote.weight(.semibold))
+                                .font(.footnote)
                                 .foregroundStyle(BitternTheme.secondaryInk)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-
-                        Spacer()
                     }
-                    .padding(14)
-                    .bitternPanel()
                 }
             }
-            .frame(maxWidth: settingsMaximumContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 22)
         }
-        .background(BitternTheme.background.ignoresSafeArea())
-        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .fontDesign(.default)
         .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Credentials")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
     }
 }
-
-private let settingsMaximumContentWidth: CGFloat = 720
 
 private struct CredentialsValueRow: View {
     let title: String
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.headline.bold())
+                .font(.subheadline)
                 .foregroundStyle(BitternTheme.secondaryInk)
 
             Text(value.isEmpty ? "N/A" : value)
-                .font(.footnote.monospaced().weight(.semibold))
+                .font(.footnote.monospaced())
                 .foregroundStyle(BitternTheme.ink)
                 .textSelection(.enabled)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .bitternPanel()
+        .padding(.vertical, 3)
     }
 }
 
 private struct SettingsNavigationLabel: View {
     let title: String
-    let subtitle: String
     let systemImage: String
+    var value: String?
 
     var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(BitternTheme.ink)
-
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(BitternTheme.secondaryInk)
-            }
-        } icon: {
+        HStack(spacing: 12) {
             Image(systemName: systemImage)
+                .font(.body.weight(.medium))
                 .foregroundStyle(BitternTheme.accent)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+
+            Text(title)
+                .foregroundStyle(BitternTheme.ink)
+
+            Spacer(minLength: 12)
+
+            if let value {
+                Text(value)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .lineLimit(1)
+            }
         }
     }
 }
 
-private struct MinPriceRow: View {
-    @Binding var threshold: Double
-
-    private var formattedThreshold: String {
-        PortfolioFormat.price(threshold)
-    }
+private struct SettingsValueLabel: View {
+    let title: String
+    let value: String
 
     var body: some View {
-        LabeledContent {
-            TextField("1.00", value: $threshold, format: .number.precision(.fractionLength(0...2)))
-                .font(.body.monospacedDigit())
-                .multilineTextAlignment(.trailing)
-                .keyboardType(.decimalPad)
-                .frame(width: 72)
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Minimum Market Value")
+        LabeledContent(title) {
+            Text(value)
+                .foregroundStyle(BitternTheme.secondaryInk)
+        }
+    }
+}
 
-                Text("Hide holdings below \(formattedThreshold)")
-                    .font(.footnote)
-                    .foregroundStyle(BitternTheme.secondaryInk)
+private struct MinimumMarketValueView: View {
+    @Binding var threshold: Double
+    let currencyCode: String
+    @FocusState private var isValueFocused: Bool
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Minimum Value") {
+                    HStack(spacing: 8) {
+                        Text(currencyCode)
+                            .font(.subheadline)
+                            .foregroundStyle(BitternTheme.secondaryInk)
+
+                        TextField(
+                            "0.00",
+                            value: $threshold,
+                            format: .number.precision(.fractionLength(0...2))
+                        )
+                        .font(.body.monospacedDigit())
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.decimalPad)
+                        .focused($isValueFocused)
+                        .frame(minWidth: 72, maxWidth: 112)
+                    }
+                }
+            } footer: {
+                Text("Holdings with a market value below this amount are hidden throughout the app. Enter 0 to show every holding.")
             }
+        }
+        .fontDesign(.default)
+        .navigationTitle("Minimum Value")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+
+                Button("Done") {
+                    normalizeThreshold()
+                    isValueFocused = false
+                }
+            }
+        }
+        .onDisappear(perform: normalizeThreshold)
+    }
+
+    private func normalizeThreshold() {
+        if threshold.isFinite {
+            threshold = max(threshold, 0)
+        } else {
+            threshold = 0
         }
     }
 }
