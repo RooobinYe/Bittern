@@ -97,6 +97,9 @@ struct DashboardView: View {
         let screenshotDynamicTypeSize = dynamicTypeSize
 
         return PortfolioShareItem {
+            let logoData = await ScreenshotLogoLoader.load(
+                for: shareSnapshot.logoHoldings
+            )
             let content = PortfolioShareScreenshotContent(
                 snapshot: shareSnapshot,
                 width: screenshotWidth
@@ -105,6 +108,7 @@ struct DashboardView: View {
             .environment(\.dynamicTypeSize, screenshotDynamicTypeSize)
             .environment(\.colorScheme, screenshotColorScheme)
             .environment(\.isRenderingScreenshot, true)
+            .environment(\.screenshotLogoData, logoData)
 
             guard let data = ScreenshotRenderer.render(
                 content,
@@ -157,6 +161,9 @@ struct DashboardView: View {
             DashboardLayoutMetrics.maximumExportWidth
         )
         let screenshotColorScheme = colorScheme
+        let logoData = await ScreenshotLogoLoader.load(
+            for: shareSnapshot.logoHoldings
+        )
 
         guard let image = ScreenshotRenderer.render(
                   PortfolioShareScreenshotContent(
@@ -166,7 +173,8 @@ struct DashboardView: View {
                   .fontDesign(.default)
                   .environment(\.dynamicTypeSize, dynamicTypeSize)
                   .environment(\.colorScheme, screenshotColorScheme)
-                  .environment(\.isRenderingScreenshot, true),
+                  .environment(\.isRenderingScreenshot, true)
+                  .environment(\.screenshotLogoData, logoData),
                   width: screenshotWidth,
                   scale: displayScale,
                   backgroundColor: screenshotColorScheme.systemBackgroundColor
@@ -200,7 +208,7 @@ private extension ColorScheme {
 }
 
 private struct PortfolioShareItem: Transferable, Sendable {
-    let renderPNG: @MainActor @Sendable () throws -> Data
+    let renderPNG: @MainActor @Sendable () async throws -> Data
 
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .png) { item in
@@ -222,6 +230,12 @@ private struct DashboardShareSnapshot: Sendable {
     var minPriceThreshold: Double
     let viewportSize: CGSize
     let layoutMode: DashboardLayoutMode
+
+    var logoHoldings: [PortfolioHolding] {
+        portfolio.holdings.filter {
+            $0.marketValue.map { $0 >= minPriceThreshold } ?? true
+        }
+    }
 }
 
 private enum PortfolioShareError: Error {
@@ -250,9 +264,16 @@ private struct PortfolioAvatarIcon: View {
 /// hand-built replacement for the system navigation bar.
 private struct PortfolioExportHeader: View {
     var body: some View {
-        Text("Portfolio")
-            .font(.title2.bold())
-            .foregroundStyle(BitternTheme.ink)
+        ZStack {
+            Text("Portfolio")
+                .font(.title2.bold())
+                .foregroundStyle(BitternTheme.ink)
+
+            HStack {
+                PortfolioAvatarIcon(size: 40)
+                Spacer(minLength: 0)
+            }
+        }
     }
 }
 
@@ -1136,8 +1157,7 @@ private struct AllocationBubble: View {
             logoURL: logoURL,
             color: color,
             size: circleSize,
-            fallbackLabel: iconLabel,
-            fallbackForegroundColor: .white
+            fallbackLabel: iconLabel
         )
     }
 }
