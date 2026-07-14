@@ -330,7 +330,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
-struct PortfolioSnapshot: Codable, Sendable {
+struct PortfolioSnapshot: nonisolated Codable, Sendable {
     let accounts: [PortfolioAccount]
     let holdings: [PortfolioHolding]
     let totalAssets: Double?
