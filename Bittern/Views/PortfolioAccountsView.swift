@@ -85,14 +85,17 @@ struct PortfolioAccountsView: View {
 
     private var providerGroups: [PortfolioProviderGroup] {
         let accounts = viewModel.snapshot.accounts
-        let holdings = viewModel.snapshot.holdings
+        let holdings = viewModel.snapshot.holdings.filter {
+            $0.marketValue.map { $0 >= minPriceThreshold } ?? true
+        }
+        let holdingColorLookup = BitternTheme.holdingAllocationColors(for: holdings)
 
         let groupedAccounts = Dictionary(grouping: accounts, by: \.providerName)
 
         return groupedAccounts.map { (name, providerAccounts) in
             let accountIDs = Set(providerAccounts.map(\.id))
             let providerHoldings = holdings
-                .filter { accountIDs.contains($0.accountID) && ($0.marketValue.map { $0 >= minPriceThreshold } ?? true) }
+                .filter { accountIDs.contains($0.accountID) }
                 .sorted { ($0.marketValue ?? -Double.infinity) > ($1.marketValue ?? -Double.infinity) }
             let hasCompleteMarketValue = providerHoldings.allSatisfy { $0.marketValue != nil }
             let totalMarketValue = hasCompleteMarketValue
@@ -106,7 +109,8 @@ struct PortfolioAccountsView: View {
                 isDisabled: providerAccounts.contains(where: \.isConnectionDisabled),
                 accountCount: providerAccounts.count,
                 totalMarketValue: totalMarketValue,
-                holdings: providerHoldings
+                holdings: providerHoldings,
+                holdingColorLookup: holdingColorLookup
             )
         }
         .sorted { ($0.totalMarketValue ?? -Double.infinity) > ($1.totalMarketValue ?? -Double.infinity) }
@@ -259,6 +263,7 @@ private struct PortfolioProviderGroup: Identifiable {
     let accountCount: Int
     let totalMarketValue: Double?
     let holdings: [PortfolioHolding]
+    let holdingColorLookup: [String: Color]
 }
 
 private struct SnapTradeSettingsPanel: View {
@@ -402,7 +407,11 @@ private struct ProviderHoldingsSection: View {
                     .padding(.bottom, 15)
             } else {
                 ForEach(group.holdings) { holding in
-                    ProviderHoldingRow(holding: holding, providerName: group.name)
+                    ProviderHoldingRow(
+                        holding: holding,
+                        providerName: group.name,
+                        color: group.holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0)
+                    )
                 }
             }
         }
@@ -412,6 +421,7 @@ private struct ProviderHoldingsSection: View {
 private struct ProviderHoldingRow: View {
     let holding: PortfolioHolding
     let providerName: String
+    let color: Color
 
     private var unitLabel: String {
         providerName.lowercased().contains("binance") ? "tokens" : "shares"
@@ -424,12 +434,17 @@ private struct ProviderHoldingRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            ProviderSymbolAvatar(symbol: holding.symbol)
+        HStack(spacing: 12) {
+            HoldingSymbolIcon(
+                symbol: holding.symbol,
+                logoURL: holding.logoURL,
+                color: color,
+                size: 40
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(holding.symbol)
-                    .font(.title3.bold())
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
 
@@ -444,7 +459,7 @@ private struct ProviderHoldingRow: View {
 
             VStack(alignment: .trailing, spacing: 5) {
                 Text(holding.marketValue.map { PortfolioFormat.wholeMoney($0, currencyCode: holding.currencyCode) } ?? "N/A")
-                    .font(.headline.bold().monospacedDigit())
+                    .font(.title3.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -455,30 +470,11 @@ private struct ProviderHoldingRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 16)
         .overlay(alignment: .bottom) {
             Divider()
-                .overlay(BitternTheme.softLine)
+                .overlay(BitternTheme.softLine.opacity(0.7))
         }
-    }
-}
-
-private struct ProviderSymbolAvatar: View {
-    let symbol: String
-
-    var body: some View {
-        Text(String(symbol.prefix(4)))
-            .font(.caption2.bold())
-            .foregroundStyle(BitternTheme.ink)
-            .frame(width: 44, height: 44)
-            .background(avatarColor.opacity(0.15))
-            .clipShape(Circle())
-    }
-
-    private var avatarColor: Color {
-        let palette = BitternTheme.allocationColors
-        let sum = symbol.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[sum % palette.count]
     }
 }
 
