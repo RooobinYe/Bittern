@@ -69,10 +69,13 @@ struct HoldingDetailView: View {
             .contentMargins(.horizontal, 24, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable {
-                await detailModel.refreshSelectedRange()
+                await Task {
+                    await detailModel.refreshSelectedRange()
+                }.value
             }
         }
         .toolbar(.visible, for: .navigationBar)
+        .errorToast(message: $detailModel.errorMessage)
         .task {
             await detailModel.loadSelectedRangeIfNeeded()
         }
@@ -93,6 +96,7 @@ private final class HoldingDetailViewModel: ObservableObject {
     @Published var selectedPoint: HoldingPricePoint?
     @Published private(set) var priceSeriesByRange: [HoldingChartRange: [HoldingPricePoint]] = [:]
     @Published private(set) var isLoading = false
+    @Published var errorMessage: String?
 
     private let holding: PortfolioHolding
     private let yahooClient: YahooFinanceClient
@@ -118,19 +122,14 @@ private final class HoldingDetailViewModel: ObservableObject {
 
     func refreshSelectedRange() async {
         let range = selectedRange
-        AppLog.marketData.debug(
-            "Chart refresh requested range=\(range.title, privacy: .public) symbol=\(self.holding.symbol) taskCancelled=\(Task.isCancelled, privacy: .public)"
-        )
         await loadSelectedRange(range, showsLoading: priceSeriesByRange[range] == nil)
     }
 
     private func loadSelectedRange(_ range: HoldingChartRange, showsLoading: Bool) async {
-        AppLog.marketData.debug(
-            "Chart load started range=\(range.title, privacy: .public) showsLoading=\(showsLoading, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public)"
-        )
         if showsLoading {
             isLoading = true
         }
+        errorMessage = nil
         defer {
             if showsLoading && selectedRange == range {
                 isLoading = false
@@ -143,22 +142,19 @@ private final class HoldingDetailViewModel: ObservableObject {
                 instrumentKind: holding.instrumentKind,
                 range: range
             )
-            guard !Task.isCancelled else {
-                AppLog.marketData.debug(
-                    "Chart load discarded after cancellation points=\(history.count, privacy: .public)"
-                )
-                return
-            }
+            guard !Task.isCancelled else { return }
             selectedPoint = nil
             priceSeriesByRange[range] = normalized(history)
-            AppLog.marketData.debug(
-                "Chart load saved points=\(history.count, privacy: .public) range=\(range.title, privacy: .public)"
-            )
         } catch {
+            guard !Task.isCancelled else { return }
             AppLog.marketData.warning(
                 "Chart load failed range=\(range.title, privacy: .public) symbol=\(self.holding.symbol): \(AppLog.describe(error))"
             )
             priceSeriesByRange[range] = []
+            errorMessage = UserFacingError.message(
+                for: error,
+                fallback: "Price history for \(holding.symbol) couldn’t be loaded. Please try again."
+            )
         }
     }
 

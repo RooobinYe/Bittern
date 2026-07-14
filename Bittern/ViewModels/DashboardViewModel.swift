@@ -334,7 +334,10 @@ final class DashboardViewModel: ObservableObject {
             guard canCommit(flightID: flightID, credentials: credentials) else {
                 return
             }
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(
+                for: error,
+                fallback: "Portfolio couldn’t be refreshed. Your existing data is still available."
+            )
             AppLog.portfolio.error(
                 "Refresh failed kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public): \(AppLog.describe(error))"
             )

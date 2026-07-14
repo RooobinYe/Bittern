@@ -100,8 +100,43 @@ struct PanelModifier: ViewModifier {
     }
 }
 
+private struct ErrorToastModifier: ViewModifier {
+    @Binding var message: String?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let message {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(BitternTheme.ink)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                        .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                        .transition(
+                            .move(edge: .top).combined(with: .opacity)
+                        )
+                        .task(id: message) {
+                            try? await Task.sleep(for: .seconds(5))
+                            guard !Task.isCancelled else { return }
+                            self.message = nil
+                        }
+                }
+            }
+            .animation(.snappy, value: message)
+    }
+}
+
 extension View {
     func bitternPanel() -> some View {
         modifier(PanelModifier())
+    }
+
+    func errorToast(message: Binding<String?>) -> some View {
+        modifier(ErrorToastModifier(message: message))
     }
 }

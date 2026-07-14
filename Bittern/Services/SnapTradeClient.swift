@@ -199,6 +199,14 @@ struct SnapTradeClient {
             URLQueryItem(name: "clientId", value: credentials.clientId),
             URLQueryItem(name: "timestamp", value: timestamp)
         ]
+        // URLComponents leaves commas unescaped in query-item values, while
+        // SnapTrade canonicalizes them as %2C before verifying the request
+        // signature. Sign and send the same explicit encoding so comma-separated
+        // filters (for example activity types) authenticate successfully.
+        if let percentEncodedQuery = components?.percentEncodedQuery {
+            components?.percentEncodedQuery = percentEncodedQuery
+                .replacingOccurrences(of: ",", with: "%2C")
+        }
 
         guard let url = components?.url else {
             throw SnapTradeError.invalidURL

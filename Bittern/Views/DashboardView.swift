@@ -34,6 +34,7 @@ struct DashboardView: View {
                 )
                 .frame(maxWidth: .infinity)
             }
+            .errorToast(message: $viewModel.errorMessage)
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
             .onGeometryChange(for: CGSize.self) { proxy in
@@ -128,7 +129,6 @@ struct DashboardView: View {
             filterAccounts: viewModel.snapshot.accounts,
             portfolio: viewModel.visibleSnapshot,
             sortedHoldings: viewModel.sortedHoldings,
-            errorMessage: viewModel.errorMessage,
             selectedProviderName: viewModel.selectedProviderName,
             performanceMode: viewModel.performanceMode,
             sortOption: viewModel.sortOption,
@@ -222,7 +222,6 @@ private struct DashboardShareSnapshot: Sendable {
     let filterAccounts: [PortfolioAccount]
     let portfolio: PortfolioSnapshot
     let sortedHoldings: [PortfolioHolding]
-    let errorMessage: String?
     let selectedProviderName: String?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
@@ -296,7 +295,6 @@ private struct PortfolioShareScreenshotContent: View {
                 filterAccounts: snapshot.filterAccounts,
                 portfolio: snapshot.portfolio,
                 sortedHoldings: snapshot.sortedHoldings,
-                errorMessage: snapshot.errorMessage,
                 selectedProviderName: .constant(snapshot.selectedProviderName),
                 performanceMode: .constant(snapshot.performanceMode),
                 sortOption: .constant(snapshot.sortOption),
@@ -356,7 +354,6 @@ private struct DashboardContent: View {
                 filterAccounts: viewModel.snapshot.accounts,
                 portfolio: viewModel.visibleSnapshot,
                 sortedHoldings: viewModel.sortedHoldings,
-                errorMessage: viewModel.errorMessage,
                 selectedProviderName: $viewModel.selectedProviderName,
                 performanceMode: $viewModel.performanceMode,
                 sortOption: $viewModel.sortOption,
@@ -377,7 +374,6 @@ private struct DashboardVisualContent: View {
     let filterAccounts: [PortfolioAccount]
     let portfolio: PortfolioSnapshot
     let sortedHoldings: [PortfolioHolding]
-    let errorMessage: String?
     @Binding var selectedProviderName: String?
     @Binding var performanceMode: PerformanceMode
     @Binding var sortOption: HoldingSortOption
@@ -464,10 +460,6 @@ private struct DashboardVisualContent: View {
             accountFilter
             stackedDonut
 
-            if let errorMessage {
-                ErrorBanner(message: errorMessage)
-            }
-
             holdings
         }
         .padding(.bottom, 14)
@@ -519,10 +511,6 @@ private struct DashboardVisualContent: View {
 
     private var splitHoldings: some View {
         VStack(spacing: 16) {
-            if let errorMessage {
-                ErrorBanner(message: errorMessage)
-            }
-
             holdings
         }
         .padding(.bottom, 14)
@@ -1319,27 +1307,6 @@ private struct SymbolAvatar: View {
             color: color,
             size: 40
         )
-    }
-}
-
-private struct ErrorBanner: View {
-    let message: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color(uiColor: .systemRed))
-
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(BitternTheme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(Color(uiColor: .systemRed).opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

@@ -42,7 +42,6 @@ struct PortfolioAccountsView: View {
                         isConnecting: isOpeningPortal,
                         clientId: $clientId,
                         consumerKey: $consumerKey,
-                        errorMessage: errorMessage ?? viewModel.errorMessage,
                         successMessage: successMessage,
                         save: save,
                         connect: { Task { await openConnectionPortal() } }
@@ -69,6 +68,7 @@ struct PortfolioAccountsView: View {
                 await refresh()
             }
         }
+        .errorToast(message: presentedErrorMessage)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -116,6 +116,18 @@ struct PortfolioAccountsView: View {
         .sorted { ($0.totalMarketValue ?? -Double.infinity) > ($1.totalMarketValue ?? -Double.infinity) }
     }
 
+    private var presentedErrorMessage: Binding<String?> {
+        Binding(
+            get: { errorMessage ?? viewModel.errorMessage },
+            set: { newValue in
+                errorMessage = newValue
+                if newValue == nil {
+                    viewModel.errorMessage = nil
+                }
+            }
+        )
+    }
+
     private func save() {
         AppLog.credentials.debug("Save credentials tapped")
         Task { await saveCredentials() }
@@ -129,7 +141,10 @@ struct PortfolioAccountsView: View {
             errorMessage = nil
             Task { await viewModel.fullRefresh() }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(
+                for: error,
+                fallback: "SnapTrade credentials couldn’t be cleared. Please try again."
+            )
             AppLog.credentials.error(
                 "Clearing credentials failed: \(AppLog.describe(error))"
             )
@@ -152,7 +167,10 @@ struct PortfolioAccountsView: View {
             let url = try await client.connectionPortalURL(darkMode: colorScheme == .dark)
             openURL(url)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(
+                for: error,
+                fallback: "The brokerage connection portal couldn’t be opened. Please try again."
+            )
             AppLog.credentials.error(
                 "Opening connection portal failed: \(AppLog.describe(error))"
             )
@@ -189,7 +207,10 @@ struct PortfolioAccountsView: View {
             successMessage = nil
         } catch {
             isSavingCredentials = false
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(
+                for: error,
+                fallback: "SnapTrade credentials couldn’t be saved. Please try again."
+            )
             AppLog.credentials.error(
                 "Save credentials failed: \(AppLog.describe(error))"
             )
@@ -273,7 +294,6 @@ private struct SnapTradeSettingsPanel: View {
     let isConnecting: Bool
     @Binding var clientId: String
     @Binding var consumerKey: String
-    let errorMessage: String?
     let successMessage: String?
     let save: () -> Void
     let connect: () -> Void
@@ -304,13 +324,6 @@ private struct SnapTradeSettingsPanel: View {
             VStack(alignment: .leading, spacing: 12) {
                 PortfolioCredentialField(title: "Client ID", text: $clientId, isSecure: false)
                 PortfolioCredentialField(title: "Consumer Key", text: $consumerKey, isSecure: true)
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let successMessage {

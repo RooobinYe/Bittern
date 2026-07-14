@@ -32,20 +32,6 @@ struct PortfolioHistoryView: View {
                     isLoading: historyModel.isLoading
                 )
                 .frame(maxWidth: portfolioHistoryMaximumChartWidth)
-
-                if let errorMessage = historyModel.errorMessage {
-                    HistoryMessagePanel(
-                        systemImage: "exclamationmark.triangle",
-                        title: "History unavailable",
-                        message: errorMessage
-                    )
-                } else if !historyModel.isLoading && historyModel.allPoints.isEmpty {
-                    HistoryMessagePanel(
-                        systemImage: "chart.xyaxis.line",
-                        title: "No history yet",
-                        message: "Connect your portfolio accounts to load daily total money history."
-                    )
-                }
             }
             .frame(maxWidth: portfolioHistoryMaximumContentWidth)
             .frame(maxWidth: .infinity)
@@ -55,6 +41,7 @@ struct PortfolioHistoryView: View {
         .contentMargins(.horizontal, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: .top)
         .toolbar(.visible, for: .navigationBar)
+        .errorToast(message: $historyModel.errorMessage)
         .refreshable {
             await historyModel.reload(
                 credentials: credentialsStore.credentials,
@@ -82,7 +69,7 @@ private final class PortfolioHistoryViewModel: ObservableObject {
     @Published var selectedPoint: PortfolioHistoryPoint?
     @Published private(set) var allPoints: [PortfolioHistoryPoint] = []
     @Published private(set) var currencyCode = "USD"
-    @Published private(set) var errorMessage: String?
+    @Published var errorMessage: String?
 
     private let reloadRunner = CancelableTaskRunner()
 
@@ -163,7 +150,10 @@ private final class PortfolioHistoryViewModel: ObservableObject {
             } catch {
                 guard gen == reloadRunner.generation else { return }
                 allPoints = []
-                errorMessage = error.localizedDescription
+                errorMessage = UserFacingError.message(
+                    for: error,
+                    fallback: "Account history couldn’t be loaded. Please try again."
+                )
             }
         }
     }
@@ -379,38 +369,6 @@ private struct PortfolioHistoryChartSection: View {
             selectedPoint: $selectedPoint,
             isLoading: isLoading
         )
-    }
-}
-
-private struct HistoryMessagePanel: View {
-    let systemImage: String
-    let title: String
-    let message: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 13) {
-            Image(systemName: systemImage)
-                .font(.headline.bold())
-                .foregroundStyle(BitternTheme.accent)
-                .frame(width: 38, height: 38)
-                .background(BitternTheme.accent.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline.bold())
-                    .foregroundStyle(BitternTheme.ink)
-
-                Text(message)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
-        }
-        .padding(14)
-        .bitternPanel()
     }
 }
 
