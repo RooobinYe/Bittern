@@ -51,28 +51,6 @@
             ReferencedContainer = "container:Bittern.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "BITTERN_SNAPTRADE_CLIENT_ID"
-            value = "REDACTED"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "BITTERN_SNAPTRADE_CONSUMER_KEY"
-            value = "REDACTED"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "BITTERN_SNAPTRADE_USER_ID"
-            value = "REDACTED"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "BITTERN_SNAPTRADE_USER_SECRET"
-            value = "REDACTED"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

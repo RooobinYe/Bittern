@@ -70,8 +70,7 @@ struct DashboardView: View {
             .navigationDestination(for: PortfolioHolding.self) { holding in
                 HoldingDetailView(
                     holding: holding,
-                    snapshot: viewModel.visibleSnapshot,
-                    providerName: providerName(for: holding.accountID)
+                    snapshot: viewModel.visibleSnapshot
                 )
             }
 #if DEBUG
@@ -81,10 +80,6 @@ struct DashboardView: View {
 #endif
         }
         .fontDesign(.default)
-    }
-
-    private func providerName(for accountID: String) -> String {
-        viewModel.visibleSnapshot.accounts.first { $0.id == accountID }?.providerName ?? ""
     }
 
     private var portfolioShareItem: PortfolioShareItem {
@@ -719,7 +714,7 @@ private struct DonutPortfolioChart: View {
                 }
 
                 VStack(spacing: centerSpacing) {
-                    Text(totalAssetsText)
+                    Text(totalMarketValueText)
                         .font(.title.bold().monospacedDigit())
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
@@ -779,19 +774,19 @@ private struct DonutPortfolioChart: View {
 
         if isPrivacyEnabled {
             let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
-            return "\(sign)\(hiddenMoney(currencyCode: snapshot.currencyCode))"
+            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: snapshot.currencyCode))"
         }
 
         return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
     }
 
-    private var totalAssetsText: String {
+    private var totalMarketValueText: String {
         if isPrivacyEnabled {
-            return snapshot.totalAssets == nil ? "N/A" : hiddenMoney(currencyCode: snapshot.currencyCode)
+            return snapshot.totalMarketValue == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: snapshot.currencyCode)
         }
 
-        guard let totalAssets = snapshot.totalAssets else { return "N/A" }
-        return PortfolioFormat.wholeMoney(totalAssets, currencyCode: snapshot.currencyCode)
+        guard let totalMarketValue = snapshot.totalMarketValue else { return "N/A" }
+        return PortfolioFormat.wholeMoney(totalMarketValue, currencyCode: snapshot.currencyCode)
     }
 }
 
@@ -807,10 +802,6 @@ private struct HoldingsSection: View {
 
     private var filteredHoldings: [PortfolioHolding] {
         sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
-    }
-
-    private var accountProviderLookup: [String: String] {
-        Dictionary(uniqueKeysWithValues: visibleSnapshot.accounts.map { ($0.id, $0.providerName) })
     }
 
     private var holdingColorLookup: [String: Color] {
@@ -835,7 +826,6 @@ private struct HoldingsSection: View {
                     visibleSnapshot: visibleSnapshot,
                     performanceMode: performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
-                    accountProviderLookup: accountProviderLookup,
                     holdingColorLookup: holdingColorLookup
                 )
             }
@@ -882,7 +872,6 @@ private struct HoldingsList: View {
     let visibleSnapshot: PortfolioSnapshot
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
-    let accountProviderLookup: [String: String]
     let holdingColorLookup: [String: Color]
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
@@ -895,7 +884,6 @@ private struct HoldingsList: View {
                         totalMarketValue: visibleSnapshot.totalMarketValue,
                         performanceMode: performanceMode,
                         isPrivacyEnabled: isPrivacyEnabled,
-                        providerName: accountProviderLookup[holding.accountID] ?? "",
                         color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
                         showsDivider: index < filteredHoldings.count - 1
                     )
@@ -910,7 +898,6 @@ private struct HoldingsList: View {
                             totalMarketValue: visibleSnapshot.totalMarketValue,
                             performanceMode: performanceMode,
                             isPrivacyEnabled: isPrivacyEnabled,
-                            providerName: accountProviderLookup[holding.accountID] ?? "",
                             color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
                             showsDivider: index < filteredHoldings.count - 1
                         )
@@ -1172,18 +1159,15 @@ private struct HoldingListRow: View {
     let totalMarketValue: Double?
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
-    let providerName: String
     let color: Color
     let showsDivider: Bool
 
     private var unitLabel: String {
-        providerName.lowercased().contains("binance") ? "tokens" : "shares"
+        holding.quantityUnit.rawValue
     }
 
     private var formattedQuantity: String {
-        unitLabel == "tokens"
-            ? PortfolioFormat.tokens(holding.quantity)
-            : PortfolioFormat.shares(holding.quantity)
+        PortfolioFormat.quantity(holding.quantity, unit: holding.quantityUnit)
     }
 
     private var allocation: Double? {
@@ -1274,7 +1258,7 @@ private struct HoldingListRow: View {
 
         if isPrivacyEnabled {
             let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
-            return "\(sign)\(hiddenMoney(currencyCode: holding.currencyCode))"
+            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
         }
 
         return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"
@@ -1282,7 +1266,7 @@ private struct HoldingListRow: View {
 
     private var marketValueText: String {
         if isPrivacyEnabled {
-            return holding.marketValue == nil ? "N/A" : hiddenMoney(currencyCode: holding.currencyCode)
+            return holding.marketValue == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
 
         guard let marketValue = holding.marketValue else { return "N/A" }
@@ -1378,10 +1362,6 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
 
 private var fallbackAllocationColor: Color {
     BitternTheme.allocationColor(at: 0)
-}
-
-private func hiddenMoney(currencyCode: String) -> String {
-    currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
 }
 
 private extension Double {

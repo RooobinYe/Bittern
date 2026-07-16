@@ -187,13 +187,4 @@ enum ScreenshotRenderer {
         }
     }
 
-    // MARK: - Content Height Estimation
-
-    /// Estimates the total content height for a given number of items.
-    ///
-    /// Useful for deciding whether to show a "this may take a moment" hint
-    /// before invoking ``render(_:width:scale:)``.
-    static func estimatedContentHeight(itemCount: Int, estimatedRowHeight: CGFloat) -> CGFloat {
-        return CGFloat(itemCount) * estimatedRowHeight
-    }
 }
