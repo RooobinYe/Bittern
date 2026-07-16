@@ -315,18 +315,18 @@ private struct PortfolioHistoryHeader: View {
 
     private var totalValueText: String {
         guard let displayPoint else {
-            return isPrivacyEnabled ? hiddenHistoryMoney(currencyCode: currencyCode) : "N/A"
+            return isPrivacyEnabled ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode) : "N/A"
         }
 
         return isPrivacyEnabled
-            ? hiddenHistoryMoney(currencyCode: currencyCode)
+            ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
             : PortfolioFormat.wholeMoney(displayPoint.totalValue, currencyCode: currencyCode)
     }
 
     private var changeAmountText: String {
         if isPrivacyEnabled {
             let sign = valueDelta.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
-            return "\(sign)\(hiddenHistoryMoney(currencyCode: currencyCode))"
+            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
         }
 
         guard let valueDelta else { return "N/A" }
@@ -378,10 +378,6 @@ private let portfolioHistorySelectionDateFormatter: DateFormatter = {
     formatter.dateFormat = "d MMM, yyyy"
     return formatter
 }()
-
-private func hiddenHistoryMoney(currencyCode: String) -> String {
-    currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
-}
 
 private extension Array where Element == PortfolioHistoryPoint {
     func since(days: Int) -> [PortfolioHistoryPoint] {

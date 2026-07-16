@@ -6,6 +6,10 @@
 import Foundation
 
 enum PortfolioFormat {
+    static func hiddenMoney(currencyCode: String = "USD") -> String {
+        currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
+    }
+
     static func money(
         _ value: Double,
         currencyCode: String = "USD",
@@ -145,6 +149,15 @@ enum PortfolioFormat {
         formatter.maximumFractionDigits = 5
         formatter.minimumFractionDigits = 0
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func quantity(_ value: Double, unit: HoldingQuantityUnit) -> String {
+        switch unit {
+        case .shares:
+            shares(value)
+        case .tokens:
+            tokens(value)
+        }
     }
 
     static func time(_ date: Date) -> String {

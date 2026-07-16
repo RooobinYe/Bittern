@@ -422,7 +422,6 @@ private struct ProviderHoldingsSection: View {
                 ForEach(group.holdings) { holding in
                     ProviderHoldingRow(
                         holding: holding,
-                        providerName: group.name,
                         color: group.holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0)
                     )
                 }
@@ -433,17 +432,14 @@ private struct ProviderHoldingsSection: View {
 
 private struct ProviderHoldingRow: View {
     let holding: PortfolioHolding
-    let providerName: String
     let color: Color
 
     private var unitLabel: String {
-        providerName.lowercased().contains("binance") ? "tokens" : "shares"
+        holding.quantityUnit.rawValue
     }
 
     private var formattedQuantity: String {
-        unitLabel == "tokens"
-            ? PortfolioFormat.tokens(holding.quantity)
-            : PortfolioFormat.shares(holding.quantity)
+        PortfolioFormat.quantity(holding.quantity, unit: holding.quantityUnit)
     }
 
     var body: some View {

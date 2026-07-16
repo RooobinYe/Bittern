@@ -10,19 +10,16 @@ import OSLog
 struct HoldingDetailView: View {
     let holding: PortfolioHolding
     let snapshot: PortfolioSnapshot
-    let providerName: String
 
     @StateObject private var detailModel: HoldingDetailViewModel
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
     init(
         holding: PortfolioHolding,
-        snapshot: PortfolioSnapshot,
-        providerName: String
+        snapshot: PortfolioSnapshot
     ) {
         self.holding = holding
         self.snapshot = snapshot
-        self.providerName = providerName
         _detailModel = StateObject(wrappedValue: HoldingDetailViewModel(holding: holding))
     }
 
@@ -57,7 +54,6 @@ struct HoldingDetailView: View {
                     HoldingInfoSection(
                         holding: holding,
                         snapshot: snapshot,
-                        providerName: providerName,
                         isPrivacyEnabled: isPrivacyEnabled
                     )
                 }
@@ -278,14 +274,14 @@ private struct HoldingAssetHeader: View {
             }
 
             if priceDelta > 0 {
-                return "+\(hiddenDetailMoney(currencyCode: holding.currencyCode))"
+                return "+\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
             }
 
             if priceDelta < 0 {
-                return "-\(hiddenDetailMoney(currencyCode: holding.currencyCode))"
+                return "-\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
             }
 
-            return hiddenDetailMoney(currencyCode: holding.currencyCode)
+            return PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
 
         guard let priceDelta else { return "N/A" }
@@ -299,7 +295,7 @@ private struct HoldingAssetHeader: View {
 
     private var priceText: String {
         if isPrivacyEnabled {
-            return displayPoint == nil ? "N/A" : hiddenDetailMoney(currencyCode: holding.currencyCode)
+            return displayPoint == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
 
         guard let displayPoint else { return "N/A" }
@@ -367,7 +363,6 @@ private struct HoldingChartSection: View {
 private struct HoldingInfoSection: View {
     let holding: PortfolioHolding
     let snapshot: PortfolioSnapshot
-    let providerName: String
     let isPrivacyEnabled: Bool
 
     private var allocation: Double? {
@@ -382,7 +377,7 @@ private struct HoldingInfoSection: View {
     }
 
     private var unitLabel: String {
-        providerName.lowercased().contains("binance") ? "Tokens" : "Shares"
+        holding.quantityUnit.title
     }
 
     private var formattedQuantity: String {
@@ -396,7 +391,7 @@ private struct HoldingInfoSection: View {
 
     private var averagePriceText: String {
         if isPrivacyEnabled {
-            return hiddenDetailMoney(currencyCode: holding.currencyCode)
+            return PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
 
         guard let averageCost = holding.averageCost else { return "N/A" }
@@ -404,18 +399,16 @@ private struct HoldingInfoSection: View {
     }
 
     private var returnEquation: HoldingReturnEquation? {
-        guard let costBasis = holding.costBasis,
-              let allTimeGainAmount = holding.allTimeGainAmount,
+        guard let allTimeGainAmount = holding.allTimeGainAmount,
               let allTimeGainPercent = holding.allTimeGainPercent,
               let dividendsReceived = holding.dividendsReceived,
+              let dividendReturnPercent = holding.dividendReturnPercent,
+              let totalReturnAmount = holding.totalReturnAmount,
+              let totalReturnPercent = holding.totalReturnPercent,
               holding.quantity > 0
         else {
             return nil
         }
-
-        let dividendReturnPercent = dividendsReceived / abs(costBasis)
-        let totalReturnAmount = allTimeGainAmount + dividendsReceived
-        let totalReturnPercent = totalReturnAmount / abs(costBasis)
 
         return HoldingReturnEquation(
             priceGain: HoldingReturnMetric(
@@ -496,7 +489,7 @@ private struct HoldingInfoSection: View {
 
     private var totalText: String {
         if isPrivacyEnabled {
-            return holding.marketValue == nil ? "N/A" : hiddenDetailMoney(currencyCode: holding.currencyCode)
+            return holding.marketValue == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
 
         guard let marketValue = holding.marketValue else { return "N/A" }
@@ -646,7 +639,7 @@ private struct HoldingReturnMetricCell: View {
     private var amountText: String {
         guard let amount = metric.amount else { return "--" }
         return isPrivacyEnabled
-            ? hiddenDetailMoney(currencyCode: currencyCode)
+            ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
             : PortfolioFormat.wholeMoney(amount, currencyCode: currencyCode)
     }
 
@@ -683,10 +676,6 @@ private func formattedSelectionDate(_ date: Date, range: HoldingChartRange) -> S
     return selectionDateFormatter.string(from: date)
 }
 
-private func hiddenDetailMoney(currencyCode: String) -> String {
-    currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
-}
-
 private let preciseQuantityFormatter: NumberFormatter = {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
@@ -705,8 +694,7 @@ struct HoldingDetailView_Previews: PreviewProvider {
     static var previews: some View {
         HoldingDetailView(
             holding: DemoPortfolio.snapshot.holdings[3],
-            snapshot: DemoPortfolio.snapshot,
-            providerName: "SnapTrade Demo"
+            snapshot: DemoPortfolio.snapshot
         )
     }
 }

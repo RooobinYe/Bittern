@@ -92,6 +92,15 @@ enum PortfolioInstrumentKind: String, Codable, Sendable {
     }
 }
 
+enum HoldingQuantityUnit: String, Sendable {
+    case shares
+    case tokens
+
+    var title: String {
+        rawValue.capitalized
+    }
+}
+
 enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
     case oneDay = "1D"
     case fiveDays = "5D"
@@ -266,6 +275,10 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let currencyCode: String
     let dividendsReceived: Double?
 
+    var quantityUnit: HoldingQuantityUnit {
+        instrumentKind == .crypto ? .tokens : .shares
+    }
+
     var marketValue: Double? {
         guard let currentPrice else { return nil }
         return quantity * currentPrice
@@ -333,7 +346,6 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
 struct PortfolioSnapshot: nonisolated Codable, Sendable {
     let accounts: [PortfolioAccount]
     let holdings: [PortfolioHolding]
-    let totalAssets: Double?
     let totalMarketValue: Double?
     let dayGainAmount: Double?
     let dayGainPercent: Double?
@@ -356,6 +368,8 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
         var totalCostBasis: Double = 0
         var hasCompleteDayGain = true
         var totalDayGain: Double = 0
+        var hasCompleteTotalReturn = true
+        var totalReturnAmount: Double = 0
         var currencyCodes: Set<String> = []
 
         for h in holdings {
@@ -374,6 +388,11 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
             } else {
                 hasCompleteDayGain = false
             }
+            if let totalReturn = h.totalReturnAmount {
+                totalReturnAmount += totalReturn
+            } else {
+                hasCompleteTotalReturn = false
+            }
             currencyCodes.insert(h.currencyCode)
         }
         for a in accounts {
@@ -386,7 +405,7 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
             let previousMarketValue = totalMarketValue - amount
             return previousMarketValue == 0 ? 0 : amount / abs(previousMarketValue)
         }
-        let allTimeGainAmount = hasCompleteMarketValue && hasCompleteCostBasis ? totalMarketValue - totalCostBasis : nil
+        let allTimeGainAmount = hasCompleteTotalReturn && hasCompleteCostBasis ? totalReturnAmount : nil
         let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
             totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
         }
@@ -395,7 +414,6 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
         return PortfolioSnapshot(
             accounts: accounts,
             holdings: holdings,
-            totalAssets: totalMarketValueOrNil,
             totalMarketValue: totalMarketValueOrNil,
             dayGainAmount: dayGainAmount,
             dayGainPercent: dayGainPercent,
