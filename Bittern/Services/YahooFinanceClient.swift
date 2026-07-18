@@ -20,6 +20,7 @@ enum YahooFinanceError: LocalizedError {
     case invalidURL
     case emptySymbols
     case invalidResponse
+    case invalidChartMetadata(String)
     case httpStatus(Int, String)
 
     var errorDescription: String? {
@@ -30,6 +31,8 @@ enum YahooFinanceError: LocalizedError {
             "There are no symbols to quote."
         case .invalidResponse:
             "Yahoo returned a non-HTTP response."
+        case .invalidChartMetadata(let reason):
+            "Yahoo returned invalid chart timing data. \(reason)"
         case .httpStatus(let status, let body):
             "Yahoo request failed with HTTP \(status). \(body)"
         }
@@ -112,7 +115,7 @@ struct YahooFinanceClient {
         for symbol: String,
         instrumentKind: PortfolioInstrumentKind?,
         range: HoldingChartRange
-    ) async throws -> [HoldingPricePoint] {
+    ) async throws -> HoldingPriceSeries {
         let candidates = candidateSymbols(for: symbol, instrumentKind: instrumentKind)
         guard !candidates.isEmpty else {
             throw YahooFinanceError.emptySymbols
@@ -126,9 +129,9 @@ struct YahooFinanceClient {
         for candidate in candidates {
             do {
                 let history = try await fetchHistoryOne(candidate: candidate, range: range)
-                if !history.isEmpty {
+                if !history.points.isEmpty {
                     AppLog.marketData.debug(
-                        "Price history candidate=\(candidate) returned points=\(history.count, privacy: .public)"
+                        "Price history candidate=\(candidate) returned points=\(history.points.count, privacy: .public)"
                     )
                     return history
                 }
@@ -353,7 +356,7 @@ struct YahooFinanceClient {
         symbol.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func fetchHistoryOne(candidate symbol: String, range: HoldingChartRange) async throws -> [HoldingPricePoint] {
+    private func fetchHistoryOne(candidate symbol: String, range: HoldingChartRange) async throws -> HoldingPriceSeries {
         var components = URLComponents(string: "\(baseURL)/\(symbol)")
         components?.queryItems = [
             URLQueryItem(name: "interval", value: range.yahooInterval),
@@ -387,6 +390,12 @@ struct YahooFinanceClient {
             throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
+        guard timestamps.count == closes.count else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Timestamp and close counts differ for \(symbol)."
+            )
+        }
+
         let points = zip(timestamps, closes).compactMap { timestamp, close -> HoldingPricePoint? in
             guard let close, close > 0 else { return nil }
             return HoldingPricePoint(
@@ -399,7 +408,121 @@ struct YahooFinanceClient {
             throw YahooFinanceError.httpStatus(-1, "Not enough chart points for \(symbol)")
         }
 
-        return points
+        let timeDomain = try range == .oneDay
+            ? oneDayTimeDomain(meta: result.meta, points: points, symbol: symbol)
+            : nil
+
+        return HoldingPriceSeries(points: points, timeDomain: timeDomain)
+    }
+
+    private func oneDayTimeDomain(
+        meta: YahooChartMetaDTO?,
+        points: [HoldingPricePoint],
+        symbol: String
+    ) throws -> PriceChartTimeDomain {
+        guard let meta else {
+            throw YahooFinanceError.invalidChartMetadata("Missing metadata for \(symbol).")
+        }
+        guard meta.range == HoldingChartRange.oneDay.yahooRange else {
+            throw YahooFinanceError.invalidChartMetadata("Unexpected range for \(symbol).")
+        }
+        guard meta.dataGranularity == HoldingChartRange.oneDay.yahooInterval,
+              let granularity = duration(forYahooInterval: meta.dataGranularity)
+        else {
+            throw YahooFinanceError.invalidChartMetadata("Unexpected granularity for \(symbol).")
+        }
+        guard let timeZoneName = meta.exchangeTimezoneName,
+              let timeZone = TimeZone(identifier: timeZoneName)
+        else {
+            throw YahooFinanceError.invalidChartMetadata("Missing exchange timezone for \(symbol).")
+        }
+        guard let periodGroups = meta.tradingPeriods else {
+            throw YahooFinanceError.invalidChartMetadata("Missing trading periods for \(symbol).")
+        }
+
+        let rawPeriods = periodGroups.flatMap { $0 }
+        guard !rawPeriods.isEmpty else {
+            throw YahooFinanceError.invalidChartMetadata("Empty trading periods for \(symbol).")
+        }
+
+        let periods = try rawPeriods.map { rawPeriod -> PriceChartTimeDomain in
+            guard let start = rawPeriod.start,
+                  let end = rawPeriod.end,
+                  start < end
+            else {
+                throw YahooFinanceError.invalidChartMetadata("Malformed trading period for \(symbol).")
+            }
+
+            return PriceChartTimeDomain(
+                start: Date(timeIntervalSince1970: TimeInterval(start)),
+                end: Date(timeIntervalSince1970: TimeInterval(end))
+            )
+        }
+
+        guard zip(points, points.dropFirst()).allSatisfy({ previous, next in
+            previous.date < next.date
+        }) else {
+            throw YahooFinanceError.invalidChartMetadata("Unordered timestamps for \(symbol).")
+        }
+
+        let matchingPeriods = periods.filter { period in
+            points.allSatisfy { point in
+                point.date >= period.start && point.date <= period.end
+            }
+        }
+        guard matchingPeriods.count == 1, let period = matchingPeriods.first else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Expected one trading period matching the points for \(symbol)."
+            )
+        }
+
+        if coversFullCalendarDay(period, in: timeZone, granularity: granularity),
+           let firstPoint = points.first,
+           let lastPoint = points.last {
+            return PriceChartTimeDomain(start: firstPoint.date, end: lastPoint.date)
+        }
+
+        return period
+    }
+
+    private func coversFullCalendarDay(
+        _ period: PriceChartTimeDomain,
+        in timeZone: TimeZone,
+        granularity: TimeInterval
+    ) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        let startOfDay = calendar.startOfDay(for: period.start)
+        guard period.start == startOfDay,
+              let nextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)
+        else {
+            return false
+        }
+
+        let remaining = nextDay.timeIntervalSince(period.end)
+        return remaining >= 0 && remaining <= granularity
+    }
+
+    private func duration(forYahooInterval interval: String?) -> TimeInterval? {
+        guard let interval,
+              let unit = interval.last,
+              let amount = Double(interval.dropLast()),
+              amount > 0
+        else {
+            return nil
+        }
+
+        switch unit {
+        case "m":
+            return amount * 60
+        case "h":
+            return amount * 60 * 60
+        case "d":
+            return amount * 24 * 60 * 60
+        default:
+            return nil
+        }
     }
 }
 
@@ -432,6 +555,15 @@ private struct YahooChartMetaDTO: Decodable {
     let chartPreviousClose: Double?
     let shortName: String?
     let longName: String?
+    let exchangeTimezoneName: String?
+    let dataGranularity: String?
+    let range: String?
+    let tradingPeriods: [[YahooTradingPeriodDTO]]?
+}
+
+private struct YahooTradingPeriodDTO: Decodable {
+    let start: Int?
+    let end: Int?
 }
 
 private struct YahooChartIndicatorsDTO: Decodable {

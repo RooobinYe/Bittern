@@ -18,6 +18,7 @@ struct PortfolioAccountsView: View {
     @State private var successMessage: String?
     @State private var isSavingCredentials = false
     @State private var isOpeningPortal = false
+    @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
     @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
@@ -49,7 +50,10 @@ struct PortfolioAccountsView: View {
 
                     VStack(alignment: .leading, spacing: 18) {
                         ForEach(providerGroups) { group in
-                            ProviderHoldingsSection(group: group)
+                            ProviderHoldingsSection(
+                                group: group,
+                                isPrivacyEnabled: isPrivacyEnabled
+                            )
                         }
 
                         if providerGroups.isEmpty {
@@ -385,6 +389,7 @@ private struct SnapTradeSettingsPanel: View {
 
 private struct ProviderHoldingsSection: View {
     let group: PortfolioProviderGroup
+    let isPrivacyEnabled: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -422,7 +427,8 @@ private struct ProviderHoldingsSection: View {
                 ForEach(group.holdings) { holding in
                     ProviderHoldingRow(
                         holding: holding,
-                        color: group.holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0)
+                        color: group.holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0),
+                        isPrivacyEnabled: isPrivacyEnabled
                     )
                 }
             }
@@ -433,6 +439,7 @@ private struct ProviderHoldingsSection: View {
 private struct ProviderHoldingRow: View {
     let holding: PortfolioHolding
     let color: Color
+    let isPrivacyEnabled: Bool
 
     private var unitLabel: String {
         holding.quantityUnit.rawValue
@@ -467,13 +474,13 @@ private struct ProviderHoldingRow: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 5) {
-                Text(holding.marketValue.map { PortfolioFormat.wholeMoney($0, currencyCode: holding.currencyCode) } ?? "N/A")
+                Text(marketValueText)
                     .font(.title3.bold().monospacedDigit())
                     .foregroundStyle(BitternTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                Text("\(formattedQuantity) \(unitLabel)")
+                Text("\(isPrivacyEnabled ? "••••" : formattedQuantity) \(unitLabel)")
                     .font(.footnote.weight(.semibold).monospacedDigit())
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
@@ -484,6 +491,13 @@ private struct ProviderHoldingRow: View {
             Divider()
                 .overlay(BitternTheme.softLine.opacity(0.7))
         }
+    }
+
+    private var marketValueText: String {
+        guard let marketValue = holding.marketValue else { return "N/A" }
+        return isPrivacyEnabled
+            ? PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
+            : PortfolioFormat.wholeMoney(marketValue, currencyCode: holding.currencyCode)
     }
 }
 

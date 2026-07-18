@@ -43,8 +43,10 @@ struct HoldingDetailView: View {
 
                     HoldingChartSection(
                         series: detailModel.visibleSeries,
+                        timeDomain: detailModel.visibleTimeDomain,
                         previousClose: holding.previousClose,
                         currencyCode: holding.currencyCode,
+                        isPrivacyEnabled: isPrivacyEnabled,
                         range: $detailModel.selectedRange,
                         selectedPoint: $detailModel.selectedPoint,
                         isLoading: detailModel.isLoading
@@ -90,7 +92,7 @@ private let holdingDetailMaximumChartWidth: CGFloat = 760
 private final class HoldingDetailViewModel: ObservableObject {
     @Published var selectedRange: HoldingChartRange = .oneDay
     @Published var selectedPoint: HoldingPricePoint?
-    @Published private(set) var priceSeriesByRange: [HoldingChartRange: [HoldingPricePoint]] = [:]
+    @Published private(set) var priceSeriesByRange: [HoldingChartRange: HoldingPriceSeries] = [:]
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -103,7 +105,11 @@ private final class HoldingDetailViewModel: ObservableObject {
     }
 
     var visibleSeries: [HoldingPricePoint] {
-        priceSeriesByRange[selectedRange] ?? []
+        priceSeriesByRange[selectedRange]?.points ?? []
+    }
+
+    var visibleTimeDomain: PriceChartTimeDomain? {
+        priceSeriesByRange[selectedRange]?.timeDomain
     }
 
     func loadSelectedRangeIfNeeded() async {
@@ -140,22 +146,18 @@ private final class HoldingDetailViewModel: ObservableObject {
             )
             guard !Task.isCancelled else { return }
             selectedPoint = nil
-            priceSeriesByRange[range] = normalized(history)
+            priceSeriesByRange[range] = history
         } catch {
             guard !Task.isCancelled else { return }
             AppLog.marketData.warning(
                 "Chart load failed range=\(range.title, privacy: .public) symbol=\(self.holding.symbol): \(AppLog.describe(error))"
             )
-            priceSeriesByRange[range] = []
+            priceSeriesByRange[range] = .empty
             errorMessage = UserFacingError.message(
                 for: error,
                 fallback: "Price history for \(holding.symbol) couldn’t be loaded. Please try again."
             )
         }
-    }
-
-    private func normalized(_ points: [HoldingPricePoint]) -> [HoldingPricePoint] {
-        points.sorted { $0.date < $1.date }
     }
 
 }
@@ -303,6 +305,13 @@ private struct HoldingAssetHeader: View {
     }
 
     private var selectionLabel: String {
+        if range == .oneDay {
+            guard let point = selectedPoint ?? series.last else { return "N/A" }
+            return selectedPoint == nil
+                ? oneDayLatestDateFormatter.string(from: point.date)
+                : formattedSelectionDate(point.date, range: range)
+        }
+
         if selectedPoint != nil, let displayPoint {
             return formattedSelectionDate(displayPoint.date, range: range)
         }
@@ -330,8 +339,10 @@ private struct HoldingDetailAvatar: View {
 
 private struct HoldingChartSection: View {
     let series: [HoldingPricePoint]
+    let timeDomain: PriceChartTimeDomain?
     let previousClose: Double?
     let currencyCode: String
+    let isPrivacyEnabled: Bool
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
@@ -343,13 +354,22 @@ private struct HoldingChartSection: View {
         )
     }
 
+    private var xScale: PerformanceChartXScale<HoldingPricePoint> {
+        guard range == .oneDay else { return .indexed }
+        guard let timeDomain else { return .unavailable }
+        return .time(domain: timeDomain, timestamp: { $0.date })
+    }
+
     var body: some View {
         PerformanceLineChartSection(
             points: series,
             value: { $0.price },
+            xScale: xScale,
             baseValue: basePrice,
             baselineLabel: basePrice.map {
-                PortfolioFormat.price($0, currencyCode: currencyCode)
+                isPrivacyEnabled
+                    ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
+                    : PortfolioFormat.price($0, currencyCode: currencyCode)
             },
             ranges: HoldingChartRange.allCases,
             rangeTitle: { $0.title },
@@ -453,14 +473,14 @@ private struct HoldingInfoSection: View {
 
             VStack(spacing: 0) {
                 HoldingInfoRow(
-                    title: "Total",
+                    title: "Market Value",
                     value: totalText
                 )
 
                 Divider().overlay(BitternTheme.softLine)
 
                 HoldingInfoRow(
-                    title: "Average Price",
+                    title: "Average Cost",
                     value: averagePriceText
                 )
 
@@ -660,13 +680,22 @@ private struct HoldingReturnMetricCell: View {
 private let selectionDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .autoupdatingCurrent
+    return formatter
+}()
+
+private let oneDayLatestDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .autoupdatingCurrent
+    formatter.dateFormat = "d MMM"
     return formatter
 }()
 
 private func formattedSelectionDate(_ date: Date, range: HoldingChartRange) -> String {
     switch range {
     case .oneDay:
-        selectionDateFormatter.dateFormat = "HH:mm"
+        selectionDateFormatter.dateFormat = "d MMM, HH:mm"
     case .fiveDays:
         selectionDateFormatter.dateFormat = "d MMM, HH:mm"
     case .threeMonths, .oneYear, .fiveYears, .max:

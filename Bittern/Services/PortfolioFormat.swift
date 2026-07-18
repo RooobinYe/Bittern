@@ -10,6 +10,15 @@ enum PortfolioFormat {
         currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
     }
 
+    static func hiddenChange(
+        amount: Double,
+        percent: Double,
+        currencyCode: String = "USD"
+    ) -> String {
+        let sign = amount < 0 ? "-" : amount > 0 ? "+" : ""
+        return "\(sign)\(hiddenMoney(currencyCode: currencyCode)) (\(PortfolioFormat.percent(percent, signed: true)))"
+    }
+
     static func money(
         _ value: Double,
         currencyCode: String = "USD",

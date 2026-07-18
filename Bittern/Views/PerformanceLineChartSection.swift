@@ -5,9 +5,27 @@
 
 import SwiftUI
 
+enum PerformanceChartXScale<Point> {
+    case unavailable
+    case indexed
+    case time(domain: PriceChartTimeDomain, timestamp: (Point) -> Date)
+
+    var isValid: Bool {
+        switch self {
+        case .unavailable:
+            return false
+        case .indexed:
+            return true
+        case .time(let domain, _):
+            return domain.start < domain.end
+        }
+    }
+}
+
 struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & Equatable>: View {
     let points: [Point]
     let value: (Point) -> Double
+    let xScale: PerformanceChartXScale<Point>
     let baseValue: Double?
     let baselineLabel: String?
     let ranges: [RangeOption]
@@ -33,7 +51,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
                         .scaleEffect(1.2)
                         .frame(height: 318)
                         .frame(maxWidth: .infinity)
-                } else if points.count < 2 {
+                } else if points.count < 2 || !xScale.isValid {
                     Text("N/A")
                         .font(.title3.bold())
                         .foregroundStyle(BitternTheme.secondaryInk)
@@ -43,6 +61,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
                     PerformanceLineChart(
                         points: points,
                         value: value,
+                        xScale: xScale,
                         baseValue: baseValue,
                         baselineLabel: baselineLabel,
                         lineColor: lineColor,
@@ -85,6 +104,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
 private struct PerformanceLineChart<Point: Hashable>: View {
     let points: [Point]
     let value: (Point) -> Double
+    let xScale: PerformanceChartXScale<Point>
     let baseValue: Double?
     let baselineLabel: String?
     let lineColor: Color
@@ -114,6 +134,7 @@ private struct PerformanceLineChart<Point: Hashable>: View {
             let metrics = PerformanceChartMetrics(
                 points: points,
                 value: value,
+                xScale: xScale,
                 size: size,
                 minValue: minMax.min,
                 maxValue: minMax.max
@@ -186,7 +207,7 @@ private struct PerformanceLineChart<Point: Hashable>: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        selectedPoint = nearestPoint(to: drag.location.x, in: size.width)
+                        selectedPoint = metrics.nearestPoint(to: drag.location.x)
                     }
                     .onEnded { _ in
                         selectedPoint = nil
@@ -195,13 +216,6 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         }
     }
 
-    private func nearestPoint(to xPosition: CGFloat, in width: CGFloat) -> Point? {
-        guard points.count > 1, width > performanceChartSideInset * 2 else { return points.last }
-        let clamped = min(max(xPosition, performanceChartSideInset), width - performanceChartSideInset)
-        let progress = (clamped - performanceChartSideInset) / (width - performanceChartSideInset * 2)
-        let index = Int((progress * CGFloat(points.count - 1)).rounded())
-        return points[min(max(index, 0), points.count - 1)]
-    }
 }
 
 private let performanceChartSideInset: CGFloat = 19
@@ -209,6 +223,7 @@ private let performanceChartSideInset: CGFloat = 19
 private struct PerformanceChartMetrics<Point: Hashable> {
     let points: [Point]
     let value: (Point) -> Double
+    let xScale: PerformanceChartXScale<Point>
     let size: CGSize
     let minValue: Double
     let maxValue: Double
@@ -217,7 +232,10 @@ private struct PerformanceChartMetrics<Point: Hashable> {
     let sideInset: CGFloat = performanceChartSideInset
 
     var isDrawable: Bool {
-        points.count >= 2 && size.width > sideInset * 2 && size.height > topInset + bottomInset
+        points.count >= 2
+            && size.width > sideInset * 2
+            && size.height > topInset + bottomInset
+            && xScale.isValid
     }
 
     func index(of point: Point) -> Int? {
@@ -226,10 +244,20 @@ private struct PerformanceChartMetrics<Point: Hashable> {
 
     func location(for index: Int) -> CGPoint? {
         guard points.indices.contains(index) else { return nil }
-        let plotWidth = size.width - sideInset * 2
-        let x = points.count == 1 ? size.width / 2 : sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
+        guard let x = x(for: index) else { return nil }
         guard let y = y(for: value(points[index])) else { return nil }
         return CGPoint(x: x, y: y)
+    }
+
+    func nearestPoint(to xPosition: CGFloat) -> Point? {
+        guard isDrawable else { return points.last }
+
+        let clampedX = min(max(xPosition, sideInset), size.width - sideInset)
+        let nearestIndex = points.indices.min { lhs, rhs in
+            guard let lhsX = x(for: lhs), let rhsX = x(for: rhs) else { return false }
+            return abs(lhsX - clampedX) < abs(rhsX - clampedX)
+        }
+        return nearestIndex.map { points[$0] }
     }
 
     func y(for value: Double) -> CGFloat? {
@@ -254,5 +282,26 @@ private struct PerformanceChartMetrics<Point: Hashable> {
         }
 
         return path
+    }
+
+    private func x(for index: Int) -> CGFloat? {
+        guard points.indices.contains(index) else { return nil }
+
+        let plotWidth = size.width - sideInset * 2
+        switch xScale {
+        case .unavailable:
+            return nil
+
+        case .indexed:
+            guard points.count > 1 else { return size.width / 2 }
+            return sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
+
+        case .time(let domain, let timestamp):
+            let duration = domain.end.timeIntervalSince(domain.start)
+            guard duration > 0 else { return nil }
+            let elapsed = timestamp(points[index]).timeIntervalSince(domain.start)
+            let progress = min(max(elapsed / duration, 0), 1)
+            return sideInset + CGFloat(progress) * plotWidth
+        }
     }
 }
