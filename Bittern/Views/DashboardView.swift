@@ -773,8 +773,11 @@ private struct DonutPortfolioChart: View {
         guard let performanceAmount, let performancePercent else { return "N/A" }
 
         if isPrivacyEnabled {
-            let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
-            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: snapshot.currencyCode))"
+            return PortfolioFormat.hiddenChange(
+                amount: performanceAmount,
+                percent: performancePercent,
+                currencyCode: snapshot.currencyCode
+            )
         }
 
         return PortfolioFormat.change(performanceAmount, percent: performancePercent, currencyCode: snapshot.currencyCode)
@@ -1257,8 +1260,11 @@ private struct HoldingListRow: View {
         guard let performanceAmount, let performancePercent else { return "N/A" }
 
         if isPrivacyEnabled {
-            let sign = performanceAmount < 0 ? "-" : performanceAmount > 0 ? "+" : ""
-            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
+            return PortfolioFormat.hiddenChange(
+                amount: performanceAmount,
+                percent: performancePercent,
+                currencyCode: holding.currencyCode
+            )
         }
 
         return "\(PortfolioFormat.money(performanceAmount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(performancePercent, signed: true)))"

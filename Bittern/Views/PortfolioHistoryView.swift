@@ -27,6 +27,7 @@ struct PortfolioHistoryView: View {
                 PortfolioHistoryChartSection(
                     series: historyModel.visibleSeries,
                     currencyCode: historyModel.currencyCode,
+                    isPrivacyEnabled: isPrivacyEnabled,
                     range: $historyModel.selectedRange,
                     selectedPoint: $historyModel.selectedPoint,
                     isLoading: historyModel.isLoading
@@ -267,7 +268,7 @@ private struct PortfolioHistoryHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Total Money")
+            Text("Portfolio Value")
                 .font(.title.bold())
                 .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
@@ -349,6 +350,7 @@ private struct PortfolioHistoryHeader: View {
 private struct PortfolioHistoryChartSection: View {
     let series: [PortfolioHistoryPoint]
     let currencyCode: String
+    let isPrivacyEnabled: Bool
     @Binding var range: PortfolioHistoryRange
     @Binding var selectedPoint: PortfolioHistoryPoint?
     let isLoading: Bool
@@ -359,9 +361,12 @@ private struct PortfolioHistoryChartSection: View {
         PerformanceLineChartSection(
             points: series,
             value: { $0.totalValue },
+            xScale: .indexed,
             baseValue: baseValue,
             baselineLabel: baseValue.map {
-                PortfolioFormat.wholeMoney($0, currencyCode: currencyCode)
+                isPrivacyEnabled
+                    ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
+                    : PortfolioFormat.wholeMoney($0, currencyCode: currencyCode)
             },
             ranges: PortfolioHistoryRange.allCases,
             rangeTitle: { $0.title },

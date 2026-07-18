@@ -181,6 +181,18 @@ struct HoldingPricePoint: Identifiable, Hashable {
     }
 }
 
+struct PriceChartTimeDomain: Hashable {
+    let start: Date
+    let end: Date
+}
+
+struct HoldingPriceSeries {
+    let points: [HoldingPricePoint]
+    let timeDomain: PriceChartTimeDomain?
+
+    static let empty = HoldingPriceSeries(points: [], timeDomain: nil)
+}
+
 enum PortfolioHistoryRange: String, CaseIterable, Identifiable {
     case fiveDays = "5D"
     case threeMonths = "3M"
