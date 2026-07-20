@@ -16,7 +16,7 @@ struct SettingsView: View {
             Section {
                 Picker("Appearance", selection: $appearanceModeRaw) {
                     ForEach(AppAppearance.allCases) { appearance in
-                        Text(appearance.title)
+                        Label(appearance.title, systemImage: appearance.systemImage)
                             .tag(appearance.rawValue)
                     }
                 }

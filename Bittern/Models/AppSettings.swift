@@ -31,6 +31,17 @@ enum AppAppearance: String, CaseIterable, Identifiable {
         }
     }
 
+    var systemImage: String {
+        switch self {
+        case .automatic:
+            "circle.lefthalf.filled"
+        case .light:
+            "sun.max.fill"
+        case .dark:
+            "moon.fill"
+        }
+    }
+
     var colorScheme: ColorScheme? {
         switch self {
         case .automatic:
