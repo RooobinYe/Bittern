@@ -15,8 +15,6 @@ struct HoldingSymbolIcon: View {
     var fallbackLabel: String? = nil
     var fallbackFont: Font = .caption.bold()
     var fallbackForegroundColor: Color = .white
-    var borderColor: Color? = nil
-    var borderWidth: CGFloat = 0
     @Environment(\.isRenderingScreenshot) private var isRenderingScreenshot
     @Environment(\.screenshotLogoData) private var screenshotLogoData
 
@@ -46,12 +44,8 @@ struct HoldingSymbolIcon: View {
             }
         }
         .frame(width: size, height: size)
+        .compositingGroup()
         .clipShape(Circle())
-        .overlay {
-            if let borderColor, borderWidth > 0 {
-                Circle().stroke(borderColor, lineWidth: borderWidth)
-            }
-        }
     }
 
     private var fallback: some View {
@@ -71,10 +65,10 @@ private struct HoldingLogoBitmap: View {
     var body: some View {
         Image(uiImage: image)
             .resizable()
+            .interpolation(.high)
             .scaledToFill()
             .frame(width: size, height: size)
             .background(Color.white)
-            .clipShape(Circle())
     }
 }
 
