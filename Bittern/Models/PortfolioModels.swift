@@ -271,6 +271,18 @@ struct PortfolioAccount: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+struct HoldingExtendedHoursChange: Hashable, Codable, Sendable {
+    let amount: Double
+    let percent: Double
+    let observedAt: Date?
+    let sessionStart: Date
+    let sessionEnd: Date
+
+    func isActive(at date: Date) -> Bool {
+        sessionStart <= date && date < sessionEnd
+    }
+}
+
 struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let accountID: String
@@ -284,11 +296,31 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let averageCost: Double?
     let currentPrice: Double?
     let previousClose: Double?
+    let preMarketChange: HoldingExtendedHoursChange?
+    let postMarketChange: HoldingExtendedHoursChange?
     let currencyCode: String
     let dividendsReceived: Double?
 
     var quantityUnit: HoldingQuantityUnit {
         instrumentKind == .crypto ? .tokens : .shares
+    }
+
+    func activePreMarketChange(at date: Date) -> HoldingExtendedHoursChange? {
+        guard let preMarketChange,
+              preMarketChange.isActive(at: date)
+        else {
+            return nil
+        }
+        return preMarketChange
+    }
+
+    func activePostMarketChange(at date: Date) -> HoldingExtendedHoursChange? {
+        guard let postMarketChange,
+              postMarketChange.isActive(at: date)
+        else {
+            return nil
+        }
+        return postMarketChange
     }
 
     var marketValue: Double? {

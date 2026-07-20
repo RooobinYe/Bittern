@@ -16,6 +16,55 @@ struct YahooQuoteRequest: Sendable {
     let instrumentKind: PortfolioInstrumentKind?
 }
 
+struct YahooQuoteBatch: Sendable {
+    let quotes: [String: YahooQuoteDTO]
+    let didFailExtendedHours: Bool
+
+    static let empty = YahooQuoteBatch(
+        quotes: [:],
+        didFailExtendedHours: false
+    )
+}
+
+private struct YahooRegularQuoteResult: Sendable {
+    let quote: YahooQuoteDTO
+    let extendedHoursProbe: YahooExtendedHoursProbe
+}
+
+private enum YahooExtendedHoursProbe: Sendable {
+    case inactive
+    case active(YahooExtendedHoursRequest)
+    case invalid(String)
+}
+
+enum YahooExtendedHoursSession: Equatable, Sendable {
+    case preMarket
+    case postMarket
+
+    var logName: String {
+        switch self {
+        case .preMarket: "pre-market"
+        case .postMarket: "post-market"
+        }
+    }
+}
+
+private struct YahooExtendedHoursRequest: Sendable {
+    let providerSymbol: String
+    let extendedHoursSession: YahooExtendedHoursSession
+    let session: YahooMarketSession
+    let regularClose: Double
+}
+
+private struct YahooMarketSession: Equatable, Sendable {
+    let start: Date
+    let end: Date
+
+    func contains(_ date: Date) -> Bool {
+        start <= date && date < end
+    }
+}
+
 enum YahooFinanceError: LocalizedError {
     case invalidURL
     case emptySymbols
@@ -47,9 +96,10 @@ struct YahooFinanceClient {
         self.session = session
     }
 
-    /// Returns a dictionary keyed by the original normalized symbol (for
-    /// example "BTC"), regardless of the Yahoo symbol used for the request.
-    func quotes(for requests: [YahooQuoteRequest]) async throws -> [String: YahooQuoteDTO] {
+    /// Returns quotes keyed by the original normalized symbol (for example
+    /// "BTC"), regardless of the Yahoo symbol used for the request. Regular
+    /// quotes remain usable when the atomic extended-hours enrichment batch fails.
+    func quotes(for requests: [YahooQuoteRequest]) async throws -> YahooQuoteBatch {
         var requestsBySymbol: [String: YahooQuoteRequest] = [:]
         for request in requests {
             let symbol = normalizedSymbol(request.symbol)
@@ -79,20 +129,24 @@ struct YahooFinanceClient {
 
         // Fetch every symbol independently — the chart API accepts one
         // ticker per request.  Use TaskGroup for concurrency.
+        let requestedAt = Date()
         let results = await withTaskGroup(
-            of: (original: String, quote: YahooQuoteDTO?).self
+            of: (original: String, result: YahooRegularQuoteResult?).self
         ) { group in
             for request in normalizedRequests {
                 group.addTask {
-                    let quote = await fetchQuote(for: request)
-                    return (request.symbol, quote)
+                    let result = await fetchQuote(
+                        for: request,
+                        at: requestedAt
+                    )
+                    return (request.symbol, result)
                 }
             }
 
-            var dict: [String: YahooQuoteDTO] = [:]
-            for await (original, quote) in group {
-                if let quote {
-                    dict[original] = quote
+            var dict: [String: YahooRegularQuoteResult] = [:]
+            for await (original, result) in group {
+                if let result {
+                    dict[original] = result
                 }
             }
             return dict
@@ -108,7 +162,75 @@ struct YahooFinanceClient {
             throw YahooFinanceError.httpStatus(-1, "No market data was returned.")
         }
 
-        return results
+        let regularQuotes = results.mapValues(\.quote)
+        let invalidProbeSymbols: [String] = results.compactMap { entry in
+            let (symbol, result) = entry
+            guard case .invalid = result.extendedHoursProbe else { return nil }
+            return symbol
+        }.sorted()
+        guard invalidProbeSymbols.isEmpty else {
+            AppLog.marketData.error(
+                "Extended-hours probe metadata invalid symbols=\(AppLog.list(invalidProbeSymbols))"
+            )
+            return YahooQuoteBatch(
+                quotes: regularQuotes,
+                didFailExtendedHours: true
+            )
+        }
+
+        let extendedHoursRequests: [(
+            symbol: String,
+            request: YahooExtendedHoursRequest
+        )] = results.compactMap { entry in
+            let (symbol, result) = entry
+            guard case .active(let request) = result.extendedHoursProbe else {
+                return nil
+            }
+            return (symbol: symbol, request: request)
+        }
+        guard !extendedHoursRequests.isEmpty else {
+            return YahooQuoteBatch(
+                quotes: regularQuotes,
+                didFailExtendedHours: false
+            )
+        }
+
+        do {
+            let extendedHoursQuotes = try await fetchExtendedHoursQuotes(
+                extendedHoursRequests
+            )
+            let enrichedQuotes = regularQuotes.mapValues { quote in
+                let extendedHoursQuote = extendedHoursQuotes[quote.symbol]
+                return YahooQuoteDTO(
+                    symbol: quote.symbol,
+                    shortName: quote.shortName,
+                    longName: quote.longName,
+                    currency: quote.currency,
+                    regularMarketPrice: quote.regularMarketPrice,
+                    regularMarketPreviousClose: quote.regularMarketPreviousClose,
+                    preMarket: extendedHoursQuote?.extendedHoursSession == .preMarket
+                        ? extendedHoursQuote
+                        : nil,
+                    postMarket: extendedHoursQuote?.extendedHoursSession == .postMarket
+                        ? extendedHoursQuote
+                        : nil
+                )
+            }
+            return YahooQuoteBatch(
+                quotes: enrichedQuotes,
+                didFailExtendedHours: false
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            AppLog.marketData.error(
+                "Extended-hours quote batch failed: \(AppLog.describe(error))"
+            )
+            return YahooQuoteBatch(
+                quotes: regularQuotes,
+                didFailExtendedHours: true
+            )
+        }
     }
 
     func priceHistory(
@@ -157,7 +279,10 @@ struct YahooFinanceClient {
     /// Try the symbol as-is (works for stocks), then with "-USD" appended
     /// (required for crypto).  The returned DTO carries the ORIGINAL symbol
     /// so callers can look up by the ticker they already have.
-    private func fetchQuote(for request: YahooQuoteRequest) async -> YahooQuoteDTO? {
+    private func fetchQuote(
+        for request: YahooQuoteRequest,
+        at requestedAt: Date
+    ) async -> YahooRegularQuoteResult? {
         let upper = normalizedSymbol(request.symbol)
         let candidates = candidateSymbols(
             for: request.symbol,
@@ -170,18 +295,27 @@ struct YahooFinanceClient {
 
         for candidate in candidates {
             do {
-                let quote = try await fetchOne(candidate: candidate)
+                let result = try await fetchOne(
+                    candidate: candidate,
+                    at: requestedAt
+                )
+                let quote = result.quote
                 AppLog.marketData.debug(
                     "Quote symbol=\(upper) candidate=\(candidate) succeeded price=\(AppLog.optional(quote.regularMarketPrice)) previousClose=\(AppLog.optional(quote.regularMarketPreviousClose)) currency=\(quote.currency ?? "nil")"
                 )
                 // Always report back with the original ticker
-                return YahooQuoteDTO(
-                    symbol: upper,
-                    shortName: quote.shortName,
-                    longName: quote.longName,
-                    currency: quote.currency,
-                    regularMarketPrice: quote.regularMarketPrice,
-                    regularMarketPreviousClose: quote.regularMarketPreviousClose
+                return YahooRegularQuoteResult(
+                    quote: YahooQuoteDTO(
+                        symbol: upper,
+                        shortName: quote.shortName,
+                        longName: quote.longName,
+                        currency: quote.currency,
+                        regularMarketPrice: quote.regularMarketPrice,
+                        regularMarketPreviousClose: quote.regularMarketPreviousClose,
+                        preMarket: nil,
+                        postMarket: nil
+                    ),
+                    extendedHoursProbe: result.extendedHoursProbe
                 )
             } catch {
                 AppLog.marketData.warning(
@@ -214,7 +348,10 @@ struct YahooFinanceClient {
         return ["\(upper)-USD"]
     }
 
-    private func fetchOne(candidate symbol: String) async throws -> YahooQuoteDTO {
+    private func fetchOne(
+        candidate symbol: String,
+        at requestedAt: Date
+    ) async throws -> YahooRegularQuoteResult {
         var components = URLComponents(string: "\(baseURL)/\(symbol)")
         components?.queryItems = [
             URLQueryItem(name: "interval", value: "1d"),
@@ -264,13 +401,226 @@ struct YahooFinanceClient {
 
         let previousClose = meta.chartPreviousClose
 
-        return YahooQuoteDTO(
+        let quote = YahooQuoteDTO(
             symbol: symbol,
             shortName: meta.shortName,
             longName: meta.longName,
             currency: meta.currency,
             regularMarketPrice: currentPrice,
-            regularMarketPreviousClose: previousClose
+            regularMarketPreviousClose: previousClose,
+            preMarket: nil,
+            postMarket: nil
+        )
+        return YahooRegularQuoteResult(
+            quote: quote,
+            extendedHoursProbe: extendedHoursProbe(
+                meta: meta,
+                providerSymbol: symbol,
+                regularClose: currentPrice,
+                requestedAt: requestedAt
+            )
+        )
+    }
+
+    private func extendedHoursProbe(
+        meta: YahooChartMetaDTO,
+        providerSymbol: String,
+        regularClose: Double,
+        requestedAt: Date
+    ) -> YahooExtendedHoursProbe {
+        guard meta.hasPrePostMarketData == true else {
+            return .inactive
+        }
+        guard regularClose.isFinite, regularClose > 0 else {
+            return .invalid("Invalid regular close for \(providerSymbol).")
+        }
+        guard let periods = meta.currentTradingPeriod,
+              let preMarket = marketSession(from: periods.pre),
+              let regular = marketSession(from: periods.regular),
+              let postMarket = marketSession(from: periods.post),
+              preMarket.end <= regular.start,
+              regular.end <= postMarket.start
+        else {
+            return .invalid(
+                "Missing or malformed current trading periods for \(providerSymbol)."
+            )
+        }
+        if preMarket.contains(requestedAt) {
+            return .active(
+                YahooExtendedHoursRequest(
+                    providerSymbol: providerSymbol,
+                    extendedHoursSession: .preMarket,
+                    session: preMarket,
+                    regularClose: regularClose
+                )
+            )
+        }
+
+        if postMarket.contains(requestedAt) {
+            return .active(
+                YahooExtendedHoursRequest(
+                    providerSymbol: providerSymbol,
+                    extendedHoursSession: .postMarket,
+                    session: postMarket,
+                    regularClose: regularClose
+                )
+            )
+        }
+
+        return .inactive
+    }
+
+    private func marketSession(
+        from period: YahooCurrentTradingPeriodDTO?
+    ) -> YahooMarketSession? {
+        guard let start = period?.start,
+              let end = period?.end,
+              start < end
+        else {
+            return nil
+        }
+
+        return YahooMarketSession(
+            start: Date(timeIntervalSince1970: TimeInterval(start)),
+            end: Date(timeIntervalSince1970: TimeInterval(end))
+        )
+    }
+
+    private func currentTradingPeriod(
+        for extendedHoursSession: YahooExtendedHoursSession,
+        in periods: YahooCurrentTradingPeriodsDTO?
+    ) -> YahooCurrentTradingPeriodDTO? {
+        switch extendedHoursSession {
+        case .preMarket:
+            periods?.pre
+        case .postMarket:
+            periods?.post
+        }
+    }
+
+    private func fetchExtendedHoursQuotes(
+        _ requests: [(symbol: String, request: YahooExtendedHoursRequest)]
+    ) async throws -> [String: YahooExtendedHoursQuoteDTO] {
+        try await withThrowingTaskGroup(
+            of: (symbol: String, quote: YahooExtendedHoursQuoteDTO).self,
+            returning: [String: YahooExtendedHoursQuoteDTO].self
+        ) { group in
+            for item in requests {
+                group.addTask {
+                    let quote = try await fetchExtendedHoursQuote(item.request)
+                    return (item.symbol, quote)
+                }
+            }
+
+            var quotes: [String: YahooExtendedHoursQuoteDTO] = [:]
+            do {
+                for try await (symbol, quote) in group {
+                    quotes[symbol] = quote
+                }
+                return quotes
+            } catch {
+                group.cancelAll()
+                throw error
+            }
+        }
+    }
+
+    private func fetchExtendedHoursQuote(
+        _ extendedHoursRequest: YahooExtendedHoursRequest
+    ) async throws -> YahooExtendedHoursQuoteDTO {
+        let symbol = extendedHoursRequest.providerSymbol
+        let sessionName = extendedHoursRequest.extendedHoursSession.logName
+        var components = URLComponents(string: "\(baseURL)/\(symbol)")
+        components?.queryItems = [
+            URLQueryItem(name: "interval", value: "1m"),
+            URLQueryItem(name: "range", value: "1d"),
+            URLQueryItem(name: "includePrePost", value: "true")
+        ]
+
+        guard let url = components?.url else {
+            throw YahooFinanceError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let data = try await send(
+            request,
+            operation: "\(sessionName) candidate=\(symbol)"
+        )
+
+        let decoded: YahooChartResponseDTO
+        do {
+            decoded = try JSONDecoder().decode(
+                YahooChartResponseDTO.self,
+                from: data
+            )
+        } catch {
+            AppLog.marketData.error(
+                "HTTP \(sessionName) candidate=\(symbol) decode failed: \(AppLog.describe(error)) body=\(responseBodyPreview(data))"
+            )
+            throw error
+        }
+
+        if let chartError = decoded.chart.error {
+            throw YahooFinanceError.httpStatus(
+                -1,
+                chartError.description ?? "Yahoo chart error"
+            )
+        }
+        guard let result = decoded.chart.result?.first,
+              let meta = result.meta,
+              meta.hasPrePostMarketData == true,
+              let detailedExtendedHours = marketSession(
+                from: currentTradingPeriod(
+                    for: extendedHoursRequest.extendedHoursSession,
+                    in: meta.currentTradingPeriod
+                )
+              ),
+              detailedExtendedHours == extendedHoursRequest.session
+        else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "The current \(sessionName) session changed or is missing for \(symbol)."
+            )
+        }
+
+        let timestamps = result.timestamp ?? []
+        let closes = result.indicators?.quote?.first?.close ?? []
+        guard timestamps.count == closes.count else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Timestamp and \(sessionName) close counts differ for \(symbol)."
+            )
+        }
+
+        var previousTimestamp: Int?
+        var latestObservation: (date: Date, price: Double)?
+        for (timestamp, close) in zip(timestamps, closes) {
+            if let previousTimestamp, timestamp <= previousTimestamp {
+                throw YahooFinanceError.invalidChartMetadata(
+                    "Unordered \(sessionName) timestamps for \(symbol)."
+                )
+            }
+            previousTimestamp = timestamp
+
+            let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+            guard extendedHoursRequest.session.contains(date), let close else {
+                continue
+            }
+            guard close.isFinite, close > 0 else {
+                throw YahooFinanceError.invalidChartMetadata(
+                    "Invalid \(sessionName) price for \(symbol)."
+                )
+            }
+            latestObservation = (date, close)
+        }
+
+        let price = latestObservation?.price ?? extendedHoursRequest.regularClose
+        return YahooExtendedHoursQuoteDTO(
+            extendedHoursSession: extendedHoursRequest.extendedHoursSession,
+            price: price,
+            regularClose: extendedHoursRequest.regularClose,
+            observedAt: latestObservation?.date,
+            sessionStart: extendedHoursRequest.session.start,
+            sessionEnd: extendedHoursRequest.session.end
         )
     }
 
@@ -322,6 +672,9 @@ struct YahooFinanceClient {
         } catch let error as YahooFinanceError {
             throw error
         } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
             AppLog.marketData.error(
                 "HTTP \(operation) transport failed: \(AppLog.describe(error)) duration=\(AppLog.duration(since: startedAt), privacy: .public)"
             )
@@ -436,8 +789,13 @@ struct YahooFinanceClient {
         else {
             throw YahooFinanceError.invalidChartMetadata("Missing exchange timezone for \(symbol).")
         }
-        guard let periodGroups = meta.tradingPeriods else {
+        guard let tradingPeriods = meta.tradingPeriods else {
             throw YahooFinanceError.invalidChartMetadata("Missing trading periods for \(symbol).")
+        }
+        guard case .regular(let periodGroups) = tradingPeriods else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Unexpected extended trading periods for \(symbol)."
+            )
         }
 
         let rawPeriods = periodGroups.flatMap { $0 }
@@ -558,10 +916,48 @@ private struct YahooChartMetaDTO: Decodable {
     let exchangeTimezoneName: String?
     let dataGranularity: String?
     let range: String?
-    let tradingPeriods: [[YahooTradingPeriodDTO]]?
+    let tradingPeriods: YahooTradingPeriodsDTO?
+    let hasPrePostMarketData: Bool?
+    let currentTradingPeriod: YahooCurrentTradingPeriodsDTO?
 }
 
 private struct YahooTradingPeriodDTO: Decodable {
+    let start: Int?
+    let end: Int?
+}
+
+private enum YahooTradingPeriodsDTO: Decodable {
+    case regular([[YahooTradingPeriodDTO]])
+    case extended(YahooExtendedTradingPeriodsDTO)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let regular = try? container.decode(
+            [[YahooTradingPeriodDTO]].self
+        ) {
+            self = .regular(regular)
+            return
+        }
+
+        self = .extended(
+            try container.decode(YahooExtendedTradingPeriodsDTO.self)
+        )
+    }
+}
+
+private struct YahooExtendedTradingPeriodsDTO: Decodable {
+    let pre: [[YahooTradingPeriodDTO]]?
+    let regular: [[YahooTradingPeriodDTO]]?
+    let post: [[YahooTradingPeriodDTO]]?
+}
+
+private struct YahooCurrentTradingPeriodsDTO: Decodable {
+    let pre: YahooCurrentTradingPeriodDTO?
+    let regular: YahooCurrentTradingPeriodDTO?
+    let post: YahooCurrentTradingPeriodDTO?
+}
+
+private struct YahooCurrentTradingPeriodDTO: Decodable {
     let start: Int?
     let end: Int?
 }
@@ -577,15 +973,17 @@ private struct YahooChartQuoteDTO: Decodable {
     let high: [Double?]?
 }
 
-// MARK: - Public result (unchanged signature)
+// MARK: - Quote results
 
-struct YahooQuoteDTO: Decodable {
+struct YahooQuoteDTO: Sendable {
     let symbol: String
     let shortName: String?
     let longName: String?
     let currency: String?
     let regularMarketPrice: Double?
     let regularMarketPreviousClose: Double?
+    let preMarket: YahooExtendedHoursQuoteDTO?
+    let postMarket: YahooExtendedHoursQuoteDTO?
 
     var fullName: String? {
         longName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -594,6 +992,15 @@ struct YahooQuoteDTO: Decodable {
     var displayName: String? {
         fullName
     }
+}
+
+struct YahooExtendedHoursQuoteDTO: Sendable {
+    let extendedHoursSession: YahooExtendedHoursSession
+    let price: Double
+    let regularClose: Double
+    let observedAt: Date?
+    let sessionStart: Date
+    let sessionEnd: Date
 }
 
 private extension String {

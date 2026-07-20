@@ -79,7 +79,6 @@ struct DashboardView: View {
             }
 #endif
         }
-        .fontDesign(.default)
     }
 
     private var portfolioShareItem: PortfolioShareItem {
@@ -802,6 +801,7 @@ private struct HoldingsSection: View {
     @Binding var sortOption: HoldingSortOption
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
+    @State private var marketTime = Date()
 
     private var filteredHoldings: [PortfolioHolding] {
         sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
@@ -813,6 +813,15 @@ private struct HoldingsSection: View {
                 $0.marketValue.map { $0 >= minPriceThreshold } ?? false
             }
         )
+    }
+
+    private var nextExtendedHoursBoundary: Date? {
+        filteredHoldings.flatMap { holding in
+            [
+                holding.activePreMarketChange(at: marketTime)?.sessionEnd,
+                holding.activePostMarketChange(at: marketTime)?.sessionEnd
+            ].compactMap { $0 }
+        }.min()
     }
 
     var body: some View {
@@ -829,9 +838,23 @@ private struct HoldingsSection: View {
                     visibleSnapshot: visibleSnapshot,
                     performanceMode: performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
-                    holdingColorLookup: holdingColorLookup
+                    holdingColorLookup: holdingColorLookup,
+                    marketTime: marketTime
                 )
             }
+        }
+        .onChange(of: visibleSnapshot.lastUpdated) { _, _ in
+            marketTime = Date()
+        }
+        .task(id: nextExtendedHoursBoundary) {
+            guard let boundary = nextExtendedHoursBoundary else { return }
+            let delay = max(boundary.timeIntervalSinceNow, 0)
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            marketTime = Date()
         }
     }
 
@@ -876,6 +899,7 @@ private struct HoldingsList: View {
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let holdingColorLookup: [String: Color]
+    let marketTime: Date
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
 
     var body: some View {
@@ -888,7 +912,8 @@ private struct HoldingsList: View {
                         performanceMode: performanceMode,
                         isPrivacyEnabled: isPrivacyEnabled,
                         color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
-                        showsDivider: index < filteredHoldings.count - 1
+                        showsDivider: index < filteredHoldings.count - 1,
+                        marketTime: marketTime
                     )
                 }
             }
@@ -902,7 +927,8 @@ private struct HoldingsList: View {
                             performanceMode: performanceMode,
                             isPrivacyEnabled: isPrivacyEnabled,
                             color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
-                            showsDivider: index < filteredHoldings.count - 1
+                            showsDivider: index < filteredHoldings.count - 1,
+                            marketTime: marketTime
                         )
                     }
                     .buttonStyle(.plain)
@@ -1117,7 +1143,7 @@ private struct AllocationBubble: View {
 
             Text(PortfolioFormat.percent(percent, fractionDigits: 0))
                 .font(.caption2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(BitternTheme.secondaryInk)
+                .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
@@ -1158,12 +1184,21 @@ private struct HoldingsSortLabel: View {
 }
 
 private struct HoldingListRow: View {
+    private struct ExtendedHoursPresentation {
+        let change: HoldingExtendedHoursChange
+        let systemImage: String
+        let primaryColor: Color
+        let secondaryColor: Color
+        let accessibilityName: String
+    }
+
     let holding: PortfolioHolding
     let totalMarketValue: Double?
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let color: Color
     let showsDivider: Bool
+    let marketTime: Date
 
     private var unitLabel: String {
         holding.quantityUnit.rawValue
@@ -1192,6 +1227,30 @@ private struct HoldingListRow: View {
         holding.performancePercent(for: performanceMode)
     }
 
+    private var extendedHoursPresentation: ExtendedHoursPresentation? {
+        if let change = holding.activePreMarketChange(at: marketTime) {
+            return ExtendedHoursPresentation(
+                change: change,
+                systemImage: "sunrise.fill",
+                primaryColor: .orange,
+                secondaryColor: .yellow,
+                accessibilityName: "Pre-market"
+            )
+        }
+
+        if let change = holding.activePostMarketChange(at: marketTime) {
+            return ExtendedHoursPresentation(
+                change: change,
+                systemImage: "sunset.fill",
+                primaryColor: .indigo,
+                secondaryColor: .orange,
+                accessibilityName: "Post-market"
+            )
+        }
+
+        return nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -1207,15 +1266,15 @@ private struct HoldingListRow: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .truncationMode(.tail)
 
                         Spacer(minLength: 8)
 
                         Text(marketValueText)
-                            .font(.title3.bold().monospacedDigit())
+                            .font(.title3.weight(.semibold).monospacedDigit())
                             .foregroundStyle(BitternTheme.ink)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                            .fixedSize(horizontal: true, vertical: false)
                             .layoutPriority(1)
                     }
 
@@ -1234,26 +1293,89 @@ private struct HoldingListRow: View {
         }
     }
 
+    @ViewBuilder
     private var secondaryMetrics: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
-                .font(.footnote.weight(.semibold).monospacedDigit())
-                .foregroundStyle(BitternTheme.secondaryInk)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+        if let extendedHoursPresentation {
+            HStack(alignment: .center, spacing: 8) {
+                quantityAndAllocationLabel
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            performanceLabel
+                VStack(alignment: .trailing, spacing: 4) {
+                    performanceLabel
+                    extendedHoursPerformanceLabel(extendedHoursPresentation)
+                }
                 .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                quantityAndAllocationLabel
+
+                Spacer(minLength: 8)
+
+                performanceLabel
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
+    }
+
+    private var quantityAndAllocationLabel: some View {
+        Text(isPrivacyEnabled ? allocationText : "\(formattedQuantity) \(unitLabel) | \(allocationText)")
+            .font(.footnote.weight(.semibold).monospacedDigit())
+            .foregroundStyle(BitternTheme.secondaryInk)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .truncationMode(.tail)
     }
 
     private var performanceLabel: some View {
         Text(performanceText)
-            .font(.footnote.bold().monospacedDigit())
+            .font(.footnote.weight(.semibold).monospacedDigit())
             .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
             .lineLimit(1)
+    }
+
+    private func extendedHoursPerformanceLabel(
+        _ presentation: ExtendedHoursPresentation
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: presentation.systemImage)
+                .font(.caption.weight(.semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(
+                    presentation.primaryColor,
+                    presentation.secondaryColor
+                )
+                .frame(width: 16, alignment: .center)
+                .accessibilityHidden(true)
+
+            Text(extendedHoursPerformanceText(presentation.change))
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(
+                    BitternTheme.performanceColor(presentation.change.amount)
+                )
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(presentation.accessibilityName) \(extendedHoursPerformanceText(presentation.change))"
+        )
+    }
+
+    private func extendedHoursPerformanceText(
+        _ change: HoldingExtendedHoursChange
+    ) -> String {
+        if isPrivacyEnabled {
+            return PortfolioFormat.hiddenChange(
+                amount: change.amount,
+                percent: change.percent,
+                currencyCode: holding.currencyCode
+            )
+        }
+
+        return "\(PortfolioFormat.money(change.amount, currencyCode: holding.currencyCode, signed: true)) (\(PortfolioFormat.percent(change.percent, signed: true)))"
     }
 
     private var performanceText: String {

@@ -303,12 +303,22 @@ final class DashboardViewModel: ObservableObject {
 
         do {
             let newSnapshot: PortfolioSnapshot
-            switch kind {
-            case .price:
-                let baseSnapshot = snapshot
-                newSnapshot = try await repository.refreshPrices(for: baseSnapshot)
-            case .full:
-                newSnapshot = try await repository.loadPortfolio(credentials: credentials)
+            var didFailExtendedHours = false
+            do {
+                switch kind {
+                case .price:
+                    let baseSnapshot = snapshot
+                    newSnapshot = try await repository.refreshPrices(
+                        for: baseSnapshot
+                    )
+                case .full:
+                    newSnapshot = try await repository.loadPortfolio(
+                        credentials: credentials
+                    )
+                }
+            } catch let error as PortfolioExtendedHoursRefreshError {
+                newSnapshot = error.regularSnapshot
+                didFailExtendedHours = true
             }
 
             guard canCommit(flightID: flightID, credentials: credentials) else {
@@ -327,6 +337,12 @@ final class DashboardViewModel: ObservableObject {
                 self.selectedProviderName = nil
             }
             PortfolioCache.save(newSnapshot)
+            if didFailExtendedHours {
+                errorMessage = "Extended-hours data couldn’t be refreshed. Regular prices are still available."
+                AppLog.portfolio.warning(
+                    "Refresh committed regular snapshot after extended-hours batch failure kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
+                )
+            }
             AppLog.portfolio.debug(
                 "Refresh saved snapshot kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public) accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"
             )
