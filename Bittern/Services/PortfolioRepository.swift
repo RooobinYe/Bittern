@@ -11,6 +11,10 @@ protocol PortfolioRepository {
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot
 }
 
+struct PortfolioExtendedHoursRefreshError: Error, Sendable {
+    let regularSnapshot: PortfolioSnapshot
+}
+
 struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
     private let brandfetch = BrandfetchClient()
@@ -82,9 +86,10 @@ struct LivePortfolioRepository: PortfolioRepository {
             "Loading quotes assets=\(quoteRequests.count, privacy: .public)"
         )
 
-        let quotes = quoteRequests.isEmpty
-            ? [:]
+        let quoteBatch = quoteRequests.isEmpty
+            ? YahooQuoteBatch.empty
             : try await yahoo.quotes(for: quoteRequests)
+        let quotes = quoteBatch.quotes
         AppLog.portfolio.debug(
             "Loaded quotes=\(quotes.count, privacy: .public)"
         )
@@ -141,6 +146,14 @@ struct LivePortfolioRepository: PortfolioRepository {
                 averageCost: averageCost,
                 currentPrice: currentPrice,
                 previousClose: previousClose,
+                preMarketChange: preMarketChange(
+                    quote: quote,
+                    quantity: units
+                ),
+                postMarketChange: postMarketChange(
+                    quote: quote,
+                    quantity: units
+                ),
                 currencyCode: currencyCode,
                 dividendsReceived: dividendsReceived
             )
@@ -153,12 +166,18 @@ struct LivePortfolioRepository: PortfolioRepository {
         AppLog.portfolio.debug(
             "Portfolio load completed accounts=\(accounts.count, privacy: .public) holdings=\(holdings.count, privacy: .public)"
         )
-        return PortfolioSnapshot.make(
+        let snapshot = PortfolioSnapshot.make(
             accounts: accounts,
             holdings: holdings,
             lastUpdated: Date(),
             isDemo: false
         )
+        guard !quoteBatch.didFailExtendedHours else {
+            throw PortfolioExtendedHoursRefreshError(
+                regularSnapshot: snapshot
+            )
+        }
+        return snapshot
     }
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot {
@@ -173,15 +192,18 @@ struct LivePortfolioRepository: PortfolioRepository {
             "Price refresh started holdings=\(snapshot.holdings.count, privacy: .public) uniqueSymbols=\(normalizedSymbols.count, privacy: .public) symbols=\(normalizedSymbols.joined(separator: ",")) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
-        let quotes: [String: YahooQuoteDTO]
+        let quoteBatch: YahooQuoteBatch
         do {
-            quotes = try await YahooFinanceClient().quotes(for: quoteRequests)
+            quoteBatch = try await YahooFinanceClient().quotes(
+                for: quoteRequests
+            )
         } catch {
             AppLog.portfolio.warning(
                 "Price refresh quote request failed: \(AppLog.describe(error))"
             )
             throw error
         }
+        let quotes = quoteBatch.quotes
 
         let quoteSymbols = quotes.keys.sorted()
         let missingSymbols = normalizedSymbols.filter { quotes[$0] == nil }
@@ -212,16 +234,60 @@ struct LivePortfolioRepository: PortfolioRepository {
                 averageCost: holding.averageCost,
                 currentPrice: currentPrice,
                 previousClose: previousClose,
+                preMarketChange: preMarketChange(
+                    quote: quote,
+                    quantity: holding.quantity
+                ),
+                postMarketChange: postMarketChange(
+                    quote: quote,
+                    quantity: holding.quantity
+                ),
                 currencyCode: holding.currencyCode,
                 dividendsReceived: holding.dividendsReceived
             )
         }
 
-        return PortfolioSnapshot.make(
+        let refreshedSnapshot = PortfolioSnapshot.make(
             accounts: snapshot.accounts,
             holdings: updatedHoldings,
             lastUpdated: Date(),
             isDemo: snapshot.isDemo
+        )
+        guard !quoteBatch.didFailExtendedHours else {
+            throw PortfolioExtendedHoursRefreshError(
+                regularSnapshot: refreshedSnapshot
+            )
+        }
+        return refreshedSnapshot
+    }
+
+    private func preMarketChange(
+        quote: YahooQuoteDTO?,
+        quantity: Double
+    ) -> HoldingExtendedHoursChange? {
+        extendedHoursChange(quote: quote?.preMarket, quantity: quantity)
+    }
+
+    private func postMarketChange(
+        quote: YahooQuoteDTO?,
+        quantity: Double
+    ) -> HoldingExtendedHoursChange? {
+        extendedHoursChange(quote: quote?.postMarket, quantity: quantity)
+    }
+
+    private func extendedHoursChange(
+        quote: YahooExtendedHoursQuoteDTO?,
+        quantity: Double
+    ) -> HoldingExtendedHoursChange? {
+        guard let quote else { return nil }
+
+        let priceChange = quote.price - quote.regularClose
+        return HoldingExtendedHoursChange(
+            amount: quantity * priceChange,
+            percent: priceChange / abs(quote.regularClose),
+            observedAt: quote.observedAt,
+            sessionStart: quote.sessionStart,
+            sessionEnd: quote.sessionEnd
         )
     }
 
