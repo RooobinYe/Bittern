@@ -807,6 +807,11 @@ private struct HoldingsSection: View {
         sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
     }
 
+    private var filteredTotalMarketValue: Double? {
+        guard filteredHoldings.allSatisfy({ $0.marketValue != nil }) else { return nil }
+        return filteredHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
+    }
+
     private var holdingColorLookup: [String: Color] {
         BitternTheme.holdingAllocationColors(
             for: visibleSnapshot.holdings.filter {
@@ -835,7 +840,7 @@ private struct HoldingsSection: View {
             } else {
                 HoldingsList(
                     filteredHoldings: filteredHoldings,
-                    visibleSnapshot: visibleSnapshot,
+                    totalMarketValue: filteredTotalMarketValue,
                     performanceMode: performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
                     holdingColorLookup: holdingColorLookup,
@@ -895,7 +900,7 @@ private struct HoldingsSection: View {
 
 private struct HoldingsList: View {
     let filteredHoldings: [PortfolioHolding]
-    let visibleSnapshot: PortfolioSnapshot
+    let totalMarketValue: Double?
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let holdingColorLookup: [String: Color]
@@ -908,7 +913,7 @@ private struct HoldingsList: View {
                 ForEach(Array(filteredHoldings.enumerated()), id: \.element.id) { index, holding in
                     HoldingListRow(
                         holding: holding,
-                        totalMarketValue: visibleSnapshot.totalMarketValue,
+                        totalMarketValue: totalMarketValue,
                         performanceMode: performanceMode,
                         isPrivacyEnabled: isPrivacyEnabled,
                         color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
@@ -923,7 +928,7 @@ private struct HoldingsList: View {
                     NavigationLink(value: holding) {
                         HoldingListRow(
                             holding: holding,
-                            totalMarketValue: visibleSnapshot.totalMarketValue,
+                            totalMarketValue: totalMarketValue,
                             performanceMode: performanceMode,
                             isPrivacyEnabled: isPrivacyEnabled,
                             color: holdingColorLookup[holding.id] ?? fallbackAllocationColor,
@@ -1253,34 +1258,41 @@ private struct HoldingListRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                SymbolAvatar(
-                    symbol: holding.symbol,
-                    logoURL: holding.logoURL,
-                    color: color
-                )
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 12) {
+                    SymbolAvatar(
+                        symbol: holding.symbol,
+                        logoURL: holding.logoURL,
+                        color: color
+                    )
 
-                VStack(spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(holding.symbol)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(BitternTheme.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                    VStack(spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(holding.symbol)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(BitternTheme.ink)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                        Spacer(minLength: 8)
+                            Spacer(minLength: 8)
 
-                        Text(marketValueText)
-                            .font(.title3.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(BitternTheme.ink)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .layoutPriority(1)
+                            Text(marketValueText)
+                                .font(.title3.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(BitternTheme.ink)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
+                        }
+
+                        secondaryMetrics
                     }
-
-                    secondaryMetrics
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let extendedHoursPresentation {
+                    extendedHoursPerformanceLabel(extendedHoursPresentation)
+                }
             }
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1293,30 +1305,14 @@ private struct HoldingListRow: View {
         }
     }
 
-    @ViewBuilder
     private var secondaryMetrics: some View {
-        if let extendedHoursPresentation {
-            HStack(alignment: .center, spacing: 8) {
-                quantityAndAllocationLabel
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            quantityAndAllocationLabel
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    performanceLabel
-                    extendedHoursPerformanceLabel(extendedHoursPresentation)
-                }
+            performanceLabel
                 .fixedSize(horizontal: true, vertical: false)
-                .layoutPriority(1)
-            }
-        } else {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                quantityAndAllocationLabel
-
-                Spacer(minLength: 8)
-
-                performanceLabel
-                    .fixedSize(horizontal: true, vertical: false)
-            }
         }
     }
 
