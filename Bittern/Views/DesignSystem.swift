@@ -17,16 +17,31 @@ enum BitternTheme {
     static let negativePerformance = Color(uiColor: .systemRed)
     static let warning = Color(uiColor: .systemOrange)
 
-    static let allocationColors = [
-        Color(uiColor: .systemTeal),
-        Color(uiColor: .systemIndigo),
-        Color(uiColor: .systemMint),
-        Color(uiColor: .systemOrange),
-        Color(uiColor: .systemGreen),
-        Color(uiColor: .systemBlue),
-        Color(uiColor: .systemRed),
-        Color(uiColor: .systemPurple)
+    static let allocationColors: [Color] = [
+        mutedAllocationColor(.systemIndigo),
+        mutedAllocationColor(.systemOrange),
+        mutedAllocationColor(.systemGreen),
+        mutedAllocationColor(.systemTeal),
+        mutedAllocationColor(.systemBlue),
+        mutedAllocationColor(.systemRed),
+        mutedAllocationColor(.systemPurple),
+        mutedAllocationColor(.systemMint),
+        mutedAllocationColor(.systemPink),
+        mutedAllocationColor(.systemBrown),
+        mutedAllocationColor(.systemCyan),
+        mutedAllocationColor(.systemYellow)
     ]
+
+    private static let allocationNeutral = Color(uiColor: .systemGray)
+    private static let allocationMuteFraction = 0.48
+
+    private static func mutedAllocationColor(_ color: UIColor) -> Color {
+        Color(uiColor: color).mix(
+            with: allocationNeutral,
+            by: allocationMuteFraction,
+            in: .perceptual
+        )
+    }
 
     static func allocationColor(at index: Int) -> Color {
         allocationColors[index % allocationColors.count]
@@ -35,13 +50,24 @@ enum BitternTheme {
     static func holdingAllocationColors(
         for holdings: [PortfolioHolding]
     ) -> [String: Color] {
-        Dictionary(
-            uniqueKeysWithValues: sortedAllocationHoldings(holdings)
-                .enumerated()
-                .map { index, holding in
-                    (holding.id, allocationColor(at: index))
+        var usedIndices: Set<Int> = []
+        var colorsByHoldingID: [String: Color] = [:]
+
+        for holding in holdings.sorted(by: { $0.id < $1.id }) {
+            guard colorsByHoldingID[holding.id] == nil else { continue }
+
+            var index = allocationColorIndex(forStableKey: holding.id)
+            if usedIndices.count < allocationColors.count {
+                while usedIndices.contains(index) {
+                    index = (index + 1) % allocationColors.count
                 }
-        )
+                usedIndices.insert(index)
+            }
+
+            colorsByHoldingID[holding.id] = allocationColor(at: index)
+        }
+
+        return colorsByHoldingID
     }
 
     static func holdingAllocationColor(
@@ -49,7 +75,25 @@ enum BitternTheme {
         in holdings: [PortfolioHolding]
     ) -> Color {
         holdingAllocationColors(for: holdings)[holding.id]
-            ?? allocationColor(at: 0)
+            ?? allocationColor(forStableKey: holding.id)
+    }
+
+    static let otherAllocationColor = allocationColor(forStableKey: "OTHER")
+
+    private static func allocationColor(forStableKey key: String) -> Color {
+        allocationColor(at: allocationColorIndex(forStableKey: key))
+    }
+
+    private static func allocationColorIndex(forStableKey key: String) -> Int {
+        // Swift's Hashable seed changes between launches, so use a
+        // deterministic hash to keep each holding attached to one color.
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in key.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+
+        return Int(hash % UInt64(allocationColors.count))
     }
 
     static func sortedAllocationHoldings(

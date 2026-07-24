@@ -92,7 +92,9 @@ struct PortfolioAccountsView: View {
         let holdings = viewModel.snapshot.holdings.filter {
             $0.marketValue.map { $0 >= minPriceThreshold } ?? true
         }
-        let holdingColorLookup = BitternTheme.holdingAllocationColors(for: holdings)
+        let holdingColorLookup = BitternTheme.holdingAllocationColors(
+            for: viewModel.snapshot.holdings
+        )
 
         let groupedAccounts = Dictionary(grouping: accounts, by: \.providerName)
 

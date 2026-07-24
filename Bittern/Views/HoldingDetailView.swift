@@ -10,16 +10,19 @@ import OSLog
 struct HoldingDetailView: View {
     let holding: PortfolioHolding
     let snapshot: PortfolioSnapshot
+    let allocationHoldings: [PortfolioHolding]
 
     @StateObject private var detailModel: HoldingDetailViewModel
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
     init(
         holding: PortfolioHolding,
-        snapshot: PortfolioSnapshot
+        snapshot: PortfolioSnapshot,
+        allocationHoldings: [PortfolioHolding]
     ) {
         self.holding = holding
         self.snapshot = snapshot
+        self.allocationHoldings = allocationHoldings
         _detailModel = StateObject(wrappedValue: HoldingDetailViewModel(holding: holding))
     }
 
@@ -38,7 +41,7 @@ struct HoldingDetailView: View {
                         isPrivacyEnabled: isPrivacyEnabled,
                         avatarColor: BitternTheme.holdingAllocationColor(
                             for: holding,
-                            in: snapshot.holdings
+                            in: allocationHoldings
                         )
                     )
 
@@ -762,7 +765,8 @@ struct HoldingDetailView_Previews: PreviewProvider {
     static var previews: some View {
         HoldingDetailView(
             holding: DemoPortfolio.snapshot.holdings[3],
-            snapshot: DemoPortfolio.snapshot
+            snapshot: DemoPortfolio.snapshot,
+            allocationHoldings: DemoPortfolio.snapshot.holdings
         )
     }
 }
