@@ -5,6 +5,11 @@
 
 import SwiftUI
 
+enum PerformanceChartLineStyle: Equatable {
+    case primary
+    case neutral
+}
+
 enum PerformanceChartXScale<Point> {
     case unavailable
     case indexed
@@ -17,7 +22,7 @@ enum PerformanceChartXScale<Point> {
         case .indexed:
             return true
         case .time(let domain, _):
-            return domain.start < domain.end
+            return domain.duration > 0
         }
     }
 }
@@ -28,6 +33,8 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     let xScale: PerformanceChartXScale<Point>
     let baseValue: Double?
     let baselineLabel: String?
+    let primaryLineValue: Double?
+    let lineStyle: (Point) -> PerformanceChartLineStyle
     let ranges: [RangeOption]
     let rangeTitle: (RangeOption) -> String
     @Binding var selectedRange: RangeOption
@@ -35,11 +42,11 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     let isLoading: Bool
 
     private var lineColor: Color {
-        guard let baseValue, let lastPoint = points.last else {
+        guard let baseValue, let primaryLineValue else {
             return BitternTheme.secondaryInk
         }
 
-        return BitternTheme.performanceColor(value(lastPoint) - baseValue)
+        return BitternTheme.performanceColor(primaryLineValue - baseValue)
     }
 
     var body: some View {
@@ -65,6 +72,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
                         baseValue: baseValue,
                         baselineLabel: baselineLabel,
                         lineColor: lineColor,
+                        lineStyle: lineStyle,
                         selectedPoint: $selectedPoint
                     )
                     .frame(height: 318)
@@ -108,6 +116,7 @@ private struct PerformanceLineChart<Point: Hashable>: View {
     let baseValue: Double?
     let baselineLabel: String?
     let lineColor: Color
+    let lineStyle: (Point) -> PerformanceChartLineStyle
     @Binding var selectedPoint: Point?
 
     private var precomputedMinMax: (min: Double, max: Double) {
@@ -167,26 +176,26 @@ private struct PerformanceLineChart<Point: Hashable>: View {
                         }
                     }
 
-                    let fullPath = metrics.path(through: points.indices)
-
                     if let activeIndex {
-                        context.stroke(
-                            fullPath,
-                            with: .color(lineColor.opacity(0.13)),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        stroke(
+                            context: context,
+                            metrics: metrics,
+                            indices: points.indices,
+                            opacity: 0.13
                         )
 
-                        let selectedPath = metrics.path(through: 0...activeIndex)
-                        context.stroke(
-                            selectedPath,
-                            with: .color(lineColor),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        stroke(
+                            context: context,
+                            metrics: metrics,
+                            indices: 0...activeIndex,
+                            opacity: 1
                         )
                     } else {
-                        context.stroke(
-                            fullPath,
-                            with: .color(lineColor),
-                            style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+                        stroke(
+                            context: context,
+                            metrics: metrics,
+                            indices: points.indices,
+                            opacity: 1
                         )
                     }
                 }
@@ -195,7 +204,7 @@ private struct PerformanceLineChart<Point: Hashable>: View {
                 if let markerIndex,
                    let marker = metrics.location(for: markerIndex) {
                     Circle()
-                        .fill(lineColor)
+                        .fill(color(for: points[markerIndex]))
                         .frame(width: 13, height: 13)
                         .frame(width: 38, height: 38)
                         .glassEffect(.regular, in: .circle)
@@ -216,9 +225,114 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         }
     }
 
+    private func stroke<R: Sequence>(
+        context: GraphicsContext,
+        metrics: PerformanceChartMetrics<Point>,
+        indices: R,
+        opacity: Double
+    ) where R.Element == Int {
+        let indices = Array(indices)
+        guard indices.count >= 2 else { return }
+
+        let strokeStyle = StrokeStyle(
+            lineWidth: 4.5,
+            lineCap: .round,
+            lineJoin: .round
+        )
+        context.stroke(
+            metrics.path(through: indices),
+            with: shading(
+                metrics: metrics,
+                indices: indices,
+                opacity: opacity
+            ),
+            style: strokeStyle
+        )
+    }
+
+    private func shading(
+        metrics: PerformanceChartMetrics<Point>,
+        indices: [Int],
+        opacity: Double
+    ) -> GraphicsContext.Shading {
+        var currentStyle = lineStyle(points[indices[0]])
+        var stops = [
+            Gradient.Stop(
+                color: color(for: currentStyle).opacity(opacity),
+                location: 0
+            )
+        ]
+
+        for offset in 1..<indices.count {
+            let nextStyle = lineStyle(points[indices[offset]])
+            guard nextStyle != currentStyle,
+                  let transitionStart = metrics.horizontalProgress(
+                    for: indices[offset - 1]
+                  ),
+                  let nextPointLocation = metrics.horizontalProgress(
+                    for: indices[offset]
+                  )
+            else {
+                continue
+            }
+
+            let transitionEnd = min(
+                nextPointLocation,
+                transitionStart
+                    + performanceChartMaximumTransitionWidth / metrics.plotWidth
+            )
+            stops.append(
+                Gradient.Stop(
+                    color: color(for: currentStyle).opacity(opacity),
+                    location: transitionStart
+                )
+            )
+            stops.append(
+                Gradient.Stop(
+                    color: color(for: nextStyle).opacity(opacity),
+                    location: max(transitionStart, transitionEnd)
+                )
+            )
+            currentStyle = nextStyle
+        }
+
+        guard stops.count > 1 else {
+            return .color(color(for: currentStyle).opacity(opacity))
+        }
+
+        stops.append(
+            Gradient.Stop(
+                color: color(for: currentStyle).opacity(opacity),
+                location: 1
+            )
+        )
+        return .linearGradient(
+            Gradient(stops: stops),
+            startPoint: CGPoint(x: metrics.sideInset, y: 0),
+            endPoint: CGPoint(
+                x: metrics.size.width - metrics.sideInset,
+                y: 0
+            )
+        )
+    }
+
+    private func color(for point: Point) -> Color {
+        color(for: lineStyle(point))
+    }
+
+    private func color(for style: PerformanceChartLineStyle) -> Color {
+        switch style {
+        case .primary:
+            lineColor
+        case .neutral:
+            BitternTheme.secondaryInk
+        }
+    }
+
 }
 
 private let performanceChartSideInset: CGFloat = 19
+private let performanceChartMaximumTransitionWidth: CGFloat = 12
 
 private struct PerformanceChartMetrics<Point: Hashable> {
     let points: [Point]
@@ -231,9 +345,13 @@ private struct PerformanceChartMetrics<Point: Hashable> {
     let bottomInset: CGFloat = 28
     let sideInset: CGFloat = performanceChartSideInset
 
+    var plotWidth: CGFloat {
+        max(0, size.width - sideInset * 2)
+    }
+
     var isDrawable: Bool {
         points.count >= 2
-            && size.width > sideInset * 2
+            && plotWidth > 0
             && size.height > topInset + bottomInset
             && xScale.isValid
     }
@@ -258,6 +376,12 @@ private struct PerformanceChartMetrics<Point: Hashable> {
             return abs(lhsX - clampedX) < abs(rhsX - clampedX)
         }
         return nearestIndex.map { points[$0] }
+    }
+
+    func horizontalProgress(for index: Int) -> CGFloat? {
+        guard let x = x(for: index) else { return nil }
+        guard plotWidth > 0 else { return nil }
+        return min(max((x - sideInset) / plotWidth, 0), 1)
     }
 
     func y(for value: Double) -> CGFloat? {
@@ -287,7 +411,6 @@ private struct PerformanceChartMetrics<Point: Hashable> {
     private func x(for index: Int) -> CGFloat? {
         guard points.indices.contains(index) else { return nil }
 
-        let plotWidth = size.width - sideInset * 2
         switch xScale {
         case .unavailable:
             return nil
@@ -297,9 +420,13 @@ private struct PerformanceChartMetrics<Point: Hashable> {
             return sideInset + CGFloat(index) / CGFloat(points.count - 1) * plotWidth
 
         case .time(let domain, let timestamp):
-            let duration = domain.end.timeIntervalSince(domain.start)
+            let duration = domain.duration
             guard duration > 0 else { return nil }
-            let elapsed = timestamp(points[index]).timeIntervalSince(domain.start)
+            guard let elapsed = domain.elapsedTime(
+                for: timestamp(points[index])
+            ) else {
+                return nil
+            }
             let progress = min(max(elapsed / duration, 0), 1)
             return sideInset + CGFloat(progress) * plotWidth
         }

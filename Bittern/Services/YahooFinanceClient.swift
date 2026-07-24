@@ -90,10 +90,15 @@ enum YahooFinanceError: LocalizedError {
 
 struct YahooFinanceClient {
     private let session: URLSession
+    private let currentDate: @Sendable () -> Date
     private let baseURL = "https://query1.finance.yahoo.com/v8/finance/chart"
 
-    init(session: URLSession = .shared) {
+    init(
+        session: URLSession = .shared,
+        currentDate: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.session = session
+        self.currentDate = currentDate
     }
 
     /// Returns quotes keyed by the original normalized symbol (for example
@@ -129,7 +134,7 @@ struct YahooFinanceClient {
 
         // Fetch every symbol independently — the chart API accepts one
         // ticker per request.  Use TaskGroup for concurrency.
-        let requestedAt = Date()
+        let requestedAt = currentDate()
         let results = await withTaskGroup(
             of: (original: String, result: YahooRegularQuoteResult?).self
         ) { group in
@@ -250,7 +255,11 @@ struct YahooFinanceClient {
         var lastError: Error?
         for candidate in candidates {
             do {
-                let history = try await fetchHistoryOne(candidate: candidate, range: range)
+                let history = try await fetchHistoryOne(
+                    candidate: candidate,
+                    instrumentKind: instrumentKind,
+                    range: range
+                )
                 if !history.points.isEmpty {
                     AppLog.marketData.debug(
                         "Price history candidate=\(candidate) returned points=\(history.points.count, privacy: .public)"
@@ -709,12 +718,25 @@ struct YahooFinanceClient {
         symbol.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func fetchHistoryOne(candidate symbol: String, range: HoldingChartRange) async throws -> HoldingPriceSeries {
+    private func fetchHistoryOne(
+        candidate symbol: String,
+        instrumentKind: PortfolioInstrumentKind?,
+        range: HoldingChartRange
+    ) async throws -> HoldingPriceSeries {
+        let requestedAt = currentDate()
+        // Yahoo's 1d response contains only the current pre-market before the
+        // open. Five trading days provide enough context to reconstruct one
+        // display cycle without exposing older observations to the chart.
+        let requestRange = range == .oneDay ? "5d" : range.yahooRange
+        let includesExtendedHours = range == .oneDay
         var components = URLComponents(string: "\(baseURL)/\(symbol)")
         components?.queryItems = [
             URLQueryItem(name: "interval", value: range.yahooInterval),
-            URLQueryItem(name: "range", value: range.yahooRange),
-            URLQueryItem(name: "includePrePost", value: "false"),
+            URLQueryItem(name: "range", value: requestRange),
+            URLQueryItem(
+                name: "includePrePost",
+                value: includesExtendedHours ? "true" : "false"
+            ),
             URLQueryItem(name: "events", value: "history")
         ]
 
@@ -723,6 +745,7 @@ struct YahooFinanceClient {
         }
 
         var request = URLRequest(url: url)
+        request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let data = try await send(
@@ -748,35 +771,63 @@ struct YahooFinanceClient {
                 "Timestamp and close counts differ for \(symbol)."
             )
         }
+        guard zip(timestamps, timestamps.dropFirst()).allSatisfy({
+            previous, next in previous < next
+        }) else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Unordered timestamps for \(symbol)."
+            )
+        }
 
         let points = zip(timestamps, closes).compactMap { timestamp, close -> HoldingPricePoint? in
-            guard let close, close > 0 else { return nil }
+            guard let close, close.isFinite, close > 0 else { return nil }
             return HoldingPricePoint(
                 date: Date(timeIntervalSince1970: TimeInterval(timestamp)),
                 price: close
             )
         }
 
-        guard points.count >= 2 else {
-            throw YahooFinanceError.httpStatus(-1, "Not enough chart points for \(symbol)")
+        let series: HoldingPriceSeries
+        if range == .oneDay {
+            series = try oneDaySeries(
+                meta: result.meta,
+                points: points,
+                requestRange: requestRange,
+                requestedAt: requestedAt,
+                instrumentKind: instrumentKind,
+                symbol: symbol
+            )
+        } else {
+            series = HoldingPriceSeries(
+                points: points,
+                timeDomain: nil
+            )
         }
 
-        let timeDomain = try range == .oneDay
-            ? oneDayTimeDomain(meta: result.meta, points: points, symbol: symbol)
-            : nil
-
-        return HoldingPriceSeries(points: points, timeDomain: timeDomain)
+        let minimumPointCount = range == .oneDay && instrumentKind == .crypto
+            ? 1
+            : 2
+        guard series.points.count >= minimumPointCount else {
+            throw YahooFinanceError.httpStatus(
+                -1,
+                "Not enough chart points for \(symbol)"
+            )
+        }
+        return series
     }
 
-    private func oneDayTimeDomain(
+    private func oneDaySeries(
         meta: YahooChartMetaDTO?,
         points: [HoldingPricePoint],
+        requestRange: String,
+        requestedAt: Date,
+        instrumentKind: PortfolioInstrumentKind?,
         symbol: String
-    ) throws -> PriceChartTimeDomain {
+    ) throws -> HoldingPriceSeries {
         guard let meta else {
             throw YahooFinanceError.invalidChartMetadata("Missing metadata for \(symbol).")
         }
-        guard meta.range == HoldingChartRange.oneDay.yahooRange else {
+        guard meta.range == requestRange else {
             throw YahooFinanceError.invalidChartMetadata("Unexpected range for \(symbol).")
         }
         guard meta.dataGranularity == HoldingChartRange.oneDay.yahooInterval,
@@ -784,6 +835,15 @@ struct YahooFinanceClient {
         else {
             throw YahooFinanceError.invalidChartMetadata("Unexpected granularity for \(symbol).")
         }
+
+        if instrumentKind == .crypto {
+            return try cryptoOneDaySeries(
+                points: points,
+                requestedAt: requestedAt,
+                symbol: symbol
+            )
+        }
+
         guard let timeZoneName = meta.exchangeTimezoneName,
               let timeZone = TimeZone(identifier: timeZoneName)
         else {
@@ -792,59 +852,398 @@ struct YahooFinanceClient {
         guard let tradingPeriods = meta.tradingPeriods else {
             throw YahooFinanceError.invalidChartMetadata("Missing trading periods for \(symbol).")
         }
-        guard case .regular(let periodGroups) = tradingPeriods else {
-            throw YahooFinanceError.invalidChartMetadata(
-                "Unexpected extended trading periods for \(symbol)."
+
+        let regularPeriods: [PriceChartTimeSegment]
+        let preMarketPeriods: [PriceChartTimeSegment]
+        let postMarketPeriods: [PriceChartTimeSegment]
+        switch tradingPeriods {
+        case .regular(let groups):
+            regularPeriods = try chartPeriods(
+                groups,
+                name: "regular",
+                symbol: symbol
+            )
+            preMarketPeriods = []
+            postMarketPeriods = []
+        case .extended(let periods):
+            regularPeriods = try chartPeriods(
+                periods.regular ?? [],
+                name: "regular",
+                symbol: symbol
+            )
+            preMarketPeriods = try chartPeriods(
+                periods.pre ?? [],
+                name: "pre-market",
+                symbol: symbol
+            )
+            postMarketPeriods = try chartPeriods(
+                periods.post ?? [],
+                name: "post-market",
+                symbol: symbol
             )
         }
 
-        let rawPeriods = periodGroups.flatMap { $0 }
-        guard !rawPeriods.isEmpty else {
+        guard !regularPeriods.isEmpty else {
             throw YahooFinanceError.invalidChartMetadata("Empty trading periods for \(symbol).")
         }
 
-        let periods = try rawPeriods.map { rawPeriod -> PriceChartTimeDomain in
+        if let regularPeriod = regularPeriods.first(where: {
+            contains(requestedAt, in: $0)
+        }) {
+            return try regularOneDaySeries(
+                regularPeriod: regularPeriod,
+                regularPeriods: regularPeriods,
+                points: points,
+                timeZone: timeZone,
+                granularity: granularity,
+                fallbackBaseline: meta.chartPreviousClose,
+                symbol: symbol
+            )
+        }
+
+        if let postMarketPeriod = postMarketPeriods.first(where: {
+            contains(requestedAt, in: $0)
+        }), let regularPeriod = precedingRegularPeriod(
+            for: postMarketPeriod,
+            in: regularPeriods
+        ) {
+            return try extendedOneDaySeries(
+                regularPeriod: regularPeriod,
+                postMarketPeriod: postMarketPeriod,
+                preMarketPeriod: nil,
+                regularPeriods: regularPeriods,
+                points: points,
+                granularity: granularity,
+                fallbackBaseline: meta.chartPreviousClose,
+                symbol: symbol
+            )
+        }
+
+        if let preMarketPeriod = preMarketPeriods.first(where: {
+            contains(requestedAt, in: $0)
+        }), let regularPeriod = precedingRegularPeriod(
+            for: preMarketPeriod,
+            in: regularPeriods
+        ) {
+            let postMarketPeriod = followingPostMarketPeriod(
+                for: regularPeriod,
+                before: preMarketPeriod.start,
+                in: postMarketPeriods
+            )
+            return try extendedOneDaySeries(
+                regularPeriod: regularPeriod,
+                postMarketPeriod: postMarketPeriod,
+                preMarketPeriod: preMarketPeriod,
+                regularPeriods: regularPeriods,
+                points: points,
+                granularity: granularity,
+                fallbackBaseline: meta.chartPreviousClose,
+                symbol: symbol
+            )
+        }
+
+        guard let regularPeriod = regularPeriods.last(where: {
+            $0.end <= requestedAt
+        }) ?? regularPeriods.last(where: { period in
+            points.contains(where: { contains($0.date, in: period) })
+        }) else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "No relevant regular trading period for \(symbol)."
+            )
+        }
+
+        let postMarketPeriod = followingPostMarketPeriod(
+            for: regularPeriod,
+            before: requestedAt,
+            in: postMarketPeriods
+        )
+        if postMarketPeriod != nil {
+            return try extendedOneDaySeries(
+                regularPeriod: regularPeriod,
+                postMarketPeriod: postMarketPeriod,
+                preMarketPeriod: nil,
+                regularPeriods: regularPeriods,
+                points: points,
+                granularity: granularity,
+                fallbackBaseline: meta.chartPreviousClose,
+                symbol: symbol
+            )
+        }
+
+        return try regularOneDaySeries(
+            regularPeriod: regularPeriod,
+            regularPeriods: regularPeriods,
+            points: points,
+            timeZone: timeZone,
+            granularity: granularity,
+            fallbackBaseline: meta.chartPreviousClose,
+            symbol: symbol
+        )
+    }
+
+    private func cryptoOneDaySeries(
+        points: [HoldingPricePoint],
+        requestedAt: Date,
+        symbol: String
+    ) throws -> HoldingPriceSeries {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let start = calendar.startOfDay(for: requestedAt)
+        guard let end = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: start
+        ) else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Unable to construct the UTC day for \(symbol)."
+            )
+        }
+
+        let currentDayPoints = points.filter {
+            start <= $0.date
+                && $0.date <= requestedAt
+                && $0.date < end
+        }
+        .map {
+            HoldingPricePoint(
+                date: $0.date,
+                price: $0.price,
+                session: .regular
+            )
+        }
+
+        guard !currentDayPoints.isEmpty else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "No current UTC-day observations for \(symbol)."
+            )
+        }
+
+        return HoldingPriceSeries(
+            points: currentDayPoints,
+            timeDomain: PriceChartTimeDomain(
+                start: start,
+                end: end
+            ),
+            // The holding quote uses Yahoo's chartPreviousClose. Reuse that
+            // exact value in the detail view instead of deriving another
+            // baseline from the 5-minute history response.
+            baselinePrice: nil
+        )
+    }
+
+    private func regularOneDaySeries(
+        regularPeriod: PriceChartTimeSegment,
+        regularPeriods: [PriceChartTimeSegment],
+        points: [HoldingPricePoint],
+        timeZone: TimeZone,
+        granularity: TimeInterval,
+        fallbackBaseline: Double?,
+        symbol: String
+    ) throws -> HoldingPriceSeries {
+        let regularPoints = observations(in: regularPeriod, from: points)
+            .map {
+                HoldingPricePoint(
+                    date: $0.date,
+                    price: $0.price,
+                    session: .regular
+                )
+            }
+        guard let firstPoint = regularPoints.first,
+              let lastPoint = regularPoints.last
+        else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "No regular-session observations for \(symbol)."
+            )
+        }
+
+        let timeDomain: PriceChartTimeDomain
+        if coversFullCalendarDay(
+            regularPeriod,
+            in: timeZone,
+            granularity: granularity
+        ) {
+            timeDomain = PriceChartTimeDomain(
+                start: firstPoint.date,
+                end: lastPoint.date
+            )
+        } else {
+            timeDomain = PriceChartTimeDomain(
+                start: regularPeriod.start,
+                end: regularPeriod.end
+            )
+        }
+
+        return HoldingPriceSeries(
+            points: regularPoints,
+            timeDomain: timeDomain,
+            baselinePrice: baselinePrice(
+                before: regularPeriod,
+                regularPeriods: regularPeriods,
+                points: points,
+                fallback: fallbackBaseline
+            )
+        )
+    }
+
+    private func extendedOneDaySeries(
+        regularPeriod: PriceChartTimeSegment,
+        postMarketPeriod: PriceChartTimeSegment?,
+        preMarketPeriod: PriceChartTimeSegment?,
+        regularPeriods: [PriceChartTimeSegment],
+        points: [HoldingPricePoint],
+        granularity: TimeInterval,
+        fallbackBaseline: Double?,
+        symbol: String
+    ) throws -> HoldingPriceSeries {
+        let regularPoints = observations(in: regularPeriod, from: points)
+            .map {
+                HoldingPricePoint(
+                    date: $0.date,
+                    price: $0.price,
+                    session: .regular
+                )
+            }
+        guard !regularPoints.isEmpty else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "No regular-session observations for \(symbol)."
+            )
+        }
+
+        let postMarketPoints = postMarketPeriod.map { period in
+            points.filter {
+                period.start < $0.date && $0.date < period.end
+            }
+            .map {
+                HoldingPricePoint(
+                    date: $0.date,
+                    price: $0.price,
+                    session: .postMarket
+                )
+            }
+        } ?? []
+        let preMarketPoints = preMarketPeriod.map { period in
+            points.filter {
+                period.start <= $0.date && $0.date < period.end
+            }
+            .map {
+                HoldingPricePoint(
+                    date: $0.date,
+                    price: $0.price,
+                    session: .preMarket
+                )
+            }
+        } ?? []
+
+        let firstSegmentEnd = max(
+            regularPeriod.end,
+            postMarketPoints.last?.date ?? regularPeriod.end
+        )
+        var timeSegments = [
+            PriceChartTimeSegment(
+                start: regularPeriod.start,
+                end: firstSegmentEnd
+            )
+        ]
+        if let preMarketPeriod,
+           let lastPreMarketPoint = preMarketPoints.last {
+            timeSegments.append(
+                PriceChartTimeSegment(
+                    start: preMarketPeriod.start,
+                    end: lastPreMarketPoint.date,
+                    spacingBefore: granularity
+                )
+            )
+        }
+
+        return HoldingPriceSeries(
+            points: regularPoints + postMarketPoints + preMarketPoints,
+            timeDomain: PriceChartTimeDomain(segments: timeSegments),
+            baselinePrice: baselinePrice(
+                before: regularPeriod,
+                regularPeriods: regularPeriods,
+                points: points,
+                fallback: fallbackBaseline
+            )
+        )
+    }
+
+    private func chartPeriods(
+        _ groups: [[YahooTradingPeriodDTO]],
+        name: String,
+        symbol: String
+    ) throws -> [PriceChartTimeSegment] {
+        let periods = try groups.flatMap { $0 }.map { rawPeriod in
             guard let start = rawPeriod.start,
                   let end = rawPeriod.end,
                   start < end
             else {
-                throw YahooFinanceError.invalidChartMetadata("Malformed trading period for \(symbol).")
+                throw YahooFinanceError.invalidChartMetadata(
+                    "Malformed \(name) trading period for \(symbol)."
+                )
             }
 
-            return PriceChartTimeDomain(
+            return PriceChartTimeSegment(
                 start: Date(timeIntervalSince1970: TimeInterval(start)),
                 end: Date(timeIntervalSince1970: TimeInterval(end))
             )
         }
+        return periods.sorted { $0.start < $1.start }
+    }
 
-        guard zip(points, points.dropFirst()).allSatisfy({ previous, next in
-            previous.date < next.date
-        }) else {
-            throw YahooFinanceError.invalidChartMetadata("Unordered timestamps for \(symbol).")
+    private func precedingRegularPeriod(
+        for period: PriceChartTimeSegment,
+        in regularPeriods: [PriceChartTimeSegment]
+    ) -> PriceChartTimeSegment? {
+        regularPeriods.last { $0.end <= period.start }
+    }
+
+    private func followingPostMarketPeriod(
+        for regularPeriod: PriceChartTimeSegment,
+        before upperBound: Date,
+        in postMarketPeriods: [PriceChartTimeSegment]
+    ) -> PriceChartTimeSegment? {
+        postMarketPeriods.first {
+            regularPeriod.end <= $0.start
+                && $0.start < upperBound
+        }
+    }
+
+    private func baselinePrice(
+        before regularPeriod: PriceChartTimeSegment,
+        regularPeriods: [PriceChartTimeSegment],
+        points: [HoldingPricePoint],
+        fallback: Double?
+    ) -> Double? {
+        guard let precedingPeriod = precedingRegularPeriod(
+            for: regularPeriod,
+            in: regularPeriods
+        ) else {
+            return fallback
         }
 
-        let matchingPeriods = periods.filter { period in
-            points.allSatisfy { point in
-                point.date >= period.start && point.date <= period.end
-            }
-        }
-        guard matchingPeriods.count == 1, let period = matchingPeriods.first else {
-            throw YahooFinanceError.invalidChartMetadata(
-                "Expected one trading period matching the points for \(symbol)."
-            )
-        }
+        return observations(in: precedingPeriod, from: points).last?.price
+            ?? fallback
+    }
 
-        if coversFullCalendarDay(period, in: timeZone, granularity: granularity),
-           let firstPoint = points.first,
-           let lastPoint = points.last {
-            return PriceChartTimeDomain(start: firstPoint.date, end: lastPoint.date)
-        }
+    private func observations(
+        in period: PriceChartTimeSegment,
+        from points: [HoldingPricePoint]
+    ) -> [HoldingPricePoint] {
+        points.filter { contains($0.date, in: period, includesEnd: true) }
+    }
 
-        return period
+    private func contains(
+        _ date: Date,
+        in period: PriceChartTimeSegment,
+        includesEnd: Bool = false
+    ) -> Bool {
+        period.start <= date
+            && (includesEnd ? date <= period.end : date < period.end)
     }
 
     private func coversFullCalendarDay(
-        _ period: PriceChartTimeDomain,
+        _ period: PriceChartTimeSegment,
         in timeZone: TimeZone,
         granularity: TimeInterval
     ) -> Bool {

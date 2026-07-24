@@ -368,6 +368,8 @@ private struct PortfolioHistoryChartSection: View {
                     ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
                     : PortfolioFormat.wholeMoney($0, currencyCode: currencyCode)
             },
+            primaryLineValue: series.last?.totalValue,
+            lineStyle: { _ in .primary },
             ranges: PortfolioHistoryRange.allCases,
             rangeTitle: { $0.title },
             selectedRange: $range,

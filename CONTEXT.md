@@ -12,6 +12,18 @@ _Avoid_: Crypto session, rolling 24 hours
 A provider-defined regular period shorter than a full day, with explicit opening and closing boundaries. Price observations retain their true positions within those boundaries.
 _Avoid_: Today, first-to-last-point range
 
+**1D Display Cycle**:
+The latest relevant Bounded 1D Session together with its following post-market observations and, before the next regular open, the next pre-market observations.
+_Avoid_: Calendar day, rolling 24 hours
+
+**Extended-Hours Continuation**:
+Pre-market or post-market observations attached to a 1D Display Cycle as a neutral-colored continuation of the regular-session trace. A no-trade gap between post-market and the next pre-market is not part of the continuation.
+_Avoid_: Second chart, gain/loss trace
+
+**Session Transition Segment**:
+The chart segment joining the final regular-session observation to the first following extended-hours observation. It belongs to neither session exclusively and does not introduce an additional price observation.
+_Avoid_: Boundary point, overlap point, session divider
+
 **Regular-Market Valuation**:
 Holding and portfolio values based on the latest regular-session price. Pre-market, post-market, and overnight prices do not change portfolio totals, holding values, allocation, returns, or holding order.
 _Avoid_: Live valuation, extended-hours valuation
