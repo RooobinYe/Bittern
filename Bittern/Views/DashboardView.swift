@@ -70,7 +70,8 @@ struct DashboardView: View {
             .navigationDestination(for: PortfolioHolding.self) { holding in
                 HoldingDetailView(
                     holding: holding,
-                    snapshot: viewModel.visibleSnapshot
+                    snapshot: viewModel.visibleSnapshot,
+                    allocationHoldings: viewModel.snapshot.holdings
                 )
             }
 #if DEBUG
@@ -122,6 +123,7 @@ struct DashboardView: View {
         DashboardShareSnapshot(
             filterAccounts: viewModel.snapshot.accounts,
             portfolio: viewModel.visibleSnapshot,
+            allocationHoldings: viewModel.snapshot.holdings,
             sortedHoldings: viewModel.sortedHoldings,
             selectedProviderName: viewModel.selectedProviderName,
             performanceMode: viewModel.performanceMode,
@@ -215,6 +217,7 @@ private struct PortfolioShareItem: Transferable, Sendable {
 private struct DashboardShareSnapshot: Sendable {
     let filterAccounts: [PortfolioAccount]
     let portfolio: PortfolioSnapshot
+    let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
     let selectedProviderName: String?
     let performanceMode: PerformanceMode
@@ -288,6 +291,7 @@ private struct PortfolioShareScreenshotContent: View {
             DashboardVisualContent(
                 filterAccounts: snapshot.filterAccounts,
                 portfolio: snapshot.portfolio,
+                allocationHoldings: snapshot.allocationHoldings,
                 sortedHoldings: snapshot.sortedHoldings,
                 selectedProviderName: .constant(snapshot.selectedProviderName),
                 performanceMode: .constant(snapshot.performanceMode),
@@ -347,6 +351,7 @@ private struct DashboardContent: View {
             DashboardVisualContent(
                 filterAccounts: viewModel.snapshot.accounts,
                 portfolio: viewModel.visibleSnapshot,
+                allocationHoldings: viewModel.snapshot.holdings,
                 sortedHoldings: viewModel.sortedHoldings,
                 selectedProviderName: $viewModel.selectedProviderName,
                 performanceMode: $viewModel.performanceMode,
@@ -367,6 +372,7 @@ private struct DashboardContent: View {
 private struct DashboardVisualContent: View {
     let filterAccounts: [PortfolioAccount]
     let portfolio: PortfolioSnapshot
+    let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
     @Binding var selectedProviderName: String?
     @Binding var performanceMode: PerformanceMode
@@ -376,6 +382,10 @@ private struct DashboardVisualContent: View {
     let layoutMode: DashboardLayoutMode
     let purpose: DashboardRenderPurpose
     let refresh: (() async -> Void)?
+
+    private var holdingColorLookup: [String: Color] {
+        BitternTheme.holdingAllocationColors(for: allocationHoldings)
+    }
 
     @ViewBuilder
     var body: some View {
@@ -421,6 +431,7 @@ private struct DashboardVisualContent: View {
     private var stackedDonut: some View {
         PortfolioDonutSection(
             snapshot: portfolio,
+            holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold,
@@ -431,6 +442,7 @@ private struct DashboardVisualContent: View {
     private var splitDonut: some View {
         PortfolioDonutSection(
             snapshot: portfolio,
+            holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold,
@@ -442,6 +454,7 @@ private struct DashboardVisualContent: View {
         HoldingsSection(
             sortedHoldings: sortedHoldings,
             visibleSnapshot: portfolio,
+            holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             sortOption: $sortOption,
             isPrivacyEnabled: isPrivacyEnabled,
@@ -617,6 +630,7 @@ private struct AccountFilterBar: View {
 
 private struct PortfolioDonutSection: View {
     let snapshot: PortfolioSnapshot
+    let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
@@ -650,6 +664,7 @@ private struct PortfolioDonutSection: View {
     private var chart: some View {
         DonutPortfolioChart(
             snapshot: snapshot,
+            holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             minPriceThreshold: minPriceThreshold
@@ -659,6 +674,7 @@ private struct PortfolioDonutSection: View {
 
 private struct DonutPortfolioChart: View {
     let snapshot: PortfolioSnapshot
+    let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let minPriceThreshold: Double
@@ -678,7 +694,10 @@ private struct DonutPortfolioChart: View {
 
     private var segments: [DonutSegmentInfo] {
         guard snapshot.totalMarketValue != nil else { return [] }
-        return makeSegments(from: filteredHoldings)
+        return makeSegments(
+            from: filteredHoldings,
+            holdingColorLookup: holdingColorLookup
+        )
     }
 
     var body: some View {
@@ -797,6 +816,7 @@ private struct DonutPortfolioChart: View {
 private struct HoldingsSection: View {
     let sortedHoldings: [PortfolioHolding]
     let visibleSnapshot: PortfolioSnapshot
+    let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     @Binding var sortOption: HoldingSortOption
     let isPrivacyEnabled: Bool
@@ -810,14 +830,6 @@ private struct HoldingsSection: View {
     private var filteredTotalMarketValue: Double? {
         guard filteredHoldings.allSatisfy({ $0.marketValue != nil }) else { return nil }
         return filteredHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
-    }
-
-    private var holdingColorLookup: [String: Color] {
-        BitternTheme.holdingAllocationColors(
-            for: visibleSnapshot.holdings.filter {
-                $0.marketValue.map { $0 >= minPriceThreshold } ?? false
-            }
-        )
     }
 
     private var nextExtendedHoursBoundary: Date? {
@@ -1437,7 +1449,10 @@ private struct EmptyHoldingsView: View {
 
 // MARK: - Helpers
 
-private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInfo] {
+private func makeSegments(
+    from holdings: [PortfolioHolding],
+    holdingColorLookup: [String: Color]
+) -> [DonutSegmentInfo] {
     let sortedHoldings = BitternTheme.sortedAllocationHoldings(holdings)
 
     let total = sortedHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
@@ -1452,11 +1467,19 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
         .filter { !visibleIDs.contains($0.id) }
         .reduce(0) { $0 + ($1.marketValue ?? 0) }
 
-    var segments: [(symbol: String, logoURL: URL?, value: Double, id: String)] = visibleHoldings.map {
-        ($0.symbol, $0.logoURL, $0.marketValue ?? 0, $0.id)
+    var segments: [
+        (symbol: String, logoURL: URL?, value: Double, id: String, color: Color)
+    ] = visibleHoldings.map {
+        (
+            $0.symbol,
+            $0.logoURL,
+            $0.marketValue ?? 0,
+            $0.id,
+            holdingColorLookup[$0.id] ?? fallbackAllocationColor
+        )
     }
     if otherValue > 0 {
-        segments.append(("OTHER", nil, otherValue, "other"))
+        segments.append(("OTHER", nil, otherValue, "other", BitternTheme.otherAllocationColor))
     }
 
     guard !segments.isEmpty else { return [] }
@@ -1465,7 +1488,7 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
     let gap = 2.2
     let shrink = gap / 2 * Double(segments.count - 1) / Double(segments.count)
 
-    return segments.enumerated().map { index, item in
+    return segments.map { item in
         let span = item.value / total * 360
         let startAngle = cursor + min(shrink, span * 0.18)
         let endAngle = cursor + span - min(shrink, span * 0.18)
@@ -1477,7 +1500,7 @@ private func makeSegments(from holdings: [PortfolioHolding]) -> [DonutSegmentInf
             total: total,
             startAngle: startAngle,
             endAngle: max(startAngle, endAngle),
-            color: BitternTheme.allocationColor(at: index)
+            color: item.color
         )
         cursor += span
         return segment
