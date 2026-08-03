@@ -39,15 +39,7 @@ struct SnapTradeClient {
             queryItems: [],
             body: body
         )
-        do {
-            return try JSONDecoder().decode(SnapTradeRegisteredUserDTO.self, from: data)
-        } catch {
-            let bodyPreview = String(data: data, encoding: .utf8) ?? "<not UTF-8>"
-            throw SnapTradeError.httpStatus(
-                -1,
-                "Decoding registerUser response failed. Body: \(bodyPreview.prefix(500))"
-            )
-        }
+        return try decode(SnapTradeRegisteredUserDTO.self, from: data, operation: "registerUser")
     }
 
     func listAccounts() async throws -> [SnapTradeAccountDTO] {
@@ -55,7 +47,7 @@ struct SnapTradeClient {
             path: "/accounts",
             queryItems: userQueryItems
         )
-        return try JSONDecoder().decode([SnapTradeAccountDTO].self, from: data)
+        return try decode([SnapTradeAccountDTO].self, from: data, operation: "listAccounts")
     }
 
     func listConnections() async throws -> [SnapTradeConnectionDTO] {
@@ -63,7 +55,7 @@ struct SnapTradeClient {
             path: "/authorizations",
             queryItems: userQueryItems
         )
-        return try JSONDecoder().decode([SnapTradeConnectionDTO].self, from: data)
+        return try decode([SnapTradeConnectionDTO].self, from: data, operation: "listConnections")
     }
 
     func listAccounts(connectionID: String) async throws -> [SnapTradeAccountDTO] {
@@ -71,7 +63,7 @@ struct SnapTradeClient {
             path: "/authorizations/\(connectionID)/accounts",
             queryItems: userQueryItems
         )
-        return try JSONDecoder().decode([SnapTradeAccountDTO].self, from: data)
+        return try decode([SnapTradeAccountDTO].self, from: data, operation: "listAccounts(connectionID:)")
     }
 
     func listPositions(accountID: String) async throws -> [SnapTradePositionDTO] {
@@ -79,7 +71,7 @@ struct SnapTradeClient {
             path: "/accounts/\(accountID)/positions/all",
             queryItems: userQueryItems
         )
-        let response = try JSONDecoder().decode(SnapTradePositionsResponseDTO.self, from: data)
+        let response = try decode(SnapTradePositionsResponseDTO.self, from: data, operation: "listPositions")
         let instrumentSummary = response.positions.map { position in
             let symbol = position.resolvedSymbol ?? "<missing-symbol>"
             let kind = position.instrument?.kind ?? "<missing-kind>"
@@ -97,7 +89,7 @@ struct SnapTradeClient {
             path: "/accounts/\(accountID)/balanceHistory",
             queryItems: userQueryItems
         )
-        return try JSONDecoder().decode(SnapTradeAccountBalanceHistoryDTO.self, from: data)
+        return try decode(SnapTradeAccountBalanceHistoryDTO.self, from: data, operation: "accountBalanceHistory")
     }
 
     func listActivities(accountID: String, types: [String]) async throws -> [SnapTradeActivityDTO] {
@@ -119,7 +111,7 @@ struct SnapTradeClient {
                 path: "/accounts/\(accountID)/activities",
                 queryItems: queryItems
             )
-            let page = try JSONDecoder().decode(SnapTradeActivitiesResponseDTO.self, from: data)
+            let page = try decode(SnapTradeActivitiesResponseDTO.self, from: data, operation: "listActivities")
             result.append(contentsOf: page.activities)
 
             offset += page.activities.count
@@ -148,11 +140,27 @@ struct SnapTradeClient {
             queryItems: userQueryItems,
             body: body
         )
-        let response = try JSONDecoder().decode(SnapTradeConnectionPortalResponseDTO.self, from: data)
+        let response = try decode(SnapTradeConnectionPortalResponseDTO.self, from: data, operation: "connectionPortalURL")
         guard let url = URL(string: response.redirectURI) else {
             throw SnapTradeError.invalidURL
         }
         return url
+    }
+
+    private func decode<Value: Decodable>(
+        _ type: Value.Type,
+        from data: Data,
+        operation: String
+    ) throws -> Value {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            let bodyPreview = String(data: data, encoding: .utf8) ?? "<not UTF-8>"
+            throw SnapTradeError.httpStatus(
+                -1,
+                "Decoding \(operation) response failed: \(AppLog.describe(error)) Body: \(bodyPreview.prefix(500))"
+            )
+        }
     }
 
     private func request(path: String, queryItems: [URLQueryItem]) async throws -> Data {
@@ -621,7 +629,7 @@ struct SnapTradePositionDTO: Decodable {
     var resolvedAverageCost: Double? {
         [averagePurchasePrice, costBasis]
             .compactMap { $0 }
-            .first { $0 > 0 }
+            .first { $0 >= 0 }
     }
 
     var resolvedCurrency: String? {

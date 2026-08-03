@@ -103,6 +103,7 @@ private final class HoldingDetailViewModel: ObservableObject {
 
     private let holding: PortfolioHolding
     private let yahooClient: YahooFinanceClient
+    private let loadRunner = CancelableTaskRunner()
 
     init(holding: PortfolioHolding, yahooClient: YahooFinanceClient? = nil) {
         self.holding = holding
@@ -124,6 +125,7 @@ private final class HoldingDetailViewModel: ObservableObject {
     func loadSelectedRangeIfNeeded() async {
         let range = selectedRange
         guard priceSeriesByRange[range] == nil else {
+            loadRunner.cancel()
             isLoading = false
             return
         }
@@ -140,37 +142,49 @@ private final class HoldingDetailViewModel: ObservableObject {
         _ range: HoldingChartRange,
         showsLoading: Bool
     ) async {
-        if showsLoading {
-            isLoading = true
-        }
-        errorMessage = nil
-        defer {
-            if showsLoading && selectedRange == range {
-                isLoading = false
-            }
-        }
+        await loadRunner.run { [weak self] gen in
+            guard let self else { return }
 
-        do {
-            let history = try await yahooClient.priceHistory(
-                for: holding.symbol,
-                instrumentKind: holding.instrumentKind,
-                range: range
-            )
-            guard !Task.isCancelled else { return }
-            selectedPoint = nil
-            priceSeriesByRange[range] = history
-        } catch {
-            guard !Task.isCancelled else { return }
-            AppLog.marketData.warning(
-                "Chart load failed range=\(range.title, privacy: .public) symbol=\(self.holding.symbol): \(AppLog.describe(error))"
-            )
-            if priceSeriesByRange[range] == nil {
-                priceSeriesByRange[range] = .empty
+            if showsLoading {
+                isLoading = true
             }
-            errorMessage = UserFacingError.message(
-                for: error,
-                fallback: "Price history for \(holding.symbol) couldn’t be loaded. Please try again."
-            )
+            errorMessage = nil
+            defer {
+                if gen == loadRunner.generation {
+                    isLoading = false
+                }
+            }
+
+            do {
+                let history = try await yahooClient.priceHistory(
+                    for: holding.symbol,
+                    instrumentKind: holding.instrumentKind,
+                    range: range
+                )
+                guard gen == loadRunner.generation else { return }
+                if range == selectedRange {
+                    selectedPoint = nil
+                }
+                priceSeriesByRange[range] = history
+            } catch {
+                guard !Task.isCancelled,
+                      !(error is CancellationError),
+                      (error as? URLError)?.code != .cancelled
+                else { return }
+                guard gen == loadRunner.generation else { return }
+                AppLog.marketData.warning(
+                    "Chart load failed range=\(range.title, privacy: .public) symbol=\(self.holding.symbol): \(AppLog.describe(error))"
+                )
+                if priceSeriesByRange[range] == nil {
+                    priceSeriesByRange[range] = .empty
+                }
+                if range == selectedRange {
+                    errorMessage = UserFacingError.message(
+                        for: error,
+                        fallback: "Price history for \(holding.symbol) couldn’t be loaded. Please try again."
+                    )
+                }
+            }
         }
     }
 

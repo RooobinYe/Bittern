@@ -70,6 +70,7 @@ enum YahooFinanceError: LocalizedError {
     case emptySymbols
     case invalidResponse
     case invalidChartMetadata(String)
+    case decodingFailed(String)
     case httpStatus(Int, String)
 
     var errorDescription: String? {
@@ -82,6 +83,8 @@ enum YahooFinanceError: LocalizedError {
             "Yahoo returned a non-HTTP response."
         case .invalidChartMetadata(let reason):
             "Yahoo returned invalid chart timing data. \(reason)"
+        case .decodingFailed(let reason):
+            "Yahoo returned an undecodable response. \(reason)"
         case .httpStatus(let status, let body):
             "Yahoo request failed with HTTP \(status). \(body)"
         }
@@ -91,7 +94,7 @@ enum YahooFinanceError: LocalizedError {
 struct YahooFinanceClient {
     private let session: URLSession
     private let currentDate: @Sendable () -> Date
-    private let baseURL = "https://query1.finance.yahoo.com/v8/finance/chart"
+    private let baseURL = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart")!
 
     init(
         session: URLSession = .shared,
@@ -361,7 +364,10 @@ struct YahooFinanceClient {
         candidate symbol: String,
         at requestedAt: Date
     ) async throws -> YahooRegularQuoteResult {
-        var components = URLComponents(string: "\(baseURL)/\(symbol)")
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(symbol),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(name: "interval", value: "1d"),
             URLQueryItem(name: "range", value: "1d"),
@@ -380,15 +386,10 @@ struct YahooFinanceClient {
             operation: "quote candidate=\(symbol)"
         )
 
-        let decoded: YahooChartResponseDTO
-        do {
-            decoded = try JSONDecoder().decode(YahooChartResponseDTO.self, from: data)
-        } catch {
-            AppLog.marketData.error(
-                "HTTP quote candidate=\(symbol) decode failed: \(AppLog.describe(error)) body=\(responseBodyPreview(data))"
-            )
-            throw error
-        }
+        let decoded = try decodeChartResponse(
+            from: data,
+            operation: "quote candidate=\(symbol)"
+        )
 
         // The chart wrapper may carry an error even on HTTP 200
         if let chartError = decoded.chart.error {
@@ -539,7 +540,10 @@ struct YahooFinanceClient {
     ) async throws -> YahooExtendedHoursQuoteDTO {
         let symbol = extendedHoursRequest.providerSymbol
         let sessionName = extendedHoursRequest.extendedHoursSession.logName
-        var components = URLComponents(string: "\(baseURL)/\(symbol)")
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(symbol),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(name: "interval", value: "1m"),
             URLQueryItem(name: "range", value: "1d"),
@@ -557,18 +561,10 @@ struct YahooFinanceClient {
             operation: "\(sessionName) candidate=\(symbol)"
         )
 
-        let decoded: YahooChartResponseDTO
-        do {
-            decoded = try JSONDecoder().decode(
-                YahooChartResponseDTO.self,
-                from: data
-            )
-        } catch {
-            AppLog.marketData.error(
-                "HTTP \(sessionName) candidate=\(symbol) decode failed: \(AppLog.describe(error)) body=\(responseBodyPreview(data))"
-            )
-            throw error
-        }
+        let decoded = try decodeChartResponse(
+            from: data,
+            operation: "\(sessionName) candidate=\(symbol)"
+        )
 
         if let chartError = decoded.chart.error {
             throw YahooFinanceError.httpStatus(
@@ -641,6 +637,22 @@ struct YahooFinanceClient {
             .replacingOccurrences(of: "\r", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return preview.isEmpty ? "<empty>" : "\"\(preview)\""
+    }
+
+    private func decodeChartResponse(
+        from data: Data,
+        operation: String
+    ) throws -> YahooChartResponseDTO {
+        do {
+            return try JSONDecoder().decode(YahooChartResponseDTO.self, from: data)
+        } catch {
+            AppLog.marketData.error(
+                "HTTP \(operation) decode failed: \(AppLog.describe(error)) body=\(responseBodyPreview(data))"
+            )
+            throw YahooFinanceError.decodingFailed(
+                "\(operation): \(AppLog.describe(error))"
+            )
+        }
     }
 
     private func send(_ request: URLRequest, operation: String) async throws -> Data {
@@ -729,7 +741,10 @@ struct YahooFinanceClient {
         // display cycle without exposing older observations to the chart.
         let requestRange = range == .oneDay ? "5d" : range.yahooRange
         let includesExtendedHours = range == .oneDay
-        var components = URLComponents(string: "\(baseURL)/\(symbol)")
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(symbol),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(name: "interval", value: range.yahooInterval),
             URLQueryItem(name: "range", value: requestRange),
@@ -753,7 +768,10 @@ struct YahooFinanceClient {
             operation: "price-history candidate=\(symbol) range=\(range.title)"
         )
 
-        let decoded = try JSONDecoder().decode(YahooChartResponseDTO.self, from: data)
+        let decoded = try decodeChartResponse(
+            from: data,
+            operation: "price-history candidate=\(symbol) range=\(range.title)"
+        )
 
         if let chartError = decoded.chart.error {
             throw YahooFinanceError.httpStatus(-1, chartError.description ?? "Yahoo chart error")

@@ -154,10 +154,10 @@ enum DemoPortfolio {
         sessionStart: Date,
         sessionEnd: Date
     ) -> HoldingExtendedHoursChange {
-        let priceChange = extendedHoursPrice - regularClose
+        let amount = quantity * (extendedHoursPrice - regularClose)
         return HoldingExtendedHoursChange(
-            amount: quantity * priceChange,
-            percent: priceChange / abs(regularClose),
+            amount: amount,
+            percent: amount / abs(quantity * regularClose),
             observedAt: observedAt,
             sessionStart: sessionStart,
             sessionEnd: sessionEnd

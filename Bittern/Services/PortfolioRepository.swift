@@ -7,19 +7,29 @@ import Foundation
 import OSLog
 
 protocol PortfolioRepository {
-    func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot
+    func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot
+}
+
+struct PortfolioLoadPartialFailure: Sendable {
+    var dividendsFailed = false
+}
+
+struct PortfolioLoadResult: Sendable {
+    let snapshot: PortfolioSnapshot
+    let partialFailure: PortfolioLoadPartialFailure
 }
 
 struct PortfolioExtendedHoursRefreshError: Error, Sendable {
     let regularSnapshot: PortfolioSnapshot
+    let partialFailure: PortfolioLoadPartialFailure
 }
 
 struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
     private let brandfetch = BrandfetchClient()
 
-    func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioSnapshot {
+    func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult {
         AppLog.portfolio.debug(
             "Portfolio load started taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
@@ -93,7 +103,7 @@ struct LivePortfolioRepository: PortfolioRepository {
         AppLog.portfolio.debug(
             "Loaded quotes=\(quotes.count, privacy: .public)"
         )
-        let dividendActivitiesByAccount = await loadDividendActivitiesByAccount(
+        let (dividendActivitiesByAccount, didFailSomeDividends) = await loadDividendActivitiesByAccount(
             accounts: accounts,
             snapTrade: snapTrade
         )
@@ -172,12 +182,19 @@ struct LivePortfolioRepository: PortfolioRepository {
             lastUpdated: Date(),
             isDemo: false
         )
+        let partialFailure = PortfolioLoadPartialFailure(
+            dividendsFailed: didFailSomeDividends
+        )
         guard !quoteBatch.didFailExtendedHours else {
             throw PortfolioExtendedHoursRefreshError(
-                regularSnapshot: snapshot
+                regularSnapshot: snapshot,
+                partialFailure: partialFailure
             )
         }
-        return snapshot
+        return PortfolioLoadResult(
+            snapshot: snapshot,
+            partialFailure: partialFailure
+        )
     }
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot {
@@ -255,7 +272,8 @@ struct LivePortfolioRepository: PortfolioRepository {
         )
         guard !quoteBatch.didFailExtendedHours else {
             throw PortfolioExtendedHoursRefreshError(
-                regularSnapshot: refreshedSnapshot
+                regularSnapshot: refreshedSnapshot,
+                partialFailure: PortfolioLoadPartialFailure()
             )
         }
         return refreshedSnapshot
@@ -279,62 +297,37 @@ struct LivePortfolioRepository: PortfolioRepository {
         quote: YahooExtendedHoursQuoteDTO?,
         quantity: Double
     ) -> HoldingExtendedHoursChange? {
-        guard let quote else { return nil }
+        guard let quote, quantity != 0, quote.regularClose > 0 else { return nil }
 
-        let priceChange = quote.price - quote.regularClose
+        let amount = quantity * (quote.price - quote.regularClose)
         return HoldingExtendedHoursChange(
-            amount: quantity * priceChange,
-            percent: priceChange / abs(quote.regularClose),
+            amount: amount,
+            percent: amount / abs(quantity * quote.regularClose),
             observedAt: quote.observedAt,
             sessionStart: quote.sessionStart,
             sessionEnd: quote.sessionEnd
         )
     }
 
-    private func loadAccountSources(from snapTrade: SnapTradeClient) async throws -> [AccountSource] {
+    // Account data must be complete or absent: a partial account list would
+    // commit (and cache) an understated portfolio total. Per-connection
+    // failures therefore propagate and fail the whole load; only a
+    // listConnections failure may fall back to the flat account list, which
+    // SnapTrade documents as returning every account for the user.
+    private func loadAccountSources(
+        from snapTrade: SnapTradeClient
+    ) async throws -> [AccountSource] {
         AppLog.portfolio.debug(
             "Account source load started taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
+        let connections: [SnapTradeConnectionDTO]
         do {
-            let connections = try await snapTrade.listConnections()
-            AppLog.portfolio.debug(
-                "Account source connections=\(connections.count, privacy: .public)"
-            )
-            guard !connections.isEmpty else {
-                let accounts = try await snapTrade.listAccounts().map {
-                    AccountSource(account: $0, connection: nil)
-                }
-                AppLog.portfolio.debug(
-                    "Account source fallback accounts=\(accounts.count, privacy: .public)"
-                )
-                return accounts
-            }
-
-            return try await withThrowingTaskGroup(
-                of: [AccountSource].self,
-                returning: [AccountSource].self
-            ) { group in
-                for connection in connections {
-                    group.addTask {
-                        if let accounts = try? await snapTrade.listAccounts(connectionID: connection.id) {
-                            return accounts.map { AccountSource(account: $0, connection: connection) }
-                        }
-                        return []
-                    }
-                }
-
-                var sources: [AccountSource] = []
-                for try await batch in group {
-                    sources.append(contentsOf: batch)
-                    AppLog.portfolio.debug(
-                        "Account sources collected batch=\(batch.count, privacy: .public) total=\(sources.count, privacy: .public)"
-                    )
-                }
-                return sources
-            }
+            connections = try await snapTrade.listConnections()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             AppLog.portfolio.warning(
-                "Account source primary path failed; trying fallback: \(AppLog.describe(error))"
+                "Connection listing failed; trying flat account fallback: \(AppLog.describe(error))"
             )
             let accounts = try await snapTrade.listAccounts().map {
                 AccountSource(account: $0, connection: nil)
@@ -344,41 +337,90 @@ struct LivePortfolioRepository: PortfolioRepository {
             )
             return accounts
         }
+
+        AppLog.portfolio.debug(
+            "Account source connections=\(connections.count, privacy: .public)"
+        )
+        guard !connections.isEmpty else {
+            let accounts = try await snapTrade.listAccounts().map {
+                AccountSource(account: $0, connection: nil)
+            }
+            AppLog.portfolio.debug(
+                "Account source fallback accounts=\(accounts.count, privacy: .public)"
+            )
+            return accounts
+        }
+
+        return try await withThrowingTaskGroup(
+            of: [AccountSource].self,
+            returning: [AccountSource].self
+        ) { group in
+            for connection in connections {
+                group.addTask {
+                    do {
+                        let accounts = try await snapTrade.listAccounts(connectionID: connection.id)
+                        return accounts.map { AccountSource(account: $0, connection: connection) }
+                    } catch {
+                        AppLog.portfolio.warning(
+                            "Account load failed connection=\(connection.id): \(AppLog.describe(error))"
+                        )
+                        throw error
+                    }
+                }
+            }
+
+            var sources: [AccountSource] = []
+            for try await batch in group {
+                sources.append(contentsOf: batch)
+                AppLog.portfolio.debug(
+                    "Account sources collected batch=\(batch.count, privacy: .public) total=\(sources.count, privacy: .public)"
+                )
+            }
+            return sources
+        }
     }
 
     private func loadDividendActivitiesByAccount(
         accounts: [PortfolioAccount],
         snapTrade: SnapTradeClient
-    ) async -> [String: [SnapTradeActivityDTO]] {
+    ) async -> (activities: [String: [SnapTradeActivityDTO]], didFailSomeAccounts: Bool) {
         AppLog.portfolio.debug(
             "Dividend activity load started accounts=\(accounts.count, privacy: .public) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
         return await withTaskGroup(
-            of: (String, [SnapTradeActivityDTO])?.self,
-            returning: [String: [SnapTradeActivityDTO]].self
+            of: (accountID: String, activities: [SnapTradeActivityDTO]?).self,
+            returning: ([String: [SnapTradeActivityDTO]], Bool).self
         ) { group in
             for account in accounts {
                 group.addTask { [dividendActivityTypes] in
-                    if let activities = try? await snapTrade.listActivities(
-                        accountID: account.id,
-                        types: dividendActivityTypes
-                    ) {
+                    do {
+                        let activities = try await snapTrade.listActivities(
+                            accountID: account.id,
+                            types: dividendActivityTypes
+                        )
                         return (account.id, activities)
+                    } catch {
+                        AppLog.portfolio.warning(
+                            "Dividend activity load failed account=\(account.id): \(AppLog.describe(error))"
+                        )
+                        return (account.id, nil)
                     }
-                    return nil
                 }
             }
 
             var result: [String: [SnapTradeActivityDTO]] = [:]
-            for await pair in group {
-                if let (accountID, activities) = pair {
-                    result[accountID] = activities
-                    AppLog.portfolio.debug(
-                        "Dividend activities collected accountActivities=\(activities.count, privacy: .public) accountCount=\(result.count, privacy: .public)"
-                    )
+            var didFailSomeAccounts = false
+            for await (accountID, activities) in group {
+                guard let activities else {
+                    didFailSomeAccounts = true
+                    continue
                 }
+                result[accountID] = activities
+                AppLog.portfolio.debug(
+                    "Dividend activities collected accountActivities=\(activities.count, privacy: .public) accountCount=\(result.count, privacy: .public)"
+                )
             }
-            return result
+            return (result, didFailSomeAccounts)
         }
     }
 

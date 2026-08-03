@@ -19,7 +19,6 @@ struct PortfolioAccountsView: View {
     @State private var isSavingCredentials = false
     @State private var isOpeningPortal = false
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
-    @AppStorage(AppSettingKey.minPriceThreshold) private var minPriceThreshold = 1.0
 
     init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
         self.credentialsStore = credentialsStore
@@ -89,9 +88,7 @@ struct PortfolioAccountsView: View {
 
     private var providerGroups: [PortfolioProviderGroup] {
         let accounts = viewModel.snapshot.accounts
-        let holdings = viewModel.snapshot.holdings.filter {
-            $0.marketValue.map { $0 >= minPriceThreshold } ?? true
-        }
+        let holdings = viewModel.thresholdFilteredHoldings
         let holdingColorLookup = BitternTheme.holdingAllocationColors(
             for: viewModel.snapshot.holdings
         )

@@ -18,7 +18,11 @@ enum UserFacingError {
             }
         }
 
-        guard !(error is SnapTradeError), !(error is YahooFinanceError) else {
+        guard !(error is SnapTradeError),
+              !(error is YahooFinanceError),
+              !(error is DecodingError),
+              !(error is EncodingError)
+        else {
             return fallback
         }
         let description = error.localizedDescription

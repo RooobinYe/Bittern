@@ -22,6 +22,7 @@ final class DashboardViewModel: ObservableObject {
         }
     }
     @Published var selectedProviderName: String?
+    @Published var minPriceThreshold: Double
     @Published private(set) var isLoading = false
 
     private let credentialsStore: CredentialsStore
@@ -67,6 +68,9 @@ final class DashboardViewModel: ObservableObject {
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
+        minPriceThreshold = UserDefaults.standard.object(
+            forKey: AppSettingKey.minPriceThreshold
+        ) as? Double ?? 1.0
         snapshot = initialSnapshot ?? .emptyLive
         hasPortfolioBaseline = initialSnapshot != nil
         baselineCredentials = initialSnapshot == nil
@@ -87,7 +91,7 @@ final class DashboardViewModel: ObservableObject {
     }
 
     var sortedHoldings: [PortfolioHolding] {
-        visibleSnapshot.holdings.sorted { lhs, rhs in
+        displaySnapshot.holdings.sorted { lhs, rhs in
             switch sortOption {
             case .gainAmount:
                 isOrdered(lhs.performanceAmount(for: performanceMode), before: rhs.performanceAmount(for: performanceMode), ascending: false)
@@ -120,6 +124,34 @@ final class DashboardViewModel: ObservableObject {
             lastUpdated: snapshot.lastUpdated,
             isDemo: snapshot.isDemo
         )
+    }
+
+    /// `visibleSnapshot` with holdings under the minimum price threshold
+    /// removed and totals recomputed. All dashboard display surfaces consume
+    /// this single filtering pass.
+    var displaySnapshot: PortfolioSnapshot {
+        let base = visibleSnapshot
+        let holdings = base.holdings.filter { meetsMinPriceThreshold($0) }
+        guard holdings.count != base.holdings.count else {
+            return base
+        }
+
+        return PortfolioSnapshot.make(
+            accounts: base.accounts,
+            holdings: holdings,
+            lastUpdated: base.lastUpdated,
+            isDemo: base.isDemo
+        )
+    }
+
+    /// Holdings across every account (no provider filter) with the minimum
+    /// price threshold applied. The accounts screen consumes this.
+    var thresholdFilteredHoldings: [PortfolioHolding] {
+        snapshot.holdings.filter { meetsMinPriceThreshold($0) }
+    }
+
+    private func meetsMinPriceThreshold(_ holding: PortfolioHolding) -> Bool {
+        holding.marketValue.map { $0 >= minPriceThreshold } ?? true
     }
 
     /// Loads the cached snapshot once, then performs the appropriate initial
@@ -304,6 +336,7 @@ final class DashboardViewModel: ObservableObject {
         do {
             let newSnapshot: PortfolioSnapshot
             var didFailExtendedHours = false
+            var partialFailure = PortfolioLoadPartialFailure()
             do {
                 switch kind {
                 case .price:
@@ -312,13 +345,16 @@ final class DashboardViewModel: ObservableObject {
                         for: baseSnapshot
                     )
                 case .full:
-                    newSnapshot = try await repository.loadPortfolio(
+                    let result = try await repository.loadPortfolio(
                         credentials: credentials
                     )
+                    newSnapshot = result.snapshot
+                    partialFailure = result.partialFailure
                 }
             } catch let error as PortfolioExtendedHoursRefreshError {
                 newSnapshot = error.regularSnapshot
                 didFailExtendedHours = true
+                partialFailure = error.partialFailure
             }
 
             guard canCommit(flightID: flightID, credentials: credentials) else {
@@ -338,10 +374,14 @@ final class DashboardViewModel: ObservableObject {
             }
             PortfolioCache.save(newSnapshot)
             if didFailExtendedHours {
-                errorMessage = "Extended-hours data couldn’t be refreshed. Regular prices are still available."
                 AppLog.portfolio.warning(
                     "Refresh committed regular snapshot after extended-hours batch failure kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
                 )
+            }
+            if partialFailure.dividendsFailed {
+                errorMessage = "Some dividend data couldn’t be loaded."
+            } else if didFailExtendedHours {
+                errorMessage = "Extended-hours data couldn’t be refreshed. Regular prices are still available."
             }
             AppLog.portfolio.debug(
                 "Refresh saved snapshot kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public) accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"

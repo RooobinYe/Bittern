@@ -418,7 +418,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     }
 
     var costBasis: Double? {
-        guard let averageCost, averageCost > 0 else { return nil }
+        guard let averageCost, averageCost >= 0 else { return nil }
         return quantity * averageCost
     }
 
@@ -428,8 +428,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     }
 
     var dayGainPercent: Double? {
-        guard let currentPrice, let previousClose, previousClose > 0 else { return nil }
-        return (currentPrice - previousClose) / abs(previousClose)
+        guard let dayGainAmount, let previousClose, previousClose > 0, quantity != 0 else { return nil }
+        return dayGainAmount / abs(quantity * previousClose)
     }
 
     var allTimeGainAmount: Double? {

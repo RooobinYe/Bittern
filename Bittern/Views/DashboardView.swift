@@ -29,12 +29,14 @@ struct DashboardView: View {
 
                 DashboardContent(
                     viewModel: viewModel,
-                    isPrivacyEnabled: $isPrivacyEnabled,
-                    minPriceThreshold: minPriceThreshold
+                    isPrivacyEnabled: $isPrivacyEnabled
                 )
                 .frame(maxWidth: .infinity)
             }
             .errorToast(message: $viewModel.errorMessage)
+            .onChange(of: minPriceThreshold, initial: true) { _, newValue in
+                viewModel.minPriceThreshold = newValue
+            }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
             .onGeometryChange(for: CGSize.self) { proxy in
@@ -70,7 +72,7 @@ struct DashboardView: View {
             .navigationDestination(for: PortfolioHolding.self) { holding in
                 HoldingDetailView(
                     holding: holding,
-                    snapshot: viewModel.visibleSnapshot,
+                    snapshot: viewModel.displaySnapshot,
                     allocationHoldings: viewModel.snapshot.holdings
                 )
             }
@@ -122,14 +124,13 @@ struct DashboardView: View {
     private var dashboardShareSnapshot: DashboardShareSnapshot {
         DashboardShareSnapshot(
             filterAccounts: viewModel.snapshot.accounts,
-            portfolio: viewModel.visibleSnapshot,
+            portfolio: viewModel.displaySnapshot,
             allocationHoldings: viewModel.snapshot.holdings,
             sortedHoldings: viewModel.sortedHoldings,
             selectedProviderName: viewModel.selectedProviderName,
             performanceMode: viewModel.performanceMode,
             sortOption: viewModel.sortOption,
             isPrivacyEnabled: isPrivacyEnabled,
-            minPriceThreshold: minPriceThreshold,
             viewportSize: viewportSize,
             layoutMode: DashboardLayoutMetrics.layoutMode(in: viewportSize)
         )
@@ -149,9 +150,12 @@ struct DashboardView: View {
 
         try? await Task.sleep(nanoseconds: 500_000_000)
 
+        // The debug export always captures the full, unfiltered portfolio.
+        let userThreshold = viewModel.minPriceThreshold
+        viewModel.minPriceThreshold = 0
         var shareSnapshot = dashboardShareSnapshot
+        viewModel.minPriceThreshold = userThreshold
         shareSnapshot.isPrivacyEnabled = false
-        shareSnapshot.minPriceThreshold = 0
         let screenshotWidth = min(
             max(shareSnapshot.viewportSize.width, 1),
             DashboardLayoutMetrics.maximumExportWidth
@@ -223,14 +227,11 @@ private struct DashboardShareSnapshot: Sendable {
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
     var isPrivacyEnabled: Bool
-    var minPriceThreshold: Double
     let viewportSize: CGSize
     let layoutMode: DashboardLayoutMode
 
     var logoHoldings: [PortfolioHolding] {
-        portfolio.holdings.filter {
-            $0.marketValue.map { $0 >= minPriceThreshold } ?? true
-        }
+        portfolio.holdings
     }
 }
 
@@ -297,7 +298,6 @@ private struct PortfolioShareScreenshotContent: View {
                 performanceMode: .constant(snapshot.performanceMode),
                 sortOption: .constant(snapshot.sortOption),
                 isPrivacyEnabled: .constant(snapshot.isPrivacyEnabled),
-                minPriceThreshold: snapshot.minPriceThreshold,
                 layoutMode: snapshot.layoutMode,
                 purpose: .export,
                 refresh: nil
@@ -345,19 +345,17 @@ private enum DashboardRenderPurpose {
 private struct DashboardContent: View {
     @ObservedObject var viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
     var body: some View {
         GeometryReader { proxy in
             DashboardVisualContent(
                 filterAccounts: viewModel.snapshot.accounts,
-                portfolio: viewModel.visibleSnapshot,
+                portfolio: viewModel.displaySnapshot,
                 allocationHoldings: viewModel.snapshot.holdings,
                 sortedHoldings: viewModel.sortedHoldings,
                 selectedProviderName: $viewModel.selectedProviderName,
                 performanceMode: $viewModel.performanceMode,
                 sortOption: $viewModel.sortOption,
                 isPrivacyEnabled: $isPrivacyEnabled,
-                minPriceThreshold: minPriceThreshold,
                 layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
                 purpose: .interactive,
                 refresh: { await viewModel.refresh() }
@@ -378,7 +376,6 @@ private struct DashboardVisualContent: View {
     @Binding var performanceMode: PerformanceMode
     @Binding var sortOption: HoldingSortOption
     @Binding var isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
     let layoutMode: DashboardLayoutMode
     let purpose: DashboardRenderPurpose
     let refresh: (() async -> Void)?
@@ -434,7 +431,6 @@ private struct DashboardVisualContent: View {
             holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
-            minPriceThreshold: minPriceThreshold,
             fillsAvailableSpace: false
         )
     }
@@ -445,7 +441,6 @@ private struct DashboardVisualContent: View {
             holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
-            minPriceThreshold: minPriceThreshold,
             fillsAvailableSpace: true
         )
     }
@@ -453,12 +448,11 @@ private struct DashboardVisualContent: View {
     private var holdings: some View {
         HoldingsSection(
             sortedHoldings: sortedHoldings,
-            visibleSnapshot: portfolio,
+            snapshot: portfolio,
             holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
             sortOption: $sortOption,
-            isPrivacyEnabled: isPrivacyEnabled,
-            minPriceThreshold: minPriceThreshold
+            isPrivacyEnabled: isPrivacyEnabled
         )
     }
 
@@ -633,7 +627,6 @@ private struct PortfolioDonutSection: View {
     let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
     let fillsAvailableSpace: Bool
 
     @ViewBuilder
@@ -666,8 +659,7 @@ private struct PortfolioDonutSection: View {
             snapshot: snapshot,
             holdingColorLookup: holdingColorLookup,
             performanceMode: $performanceMode,
-            isPrivacyEnabled: isPrivacyEnabled,
-            minPriceThreshold: minPriceThreshold
+            isPrivacyEnabled: isPrivacyEnabled
         )
     }
 }
@@ -677,12 +669,7 @@ private struct DonutPortfolioChart: View {
     let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
     @Environment(\.isRenderingScreenshot) private var isForScreenshot
-
-    private var filteredHoldings: [PortfolioHolding] {
-        snapshot.holdings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
-    }
 
     private var performanceAmount: Double? {
         snapshot.performanceAmount(for: performanceMode)
@@ -695,7 +682,7 @@ private struct DonutPortfolioChart: View {
     private var segments: [DonutSegmentInfo] {
         guard snapshot.totalMarketValue != nil else { return [] }
         return makeSegments(
-            from: filteredHoldings,
+            from: snapshot.holdings,
             holdingColorLookup: holdingColorLookup
         )
     }
@@ -815,25 +802,15 @@ private struct DonutPortfolioChart: View {
 
 private struct HoldingsSection: View {
     let sortedHoldings: [PortfolioHolding]
-    let visibleSnapshot: PortfolioSnapshot
+    let snapshot: PortfolioSnapshot
     let holdingColorLookup: [String: Color]
     @Binding var performanceMode: PerformanceMode
     @Binding var sortOption: HoldingSortOption
     let isPrivacyEnabled: Bool
-    let minPriceThreshold: Double
     @State private var marketTime = Date()
 
-    private var filteredHoldings: [PortfolioHolding] {
-        sortedHoldings.filter { $0.marketValue.map { $0 >= minPriceThreshold } ?? true }
-    }
-
-    private var filteredTotalMarketValue: Double? {
-        guard filteredHoldings.allSatisfy({ $0.marketValue != nil }) else { return nil }
-        return filteredHoldings.reduce(0) { $0 + ($1.marketValue ?? 0) }
-    }
-
     private var nextExtendedHoursBoundary: Date? {
-        filteredHoldings.flatMap { holding in
+        sortedHoldings.flatMap { holding in
             [
                 holding.activePreMarketChange(at: marketTime)?.sessionEnd,
                 holding.activePostMarketChange(at: marketTime)?.sessionEnd
@@ -846,13 +823,13 @@ private struct HoldingsSection: View {
             header
                 .padding(.bottom, 8)
 
-            if filteredHoldings.isEmpty {
+            if sortedHoldings.isEmpty {
                 EmptyHoldingsView()
                     .padding(.top, 24)
             } else {
                 HoldingsList(
-                    filteredHoldings: filteredHoldings,
-                    totalMarketValue: filteredTotalMarketValue,
+                    filteredHoldings: sortedHoldings,
+                    totalMarketValue: snapshot.totalMarketValue,
                     performanceMode: performanceMode,
                     isPrivacyEnabled: isPrivacyEnabled,
                     holdingColorLookup: holdingColorLookup,
@@ -860,7 +837,7 @@ private struct HoldingsSection: View {
                 )
             }
         }
-        .onChange(of: visibleSnapshot.lastUpdated) { _, _ in
+        .onChange(of: snapshot.lastUpdated) { _, _ in
             marketTime = Date()
         }
         .task(id: nextExtendedHoursBoundary) {
@@ -896,7 +873,7 @@ private struct HoldingsSection: View {
     }
 
     private var updatedLabel: some View {
-        Text("Updated \(PortfolioFormat.timeWithSeconds(visibleSnapshot.lastUpdated))")
+        Text("Updated \(PortfolioFormat.timeWithSeconds(snapshot.lastUpdated))")
             .font(.caption.weight(.semibold))
             .foregroundStyle(BitternTheme.secondaryInk)
             .fixedSize(horizontal: false, vertical: true)

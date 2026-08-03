@@ -102,13 +102,7 @@ enum PortfolioFormat {
         formatter.minimumFractionDigits = 0
 
         let absAmount = abs(amount)
-        let rendered: String
-        if absAmount >= 1_000_000 {
-            let millions = absAmount / 1_000_000
-            rendered = "$\(String(format: "%.1f", millions))M"
-        } else {
-            rendered = formatter.string(from: NSNumber(value: absAmount)) ?? "\(absAmount)"
-        }
+        let rendered = formatter.string(from: NSNumber(value: absAmount)) ?? "\(absAmount)"
 
         let sign: String
         if amount > 0 { sign = "+" }
