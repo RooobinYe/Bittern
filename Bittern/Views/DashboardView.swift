@@ -1128,7 +1128,7 @@ private struct AllocationBubble: View {
     private var isOther: Bool { symbol == "OTHER" }
 
     private var iconLabel: String {
-        isOther ? "OTH" : String(symbol.prefix(4))
+        isOther ? "OTHER" : String(symbol.prefix(4))
     }
 
     var body: some View {
@@ -1153,9 +1153,10 @@ private struct AllocationBubble: View {
         HoldingSymbolIcon(
             symbol: symbol,
             logoURL: logoURL,
-            color: color,
+            color: isOther ? BitternTheme.ink : color,
             size: circleSize,
-            fallbackLabel: iconLabel
+            fallbackLabel: iconLabel,
+            fallbackForegroundColor: isOther ? BitternTheme.background : .white
         )
     }
 }

@@ -53,7 +53,7 @@ struct HoldingSymbolIcon: View {
             .font(fallbackFont)
             .foregroundStyle(fallbackForegroundColor)
             .lineLimit(1)
-            .minimumScaleFactor(0.62)
+            .minimumScaleFactor(0.5)
             .frame(width: size, height: size)
     }
 }
