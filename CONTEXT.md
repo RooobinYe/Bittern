@@ -61,7 +61,7 @@ _Avoid_: Current change, pre-market change, after-hours change
 ### Contribution Planning
 
 **Contribution Amount**:
-The cash committed to a single contribution session, spent in full across Elected Holdings.
+The cash committed to a single contribution session — the ceiling on what Optimal Share Search may spend across Elected Holdings; any part it cannot place is Residual Cash.
 _Avoid_: Deposit, budget, cash reserve
 
 **Elected Holding**:
@@ -85,16 +85,20 @@ The fallback that distributes the whole Contribution Amount across under-target 
 _Avoid_: Rebalancing, normalization
 
 **Share Order**:
-The executable purchase for a shares-denominated Elected Holding — the largest whole number of shares its Buy Amount affords at the current price; token-denominated holdings instead spend their Buy Amount exactly.
+The executable purchase for a shares-denominated Elected Holding — the whole-share count Optimal Share Search settles on; token-denominated holdings instead spend their Buy Amount exactly.
 _Avoid_: Fractional order, ideal buy
 
-**Greedy Top-Up**:
-The redistribution of post-flooring cash into extra whole shares, one share at a time to the allocated holding with the largest remaining dollar deficit; a holding with a zero Buy Amount is never topped up.
-_Avoid_: Optimizer, rebalancing pass
+**Misallocation**:
+The dollar distance between actual spends and Buy Amounts, summed across Elected Holdings; a shortfall dollar and an overshoot dollar cost the same, and cash the plan cannot place surfaces as shortfall.
+_Avoid_: Tracking error, percentage deviation
+
+**Optimal Share Search**:
+The exact search across whole-share combinations that picks the Share Orders with the least Misallocation, breaking ties toward less Residual Cash; a holding with a zero Buy Amount is never bought.
+_Avoid_: Greedy Top-Up, flooring pass
 
 **Residual Cash**:
-The part of the Contribution Amount that no affordable whole share remains for once Share Orders are floored and Greedy Top-Up finishes, shown as-is.
-_Avoid_: Dust, optimizer budget
+The part of the Contribution Amount that Optimal Share Search leaves unspent because every placeable share would add more Misallocation than it removes, shown as-is.
+_Avoid_: Dust, rounding error
 
 **Post-Contribution Percentage**:
 An Elected Holding's share of the elected holdings' combined value after actual purchases; Residual Cash is excluded from the denominator.
@@ -113,7 +117,7 @@ _Avoid_: Preset, profile, saved scenario
 - The **Contribution Plan** elects zero or more **Elected Holdings**, each carrying exactly one **Target Percentage**
 - The **Contribution Pool** is derived from every **Elected Holding**'s **Regular-Market Valuation** plus the **Contribution Amount**
 - Every **Elected Holding** resolves to exactly one **Buy Amount** and one **Post-Contribution Percentage**
-- A shares-denominated **Elected Holding**'s **Buy Amount** floors to one **Share Order**; **Greedy Top-Up** re-deploys the unspent differences, and what it cannot afford becomes **Residual Cash**
+- **Optimal Share Search** turns every shares-denominated **Elected Holding**'s **Buy Amount** into one **Share Order**, minimizing **Misallocation** across the session; what it leaves unspent becomes **Residual Cash**
 - An **Elected Holding** is account-level: the same symbol held in two accounts is two independently electable holdings
 
 ## Example dialogue
@@ -127,6 +131,7 @@ _Avoid_: Preset, profile, saved scenario
 - "勾选" (election) was conflated with "购买" (purchase) — resolved: an **Elected Holding** may legitimately end the session with a **Buy Amount** of zero.
 - Targets summing below or above 100% — resolved: no auto-normalization and no implicit cash remainder; results exist only at exactly 100%.
 - Whether **Residual Cash** belongs in the **Post-Contribution Percentage** denominator — resolved: excluded, matching the app-wide holdings-only allocation semantics (the app has no cash concept).
-- Whether leftover cash should be greedily re-deployed into extra whole shares — first resolved as never (mental verifiability), revised 2026-08-11 after real use left ~20% of a contribution unspent: **Greedy Top-Up** now re-deploys it, but a zero-Buy-Amount holding is still never bought.
+- Whether leftover cash should be greedily re-deployed into extra whole shares — first resolved as never (mental verifiability), revised 2026-08-11 after real use left ~20% of a contribution unspent: Greedy Top-Up re-deployed it, but a zero-Buy-Amount holding is still never bought.
+- How "closest to target" trades off against "least cash left over" — resolved 2026-08-11, superseding Greedy Top-Up: the user accepted trading mental verifiability for optimality and delegated the weighing; both failure modes are priced in dollars at 1:1 as **Misallocation**, which **Optimal Share Search** minimizes exactly (ties break toward less Residual Cash), still never buying a zero-Buy-Amount holding.
 - Holdings with no current price pass the minimum-value filter but have no Regular-Market Valuation — resolved: they are never electable; a Contribution Pool containing an unpriced holding is undefined.
 - Degenerate inputs (Contribution Amount of zero, or zero Elected Holdings) — resolved: no results are shown; there is no zero-money allocation.

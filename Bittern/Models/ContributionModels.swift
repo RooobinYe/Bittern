@@ -75,9 +75,9 @@ extension ContributionPlan {
 
 /// Pure contribution math. Terminology follows CONTEXT.md: the Contribution
 /// Pool is the denominator of every Target Percentage, Buy Amounts are
-/// dollar-space and never negative, Share Orders floor them to whole shares,
-/// Greedy Top-Up re-deploys the post-flooring cash into extra whole shares,
-/// and whatever no share price fits into is Residual Cash.
+/// dollar-space and never negative, Optimal Share Search picks the Share
+/// Orders with the least Misallocation — the dollar distance between actual
+/// spends and Buy Amounts — and whatever it leaves unspent is Residual Cash.
 enum ContributionCalculator {
     struct ElectedHoldingInput {
         let id: String
@@ -158,49 +158,36 @@ enum ContributionCalculator {
             buyAmounts = idealBuys.map { max(0, $0) }
         }
 
-        var spends: [Double] = []
-        var shareOrders: [Int?] = []
+        var spends = [Double](repeating: 0, count: elected.count)
+        var shareOrders = [Int?](repeating: nil, count: elected.count)
+        var searchIndices: [Int] = []
+        var shareBudget = contributionAmount
+
         for (index, input) in elected.enumerated() {
             if input.usesWholeShares {
-                // The epsilon keeps a mathematically whole number of shares
-                // from flooring one share short after float division.
-                let shares = Int((buyAmounts[index] / input.price + 1e-9).rounded(.down))
-                shareOrders.append(shares)
-                spends.append(Double(shares) * input.price)
+                shareOrders[index] = 0
+                // A zero-Buy-Amount holding is over target and is never bought.
+                if buyAmounts[index] > moneyEpsilon {
+                    searchIndices.append(index)
+                }
             } else {
-                shareOrders.append(nil)
-                spends.append(buyAmounts[index])
+                spends[index] = buyAmounts[index]
+                shareBudget -= buyAmounts[index]
             }
         }
+        shareBudget = max(0, shareBudget)
 
-        // Greedy Top-Up: re-deploy post-flooring cash into extra whole
-        // shares, one at a time to the holding with the largest remaining
-        // dollar deficit against its Buy Amount. A holding with a zero Buy
-        // Amount is over target and is never topped up.
-        var remaining = contributionAmount - spends.reduce(0, +)
-        while true {
-            var bestIndex: Int?
-            var bestDeficit = -Double.infinity
-
-            for (index, input) in elected.enumerated() {
-                guard input.usesWholeShares,
-                      buyAmounts[index] > moneyEpsilon,
-                      input.price <= remaining + 1e-9
-                else {
-                    continue
-                }
-
-                let deficit = buyAmounts[index] - spends[index]
-                if deficit > bestDeficit {
-                    bestDeficit = deficit
-                    bestIndex = index
-                }
+        if !searchIndices.isEmpty {
+            var search = ShareSearch(
+                prices: searchIndices.map { elected[$0].price },
+                buyAmounts: searchIndices.map { buyAmounts[$0] },
+                budget: shareBudget
+            )
+            let counts = search.run()
+            for (slot, index) in searchIndices.enumerated() {
+                shareOrders[index] = counts[slot]
+                spends[index] = Double(counts[slot]) * elected[index].price
             }
-
-            guard let bestIndex else { break }
-            shareOrders[bestIndex] = (shareOrders[bestIndex] ?? 0) + 1
-            spends[bestIndex] += elected[bestIndex].price
-            remaining -= elected[bestIndex].price
         }
 
         let investedAmount = spends.reduce(0, +)
@@ -226,5 +213,174 @@ enum ContributionCalculator {
             residualCash: max(0, contributionAmount - investedAmount),
             usedGapAllocation: usedGapAllocation
         )
+    }
+}
+
+/// Optimal Share Search: exact branch-and-bound over whole-share counts.
+/// Minimizes Misallocation — Σ|spend − Buy Amount| in dollars, where a
+/// shortfall dollar, an overshoot dollar, and an unspent dollar all cost the
+/// same — breaking ties toward less Residual Cash. Seeded with the previous
+/// greedy plan, so even a node-cap exit never returns a worse plan than
+/// greedy did.
+private struct ShareSearch {
+    private static let moneyEpsilon = 1e-6
+    /// Backstop for adversarial price patterns (e.g. a sub-dollar share
+    /// price against a four-digit one). Realistic portfolios explore a few
+    /// hundred nodes; hitting the cap returns the incumbent plan.
+    private static let nodeCap = 200_000
+
+    private let prices: [Double]
+    private let buyAmounts: [Double]
+    private let budget: Double
+    /// Slots ordered by price descending so the most budget-constraining
+    /// decisions branch first.
+    private let order: [Int]
+    /// suffixBuy[depth] = Σ Buy Amounts of order[depth...]; grounds the
+    /// "money not spendable is Misallocation" lower bound.
+    private let suffixBuy: [Double]
+
+    private var bestCounts: [Int]
+    private var bestCost: Double
+    private var bestSpend: Double
+    private var nodesVisited = 0
+
+    init(prices: [Double], buyAmounts: [Double], budget: Double) {
+        self.prices = prices
+        self.buyAmounts = buyAmounts
+        self.budget = budget
+
+        let sorted = prices.indices.sorted { lhs, rhs in
+            prices[lhs] == prices[rhs] ? lhs < rhs : prices[lhs] > prices[rhs]
+        }
+        order = sorted
+
+        var suffix = [Double](repeating: 0, count: sorted.count + 1)
+        for depth in stride(from: sorted.count - 1, through: 0, by: -1) {
+            suffix[depth] = suffix[depth + 1] + buyAmounts[sorted[depth]]
+        }
+        suffixBuy = suffix
+
+        let seed = Self.greedyPlan(prices: prices, buyAmounts: buyAmounts, budget: budget)
+        bestCounts = seed
+        bestCost = zip(seed, prices.indices).reduce(0) { total, item in
+            total + abs(Double(item.0) * prices[item.1] - buyAmounts[item.1])
+        }
+        bestSpend = zip(seed, prices).reduce(0) { $0 + Double($1.0) * $1.1 }
+    }
+
+    mutating func run() -> [Int] {
+        var counts = bestCounts
+        search(depth: 0, counts: &counts, cost: 0, remaining: budget)
+        return bestCounts
+    }
+
+    /// The pre-search incumbent: floor every Buy Amount, then re-deploy the
+    /// leftovers one share at a time to the largest remaining deficit.
+    private static func greedyPlan(prices: [Double], buyAmounts: [Double], budget: Double) -> [Int] {
+        // The epsilon keeps a mathematically whole number of shares from
+        // flooring one share short after float division.
+        var counts = prices.indices.map { Int((buyAmounts[$0] / prices[$0] + 1e-9).rounded(.down)) }
+        var remaining = budget - prices.indices.reduce(0) { $0 + Double(counts[$1]) * prices[$1] }
+
+        while true {
+            var bestIndex: Int?
+            var bestDeficit = -Double.infinity
+            for index in prices.indices where prices[index] <= remaining + 1e-9 {
+                let deficit = buyAmounts[index] - Double(counts[index]) * prices[index]
+                if deficit > bestDeficit {
+                    bestDeficit = deficit
+                    bestIndex = index
+                }
+            }
+            guard let bestIndex else { break }
+            counts[bestIndex] += 1
+            remaining -= prices[bestIndex]
+        }
+        return counts
+    }
+
+    private mutating func search(depth: Int, counts: inout [Int], cost: Double, remaining: Double) {
+        if nodesVisited >= Self.nodeCap { return }
+        nodesVisited += 1
+
+        if depth == order.count {
+            let spend = budget - remaining
+            let improved = cost < bestCost - Self.moneyEpsilon
+            let tiedButFuller = abs(cost - bestCost) <= Self.moneyEpsilon
+                && spend > bestSpend + Self.moneyEpsilon
+            if improved || tiedButFuller {
+                bestCost = min(bestCost, cost)
+                bestSpend = spend
+                bestCounts = counts
+            }
+            return
+        }
+
+        if cost + lowerBound(depth: depth, remaining: remaining) > bestCost + Self.moneyEpsilon {
+            return
+        }
+
+        let slot = order[depth]
+        let price = prices[slot]
+        let buyAmount = buyAmounts[slot]
+
+        let floorCount = Int((buyAmount / price + 1e-9).rounded(.down))
+        let hasRemainder = buyAmount - Double(floorCount) * price > Self.moneyEpsilon
+        // Anything past the first overshoot share only adds Misallocation.
+        let ceilCount = hasRemainder ? floorCount + 1 : floorCount
+        let maxAffordable = Int((remaining / price + 1e-9).rounded(.down))
+        let upper = min(ceilCount, maxAffordable)
+
+        let ideal = max(0, min(upper, Int((buyAmount / price).rounded())))
+        var below = ideal
+        var above = ideal + 1
+
+        // Two-pointer walk outward from the ideal count visits candidates in
+        // ascending own-cost order, so the first own-cost past the incumbent
+        // ends the whole slot.
+        while below >= 0 || above <= upper {
+            let count: Int
+            if below >= 0,
+               above > upper || abs(Double(below) * price - buyAmount) <= abs(Double(above) * price - buyAmount) {
+                count = below
+                below -= 1
+            } else {
+                count = above
+                above += 1
+            }
+
+            let ownCost = abs(Double(count) * price - buyAmount)
+            if cost + ownCost > bestCost + Self.moneyEpsilon { break }
+
+            let nextRemaining = remaining - Double(count) * price
+            let unspendable = max(0, suffixBuy[depth + 1] - nextRemaining)
+            if cost + ownCost + unspendable > bestCost + Self.moneyEpsilon { continue }
+
+            counts[slot] = count
+            search(depth: depth + 1, counts: &counts, cost: cost + ownCost, remaining: nextRemaining)
+        }
+    }
+
+    /// Valid optimistic completion cost for order[depth...]: the larger of
+    /// "Buy Amounts the remaining budget cannot cover" and the sum of each
+    /// holding's best own cost if it had the whole remaining budget.
+    private func lowerBound(depth: Int, remaining: Double) -> Double {
+        var independentSum = 0.0
+        for position in depth..<order.count {
+            let slot = order[position]
+            let price = prices[slot]
+            let buyAmount = buyAmounts[slot]
+            let maxAffordable = Int((remaining / price + 1e-9).rounded(.down))
+            let floorCount = Int((buyAmount / price + 1e-9).rounded(.down))
+            if maxAffordable <= floorCount {
+                independentSum += max(0, buyAmount - Double(maxAffordable) * price)
+            } else {
+                independentSum += min(
+                    max(0, buyAmount - Double(floorCount) * price),
+                    Double(floorCount + 1) * price - buyAmount
+                )
+            }
+        }
+        return max(independentSum, suffixBuy[depth] - remaining)
     }
 }
