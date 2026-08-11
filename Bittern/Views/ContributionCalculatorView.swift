@@ -12,6 +12,7 @@ private enum ContributionFocusField: Hashable {
 
 struct ContributionCalculatorView: View {
     @ObservedObject var viewModel: DashboardViewModel
+    @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
     @State private var plan = ContributionPlan.load()
     @State private var contributionAmount: Double?
     @FocusState private var focusedField: ContributionFocusField?
@@ -173,6 +174,7 @@ struct ContributionCalculatorView: View {
                         accountDisplayName: providerName(for: holding),
                         color: colors[holding.id] ?? BitternTheme.allocationColor(at: 0),
                         currencyCode: currencyCode,
+                        isPrivacyEnabled: isPrivacyEnabled,
                         isElectable: isElectable(holding),
                         isElected: isElectable(holding) && isElected(holding),
                         targetPercent: targetBinding(for: holding),
@@ -198,20 +200,20 @@ struct ContributionCalculatorView: View {
             if let outcome {
                 ForEach(accountRequirements) { requirement in
                     LabeledContent(requirement.name) {
-                        Text(PortfolioFormat.price(requirement.amount, currencyCode: currencyCode))
+                        Text(formattedMoney(requirement.amount))
                             .font(.body.monospacedDigit())
                             .foregroundStyle(BitternTheme.ink)
                     }
                 }
 
                 LabeledContent("Invested") {
-                    Text(PortfolioFormat.price(outcome.investedAmount, currencyCode: currencyCode))
+                    Text(formattedMoney(outcome.investedAmount))
                         .font(.body.monospacedDigit())
                         .foregroundStyle(BitternTheme.ink)
                 }
 
                 LabeledContent("Residual Cash") {
-                    Text(PortfolioFormat.price(outcome.residualCash, currencyCode: currencyCode))
+                    Text(formattedMoney(outcome.residualCash))
                         .font(.body.monospacedDigit())
                         .foregroundStyle(BitternTheme.secondaryInk)
                 }
@@ -223,7 +225,7 @@ struct ContributionCalculatorView: View {
                 }
             }
         } header: {
-            Text("Result")
+            Text(outcome?.isEstimated == true ? "Result (Estimated)" : "Result")
         } footer: {
             if outcome == nil {
                 Text(incompleteReason)
@@ -245,6 +247,12 @@ struct ContributionCalculatorView: View {
         }
 
         return "Targets must total exactly 100%."
+    }
+
+    private func formattedMoney(_ value: Double) -> String {
+        isPrivacyEnabled
+            ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
+            : PortfolioFormat.price(value, currencyCode: currencyCode)
     }
 
     private func isElectable(_ holding: PortfolioHolding) -> Bool {
@@ -289,6 +297,7 @@ private struct ContributionHoldingRow: View {
     let accountDisplayName: String
     let color: Color
     let currencyCode: String
+    let isPrivacyEnabled: Bool
     let isElectable: Bool
     let isElected: Bool
     @Binding var targetPercent: Double?
@@ -369,19 +378,29 @@ private struct ContributionHoldingRow: View {
         guard let marketValue = holding.marketValue else {
             return "\(accountDisplayName) · No price"
         }
-        return "\(accountDisplayName) · \(PortfolioFormat.price(marketValue, currencyCode: currencyCode))"
+        let value = isPrivacyEnabled
+            ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
+            : PortfolioFormat.price(marketValue, currencyCode: currencyCode)
+        return "\(accountDisplayName) · \(value)"
     }
 
     private func orderDescription(for outcome: ContributionCalculator.HoldingOutcome) -> String {
         guard let shareOrder = outcome.shareOrder else {
-            return "Buy \(PortfolioFormat.price(outcome.actualSpend, currencyCode: currencyCode))"
+            let amount = isPrivacyEnabled
+                ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
+                : PortfolioFormat.price(outcome.actualSpend, currencyCode: currencyCode)
+            return "Buy \(amount)"
         }
 
-        let unit = shareOrder == 1 ? "share" : "shares"
         guard shareOrder > 0 else {
             return "Buy 0 shares"
         }
 
+        if isPrivacyEnabled {
+            return "Buy •••• shares · \(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
+        }
+
+        let unit = shareOrder == 1 ? "share" : "shares"
         return "Buy \(shareOrder) \(unit) · \(PortfolioFormat.price(outcome.actualSpend, currencyCode: currencyCode))"
     }
 }

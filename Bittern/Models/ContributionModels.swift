@@ -106,6 +106,9 @@ enum ContributionCalculator {
         let investedAmount: Double
         let residualCash: Double
         let usedGapAllocation: Bool
+        /// True when the safety node cap stopped the search before it could
+        /// prove the returned incumbent is optimal.
+        let isEstimated: Bool
     }
 
     /// Targets must total exactly 100%; the tolerance only absorbs binary
@@ -162,6 +165,7 @@ enum ContributionCalculator {
         var shareOrders = [Int?](repeating: nil, count: elected.count)
         var searchIndices: [Int] = []
         var shareBudget = contributionAmount
+        var isEstimated = false
 
         for (index, input) in elected.enumerated() {
             if input.usesWholeShares {
@@ -183,10 +187,11 @@ enum ContributionCalculator {
                 buyAmounts: searchIndices.map { buyAmounts[$0] },
                 budget: shareBudget
             )
-            let counts = search.run()
+            let searchResult = search.run()
+            isEstimated = searchResult.isEstimated
             for (slot, index) in searchIndices.enumerated() {
-                shareOrders[index] = counts[slot]
-                spends[index] = Double(counts[slot]) * elected[index].price
+                shareOrders[index] = searchResult.counts[slot]
+                spends[index] = Double(searchResult.counts[slot]) * elected[index].price
             }
         }
 
@@ -211,17 +216,18 @@ enum ContributionCalculator {
             holdings: outcomes,
             investedAmount: investedAmount,
             residualCash: max(0, contributionAmount - investedAmount),
-            usedGapAllocation: usedGapAllocation
+            usedGapAllocation: usedGapAllocation,
+            isEstimated: isEstimated
         )
     }
 }
 
-/// Optimal Share Search: exact branch-and-bound over whole-share counts.
-/// Minimizes Misallocation — Σ|spend − Buy Amount| in dollars, where a
-/// shortfall dollar, an overshoot dollar, and an unspent dollar all cost the
-/// same — breaking ties toward less Residual Cash. Seeded with the previous
-/// greedy plan, so even a node-cap exit never returns a worse plan than
-/// greedy did.
+/// Optimal Share Search: branch-and-bound over whole-share counts. A completed
+/// search proves the minimum Misallocation — Σ|spend − Buy Amount| in dollars,
+/// where a shortfall dollar, an overshoot dollar, and an unspent dollar all
+/// cost the same — breaking ties toward less Residual Cash. A node-cap exit
+/// returns the incumbent marked as estimated. The search is seeded with the
+/// previous greedy plan, so that estimate is never worse than greedy did.
 private struct ShareSearch {
     private static let moneyEpsilon = 1e-6
     /// Backstop for adversarial price patterns (e.g. a sub-dollar share
@@ -243,6 +249,12 @@ private struct ShareSearch {
     private var bestCost: Double
     private var bestSpend: Double
     private var nodesVisited = 0
+    private var didReachNodeCap = false
+
+    struct Result {
+        let counts: [Int]
+        let isEstimated: Bool
+    }
 
     init(prices: [Double], buyAmounts: [Double], budget: Double) {
         self.prices = prices
@@ -268,10 +280,10 @@ private struct ShareSearch {
         bestSpend = zip(seed, prices).reduce(0) { $0 + Double($1.0) * $1.1 }
     }
 
-    mutating func run() -> [Int] {
+    mutating func run() -> Result {
         var counts = bestCounts
         search(depth: 0, counts: &counts, cost: 0, remaining: budget)
-        return bestCounts
+        return Result(counts: bestCounts, isEstimated: didReachNodeCap)
     }
 
     /// The pre-search incumbent: floor every Buy Amount, then re-deploy the
@@ -300,7 +312,10 @@ private struct ShareSearch {
     }
 
     private mutating func search(depth: Int, counts: inout [Int], cost: Double, remaining: Double) {
-        if nodesVisited >= Self.nodeCap { return }
+        if nodesVisited >= Self.nodeCap {
+            didReachNodeCap = true
+            return
+        }
         nodesVisited += 1
 
         if depth == order.count {

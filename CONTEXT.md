@@ -93,8 +93,12 @@ The dollar distance between actual spends and Buy Amounts, summed across Elected
 _Avoid_: Tracking error, percentage deviation
 
 **Optimal Share Search**:
-The exact search across whole-share combinations that picks the Share Orders with the least Misallocation, breaking ties toward less Residual Cash; a holding with a zero Buy Amount is never bought.
+The branch-and-bound search across whole-share combinations that, when completed, proves which Share Orders have the least Misallocation, breaking ties toward less Residual Cash; a holding with a zero Buy Amount is never bought.
 _Avoid_: Greedy Top-Up, flooring pass
+
+**Estimated Result**:
+The best contribution result found when Optimal Share Search reaches its safety node limit before proving optimality, explicitly identified as Estimated in the UI.
+_Avoid_: Optimal result, exact result
 
 **Residual Cash**:
 The part of the Contribution Amount that Optimal Share Search leaves unspent because every placeable share would add more Misallocation than it removes, shown as-is.
@@ -117,7 +121,7 @@ _Avoid_: Preset, profile, saved scenario
 - The **Contribution Plan** elects zero or more **Elected Holdings**, each carrying exactly one **Target Percentage**
 - The **Contribution Pool** is derived from every **Elected Holding**'s **Regular-Market Valuation** plus the **Contribution Amount**
 - Every **Elected Holding** resolves to exactly one **Buy Amount** and one **Post-Contribution Percentage**
-- **Optimal Share Search** turns every shares-denominated **Elected Holding**'s **Buy Amount** into one **Share Order**, minimizing **Misallocation** across the session; what it leaves unspent becomes **Residual Cash**
+- **Optimal Share Search** turns every shares-denominated **Elected Holding**'s **Buy Amount** into one **Share Order**, minimizing **Misallocation** across the session when the search completes; an early node-limit exit produces an **Estimated Result** instead
 - An **Elected Holding** is account-level: the same symbol held in two accounts is two independently electable holdings
 
 ## Example dialogue
@@ -132,6 +136,6 @@ _Avoid_: Preset, profile, saved scenario
 - Targets summing below or above 100% — resolved: no auto-normalization and no implicit cash remainder; results exist only at exactly 100%.
 - Whether **Residual Cash** belongs in the **Post-Contribution Percentage** denominator — resolved: excluded, matching the app-wide holdings-only allocation semantics (the app has no cash concept).
 - Whether leftover cash should be greedily re-deployed into extra whole shares — first resolved as never (mental verifiability), revised 2026-08-11 after real use left ~20% of a contribution unspent: Greedy Top-Up re-deployed it, but a zero-Buy-Amount holding is still never bought.
-- How "closest to target" trades off against "least cash left over" — resolved 2026-08-11, superseding Greedy Top-Up: the user accepted trading mental verifiability for optimality and delegated the weighing; both failure modes are priced in dollars at 1:1 as **Misallocation**, which **Optimal Share Search** minimizes exactly (ties break toward less Residual Cash), still never buying a zero-Buy-Amount holding.
+- How "closest to target" trades off against "least cash left over" — resolved 2026-08-11, superseding Greedy Top-Up: the user accepted trading mental verifiability for optimality and delegated the weighing; both failure modes are priced in dollars at 1:1 as **Misallocation**, which a completed **Optimal Share Search** minimizes exactly (ties break toward less Residual Cash), still never buying a zero-Buy-Amount holding. Reaching the safety node limit instead surfaces the incumbent as an **Estimated Result**.
 - Holdings with no current price pass the minimum-value filter but have no Regular-Market Valuation — resolved: they are never electable; a Contribution Pool containing an unpriced holding is undefined.
 - Degenerate inputs (Contribution Amount of zero, or zero Elected Holdings) — resolved: no results are shown; there is no zero-money allocation.
