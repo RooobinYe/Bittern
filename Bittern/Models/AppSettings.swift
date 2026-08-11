@@ -11,6 +11,7 @@ enum AppSettingKey {
     static let minPriceThreshold = "minPriceThreshold"
     static let performanceMode = "performanceMode"
     static let sortOption = "sortOption"
+    static let contributionPlan = "contributionPlan"
 }
 
 enum AppAppearance: String, CaseIterable, Identifiable {

@@ -51,6 +51,15 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink {
+                    ContributionCalculatorView(viewModel: viewModel)
+                } label: {
+                    SettingsNavigationLabel(
+                        title: "Contributions",
+                        systemImage: "dollarsign.arrow.circlepath"
+                    )
+                }
+
+                NavigationLink {
                     PortfolioHistoryView(credentialsStore: credentialsStore, dashboardViewModel: viewModel)
                         .navigationTitle("History")
                         .navigationBarTitleDisplayMode(.inline)

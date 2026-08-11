@@ -1,8 +1,10 @@
-# Market Price Context
+# Portfolio Context
 
-This context defines the user-facing meaning of asset prices, portfolio valuation, and chart ranges across assets with different trading schedules.
+This context defines the user-facing meaning of asset prices, portfolio valuation, and chart ranges across assets with different trading schedules, plus the contribution-planning language built on those valuations.
 
 ## Language
+
+### Prices & Sessions
 
 **Full-Day 1D Window**:
 A provider-defined regular period that covers an entire day. Its observed prices occupy the full chart width rather than reserving space for the remainder of the day.
@@ -55,3 +57,76 @@ _Avoid_: Post-market market value, current holding gain
 **Regular-Session Holding Change**:
 The change in a holding's value across the most recently completed regular session, measured from the preceding regular close to the latest regular close. It remains distinct from any subsequent Pre-Market or Post-Market Holding Change.
 _Avoid_: Current change, pre-market change, after-hours change
+
+### Contribution Planning
+
+**Contribution Amount**:
+The cash committed to a single contribution session, spent in full across Elected Holdings.
+_Avoid_: Deposit, budget, cash reserve
+
+**Elected Holding**:
+An account-level holding included in the current contribution's target set; election does not by itself imply a purchase.
+_Avoid_: Selected holding, merged symbol position
+
+**Contribution Pool**:
+The sum of every Elected Holding's Regular-Market Valuation plus the Contribution Amount — the denominator of every Target Percentage.
+_Avoid_: Portfolio total, net worth
+
+**Target Percentage**:
+The share of the Contribution Pool an Elected Holding should hold after buying, meaningful only when all targets sum to exactly 100%.
+_Avoid_: Weight, normalized ratio
+
+**Buy Amount**:
+The non-negative cash to spend on an Elected Holding this session; an over-target holding's Buy Amount is zero.
+_Avoid_: Rebalance delta, sell amount
+
+**Gap Allocation**:
+The fallback that distributes the whole Contribution Amount across under-target Elected Holdings in proportion to their positive value gaps, used when any exact target would require selling.
+_Avoid_: Rebalancing, normalization
+
+**Share Order**:
+The executable purchase for a shares-denominated Elected Holding — the largest whole number of shares its Buy Amount affords at the current price; token-denominated holdings instead spend their Buy Amount exactly.
+_Avoid_: Fractional order, ideal buy
+
+**Greedy Top-Up**:
+The redistribution of post-flooring cash into extra whole shares, one share at a time to the allocated holding with the largest remaining dollar deficit; a holding with a zero Buy Amount is never topped up.
+_Avoid_: Optimizer, rebalancing pass
+
+**Residual Cash**:
+The part of the Contribution Amount that no affordable whole share remains for once Share Orders are floored and Greedy Top-Up finishes, shown as-is.
+_Avoid_: Dust, optimizer budget
+
+**Post-Contribution Percentage**:
+An Elected Holding's share of the elected holdings' combined value after actual purchases; Residual Cash is excluded from the denominator.
+_Avoid_: Achieved target, final weight
+
+**Account Requirement**:
+The cash to prepare at one provider for this session — the sum of actual purchases across its Elected Holdings; a provider with nothing to buy has no requirement.
+_Avoid_: Account deposit, transfer amount
+
+**Contribution Plan**:
+The single persisted set of holding elections and Target Percentages that carries across sessions, never including the Contribution Amount.
+_Avoid_: Preset, profile, saved scenario
+
+## Relationships
+
+- The **Contribution Plan** elects zero or more **Elected Holdings**, each carrying exactly one **Target Percentage**
+- The **Contribution Pool** is derived from every **Elected Holding**'s **Regular-Market Valuation** plus the **Contribution Amount**
+- Every **Elected Holding** resolves to exactly one **Buy Amount** and one **Post-Contribution Percentage**
+- A shares-denominated **Elected Holding**'s **Buy Amount** floors to one **Share Order**; **Greedy Top-Up** re-deploys the unspent differences, and what it cannot afford becomes **Residual Cash**
+- An **Elected Holding** is account-level: the same symbol held in two accounts is two independently electable holdings
+
+## Example dialogue
+
+> **Dev:** "If a holding's **Target Percentage** is below its current share of the **Contribution Pool**, do we show a sell amount?"
+> **Domain expert:** "No — its **Buy Amount** is zero and **Gap Allocation** spreads the whole **Contribution Amount** across the under-target holdings; the row simply shows its **Post-Contribution Percentage**, with no special warning."
+
+## Flagged ambiguities
+
+- "定投目标" could read as symbol-level (one target per ticker) — resolved: targets are **account-level**, because the calculator's output must be executable buy amounts per account.
+- "勾选" (election) was conflated with "购买" (purchase) — resolved: an **Elected Holding** may legitimately end the session with a **Buy Amount** of zero.
+- Targets summing below or above 100% — resolved: no auto-normalization and no implicit cash remainder; results exist only at exactly 100%.
+- Whether **Residual Cash** belongs in the **Post-Contribution Percentage** denominator — resolved: excluded, matching the app-wide holdings-only allocation semantics (the app has no cash concept).
+- Whether leftover cash should be greedily re-deployed into extra whole shares — first resolved as never (mental verifiability), revised 2026-08-11 after real use left ~20% of a contribution unspent: **Greedy Top-Up** now re-deploys it, but a zero-Buy-Amount holding is still never bought.
+- Holdings with no current price pass the minimum-value filter but have no Regular-Market Valuation — resolved: they are never electable; a Contribution Pool containing an unpriced holding is undefined.
+- Degenerate inputs (Contribution Amount of zero, or zero Elected Holdings) — resolved: no results are shown; there is no zero-money allocation.
