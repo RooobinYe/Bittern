@@ -1,11 +1,14 @@
-# AGENTS.md
+# 命令
 
-Bittern 是一款使用 SwiftUI 构建的 iOS 投资组合应用，通过 SnapTrade 聚合券商账户，并使用 Yahoo Finance 补充行情与历史数据，使用 BrandFretch 获取投资组合的 LOGO。
+- 编译（暂无测试 target，这是目前唯一的检查）：`xcodebuild -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
 
-## 实现指南
+# 约定
 
-具体实现细节在 @.claude/rules/ 中。**以代码为准，文档仅供参考**。
+- 金融数据 quick to fail：不用 0、默认值或估算代替缺失数据，不静默丢弃持仓，不跨币种相加
+- 现有代码里还有违反上一条的写法（见 ROADMAP.md 阶段 1），不要照抄
+- 术语和业务含义以 CONTEXT.md 为准，与代码不一致时先指出来
 
-## 基本原则
+# 注意
 
-当处理金融相关数据的时候，请保持 quick to fail 的原则，一个干净的数据的意义大于一个模糊和不完整的数据。
+- 工程默认隔离是 `MainActor`，要在后台运行的代码需显式标 `nonisolated`
+- 仓库是公开的，凭据只放在不入库的 `Bittern Local` scheme 里

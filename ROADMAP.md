@@ -2,7 +2,7 @@
 
 Bittern 接下来的修改计划，按建议顺序排列。
 
-- 有意推迟的功能见 [TASKS.md](TASKS.md)，术语以 [CONTEXT.md](CONTEXT.md) 为准。
+- 术语以 [CONTEXT.md](CONTEXT.md) 为准。
 - 这里只写还没做的事，完成后勾选，整个阶段完成后可以删除。
 - 最后更新：2026-11-06
 
@@ -22,7 +22,7 @@ SwiftUI 视图结构、`BitternTheme` 别名和 `AppLog` 不值得测。
 
 **数据问题**
 
-- [ ] 合并 PR #1（1D 详情页把盘后价当成收盘价）
+- [x] 合并 PR #1（1D 详情页把盘后价当成收盘价）
 - [ ] 无数据时不再显示 `$0`：用 `LoadState` 区分未加载、加载中、已加载和失败，去掉 `.emptyLive`，并显示加载状态
 - [ ] 成本为 0 视为未知：`resolvedAverageCost` 不再接受 0
 - [ ] 核实 `cost_basis` 的含义：现在被当成每股均价，如果它其实是总成本，计算就是错的
@@ -58,7 +58,7 @@ SwiftUI 视图结构、`BitternTheme` 别名和 `AppLog` 不值得测。
 - [ ] `DemoPortfolio` 放进 `#if DEBUG`，从生产路径移除 `isDemo` 和 `PortfolioSnapshot.empty`
 - [ ] 合并 `exportDebugScreenshotIfNeeded` 和 `portfolioShareItem` 的重复逻辑
 - [ ] `PreviewProvider` 换成 `#Preview`，Preview 不再访问真实 Keychain 和网络
-- [ ] 修复 `AGENTS.md` 里失效的 `.claude/rules/` 引用
+- [x] 修复 `AGENTS.md` 里失效的 `.claude/rules/` 引用
 - [ ] 新增 CI：构建、测试和凭据扫描（例如 gitleaks）
 
 **完成标准：** Swift 6 下 Debug 和 Release 都零警告，CI 在每个 PR 上运行。
@@ -172,4 +172,4 @@ BitternTests/
 
 - 金额从 `Double` 换成 `Decimal`：App 只展示不下单，目前够用
 - 把定投搜索移出主线程：在 Mac 上用 Release 构建实测，普通组合每次渲染不到 1ms，极端输入（35 只持仓）约 88ms
-- 定投配置对比图：见 [TASKS.md](TASKS.md)
+- 定投配置对比图：V1 决定只显示行内数字
