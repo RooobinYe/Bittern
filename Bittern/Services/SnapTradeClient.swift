@@ -78,16 +78,16 @@ struct SnapTradeClient {
             queryItems: userQueryItems
         )
         let response = try decode(SnapTradePositionsResponseDTO.self, from: data, operation: "listPositions")
-        let instrumentSummary = response.positions.map { position in
+        let instrumentSummary = response.results.map { position in
             let symbol = position.resolvedSymbol ?? "<missing-symbol>"
             let kind = position.instrument?.kind ?? "<missing-kind>"
             return "\(symbol):\(kind)"
         }
         .joined(separator: ",")
         AppLog.snapTrade.debug(
-            "Positions decoded count=\(response.positions.count, privacy: .public) instruments=[\(instrumentSummary)]"
+            "Positions decoded count=\(response.results.count, privacy: .public) instruments=[\(instrumentSummary)]"
         )
-        return response.positions
+        return response.results
     }
 
     func accountBalanceHistory(accountID: String) async throws -> SnapTradeAccountBalanceHistoryDTO {
@@ -118,14 +118,14 @@ struct SnapTradeClient {
                 queryItems: queryItems
             )
             let page = try decode(SnapTradeActivitiesResponseDTO.self, from: data, operation: "listActivities")
-            result.append(contentsOf: page.activities)
+            result.append(contentsOf: page.data)
 
-            offset += page.activities.count
-            if page.activities.count < limit {
+            offset += page.data.count
+            if page.data.count < limit {
                 break
             }
 
-            if let total = page.total, offset >= total {
+            if let total = page.pagination?.total, offset >= total {
                 break
             }
         }
@@ -466,109 +466,43 @@ struct SnapTradeMoneyDTO: Decodable {
     }
 }
 
+// The DTOs below follow SnapTrade's published OpenAPI schema. A response of any
+// other shape fails to decode: an account must never read as having no positions
+// because its payload wasn't understood.
+
 struct SnapTradeAccountBalanceHistoryDTO: Decodable {
     let history: [SnapTradeAccountBalanceHistoryPointDTO]
     let currency: String?
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let history = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .history) {
-            self.history = history
-        } else if let data = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .data) {
-            self.history = data
-        } else {
-            self.history = try container.decodeIfPresent([SnapTradeAccountBalanceHistoryPointDTO].self, forKey: .results) ?? []
-        }
-        currency = try container.decodeIfPresent(String.self, forKey: .currency)
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case history
-        case data
-        case results
-        case currency
-    }
 }
 
 struct SnapTradeAccountBalanceHistoryPointDTO: Decodable {
     let date: Date?
     let totalValue: Double?
 
+    init(date: Date?, totalValue: Double?) {
+        self.date = date
+        self.totalValue = totalValue
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         date = try container.decodeDateOnlyIfPresent(forKey: .date)
-        if let totalValue = try container.decodeFlexibleDoubleIfPresent(forKey: .totalValue) {
-            self.totalValue = totalValue
-        } else {
-            self.totalValue = try container.decodeFlexibleDoubleIfPresent(forKey: .totalValueSnake)
-        }
+        totalValue = try container.decodeFlexibleDoubleIfPresent(forKey: .totalValue)
     }
 
     enum CodingKeys: String, CodingKey {
         case date
-        case totalValue
-        case totalValueSnake = "total_value"
+        case totalValue = "total_value"
     }
 }
 
 struct SnapTradePositionsResponseDTO: Decodable {
-    let positions: [SnapTradePositionDTO]
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-
-        if let positions = try? container.decode([SnapTradePositionDTO].self) {
-            self.positions = positions
-            return
-        }
-
-        let keyed = try decoder.container(keyedBy: CodingKeys.self)
-        if let positions = try keyed.decodeIfPresent([SnapTradePositionDTO].self, forKey: .positions) {
-            self.positions = positions
-        } else if let data = try keyed.decodeIfPresent([SnapTradePositionDTO].self, forKey: .data) {
-            self.positions = data
-        } else {
-            self.positions = try keyed.decodeIfPresent([SnapTradePositionDTO].self, forKey: .results) ?? []
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case positions
-        case data
-        case results
-    }
+    let results: [SnapTradePositionDTO]
 }
 
 struct SnapTradeActivitiesResponseDTO: Decodable {
-    let activities: [SnapTradeActivityDTO]
-    let total: Int?
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-
-        if let activities = try? container.decode([SnapTradeActivityDTO].self) {
-            self.activities = activities
-            total = activities.count
-            return
-        }
-
-        let keyed = try decoder.container(keyedBy: CodingKeys.self)
-        if let activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .data) {
-            self.activities = activities
-        } else if let activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .activities) {
-            self.activities = activities
-        } else {
-            self.activities = try keyed.decodeIfPresent([SnapTradeActivityDTO].self, forKey: .results) ?? []
-        }
-        total = try keyed.decodeIfPresent(SnapTradePaginationDTO.self, forKey: .pagination)?.total
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case activities
-        case data
-        case results
-        case pagination
-    }
+    let data: [SnapTradeActivityDTO]
+    let pagination: SnapTradePaginationDTO?
 }
 
 struct SnapTradePaginationDTO: Decodable {
@@ -576,96 +510,91 @@ struct SnapTradePaginationDTO: Decodable {
 }
 
 struct SnapTradeActivityDTO: Decodable {
-    let symbol: String?
+    let symbol: SnapTradeActivitySymbolDTO?
     let amount: Double?
-    let currency: String?
-    let type: String?
-    let tradeDate: Date?
+    let currency: SnapTradeCurrencyDTO?
 
     var resolvedSymbol: String? {
-        symbol
+        symbol?.symbol ?? symbol?.rawSymbol
+    }
+
+    var currencyCode: String? {
+        currency?.code
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        symbol = try container.decodeSymbolTextIfPresent(forKey: .symbol)
-        if let rawAmount = try container.decodeFlexibleDoubleIfPresent(forKey: .amount) {
-            amount = rawAmount
-        } else {
-            amount = try container.decodeIfPresent(SnapTradeMoneyDTO.self, forKey: .amount)?.amount
-        }
-        if let rawCurrency = try container.decodeCurrencyCodeIfPresent(forKey: .currency) {
-            currency = rawCurrency
-        } else {
-            currency = try container.decodeIfPresent(SnapTradeMoneyDTO.self, forKey: .amount)?.currency
-        }
-        type = try container.decodeIfPresent(String.self, forKey: .type)
-        tradeDate = try container.decodeDateIfPresent(forKey: .tradeDate)
+        symbol = try container.decodeIfPresent(SnapTradeActivitySymbolDTO.self, forKey: .symbol)
+        amount = try container.decodeFlexibleDoubleIfPresent(forKey: .amount)
+        currency = try container.decodeIfPresent(SnapTradeCurrencyDTO.self, forKey: .currency)
     }
 
     enum CodingKeys: String, CodingKey {
         case symbol
         case amount
         case currency
-        case type
-        case tradeDate = "trade_date"
     }
 }
 
-struct SnapTradePositionDTO: Decodable {
-    let id: String?
+struct SnapTradeActivitySymbolDTO: Decodable {
     let symbol: String?
-    let description: String?
+    let rawSymbol: String?
+
+    enum CodingKeys: String, CodingKey {
+        case symbol
+        case rawSymbol = "raw_symbol"
+    }
+}
+
+struct SnapTradeCurrencyDTO: Decodable {
+    let code: String?
+}
+
+struct SnapTradePositionDTO: Decodable {
+    let instrument: SnapTradeInstrumentDTO?
     let units: Double?
     let unitsDisplay: String?
-    let price: Double?
-    let averagePurchasePrice: Double?
+    /// SnapTrade's "book price or average purchase price": a price per unit,
+    /// not the position's total cost. Zero means the broker doesn't know it.
     let costBasis: Double?
     let currency: String?
-    let instrument: SnapTradeInstrumentDTO?
 
     var resolvedSymbol: String? {
-        symbol ?? instrument?.symbol ?? instrument?.rawSymbol
+        instrument?.symbol ?? instrument?.rawSymbol
     }
 
     var resolvedName: String? {
-        description ?? instrument?.description ?? instrument?.symbol
+        instrument?.description ?? instrument?.symbol
     }
 
     var resolvedAverageCost: Double? {
-        [averagePurchasePrice, costBasis]
-            .compactMap { $0 }
-            .first { $0 >= 0 }
+        costBasis.flatMap { $0 > 0 ? $0 : nil }
     }
 
     var resolvedCurrency: String? {
-        currency ?? instrument?.currency?.code ?? instrument?.currencyCode
+        currency ?? instrument?.currency
+    }
+
+    /// A cash balance reported as a position. Bittern has no cash concept
+    /// (see CONTEXT.md), so this isn't a holding.
+    var isCash: Bool {
+        instrument?.kind == "cash"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(String.self, forKey: .id)
-        symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
-        description = try container.decodeIfPresent(String.self, forKey: .description)
+        instrument = try container.decodeIfPresent(SnapTradeInstrumentDTO.self, forKey: .instrument)
         units = try container.decodeFlexibleDoubleIfPresent(forKey: .units)
         unitsDisplay = try container.decodeFlexibleNumberTextIfPresent(forKey: .units)
-        price = try container.decodeFlexibleDoubleIfPresent(forKey: .price)
-        averagePurchasePrice = try container.decodeFlexibleDoubleIfPresent(forKey: .averagePurchasePrice)
         costBasis = try container.decodeFlexibleDoubleIfPresent(forKey: .costBasis)
-        currency = try container.decodeCurrencyCodeIfPresent(forKey: .currency)
-        instrument = try container.decodeIfPresent(SnapTradeInstrumentDTO.self, forKey: .instrument)
+        currency = try container.decodeIfPresent(String.self, forKey: .currency)
     }
 
     enum CodingKeys: String, CodingKey {
-        case id
-        case symbol
-        case description
+        case instrument
         case units
-        case price
-        case averagePurchasePrice = "average_purchase_price"
         case costBasis = "cost_basis"
         case currency
-        case instrument
     }
 }
 
@@ -675,8 +604,7 @@ struct SnapTradeInstrumentDTO: Decodable {
     let symbol: String?
     let rawSymbol: String?
     let description: String?
-    let currency: SnapTradeInstrumentCurrencyDTO?
-    let currencyCode: String?
+    let currency: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -685,26 +613,6 @@ struct SnapTradeInstrumentDTO: Decodable {
         case rawSymbol = "raw_symbol"
         case description
         case currency
-        case currencyCode = "currency_code"
-    }
-}
-
-struct SnapTradeInstrumentCurrencyDTO: Decodable {
-    let code: String?
-
-    init(from decoder: Decoder) throws {
-        let singleValueContainer = try decoder.singleValueContainer()
-        if let code = try? singleValueContainer.decode(String.self) {
-            self.code = code
-            return
-        }
-
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        code = try container.decodeIfPresent(String.self, forKey: .code)
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case code
     }
 }
 
@@ -728,60 +636,49 @@ private let dateOnlyFormatter: DateFormatter = {
 }()
 
 extension KeyedDecodingContainer {
+    /// SnapTrade sends decimals as strings on newer endpoints and numbers on
+    /// older ones. Absent or null is nil; anything else unreadable throws.
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
-        if let value = try? decodeIfPresent(Double.self, forKey: key) {
-            return value
-        }
-
-        if let value = try? decodeIfPresent(Int.self, forKey: key) {
-            return Double(value)
-        }
-
-        if let string = try? decodeIfPresent(String.self, forKey: key) {
-            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        return nil
-    }
-
-    func decodeCurrencyCodeIfPresent(forKey key: Key) throws -> String? {
-        if let code = try? decodeIfPresent(String.self, forKey: key) {
-            return code
-        }
-
-        if let currency = try? decodeIfPresent(SnapTradeInstrumentCurrencyDTO.self, forKey: key) {
-            return currency.code
-        }
-
-        return nil
-    }
-
-    func decodeDateIfPresent(forKey key: Key) throws -> Date? {
-        guard let value = try? decodeIfPresent(String.self, forKey: key) else {
+        guard contains(key), try !decodeNil(forKey: key) else {
             return nil
         }
 
-        if let date = iso8601Formatter.date(from: value) {
-            return date
+        let value: Double?
+        if let number = try? decode(Double.self, forKey: key) {
+            value = number
+        } else if let string = try? decode(String.self, forKey: key) {
+            value = Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            value = nil
         }
 
-        return iso8601WithFractionalFormatter.date(from: value)
+        guard let value, value.isFinite else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Expected a finite decimal number."
+            )
+        }
+        return value
     }
 
+    /// Absent or null is nil; a date in an unknown format throws.
     func decodeDateOnlyIfPresent(forKey key: Key) throws -> Date? {
-        guard let value = try? decodeIfPresent(String.self, forKey: key) else {
+        guard let value = try decodeIfPresent(String.self, forKey: key) else {
             return nil
         }
 
-        if let date = dateOnlyFormatter.date(from: value) {
-            return date
+        let date = dateOnlyFormatter.date(from: value)
+            ?? iso8601Formatter.date(from: value)
+            ?? iso8601WithFractionalFormatter.date(from: value)
+        guard let date else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Unrecognized date format."
+            )
         }
-
-        if let date = iso8601Formatter.date(from: value) {
-            return date
-        }
-
-        return iso8601WithFractionalFormatter.date(from: value)
+        return date
     }
 
     func decodeFlexibleNumberTextIfPresent(forKey key: Key) throws -> String? {
@@ -801,19 +698,6 @@ extension KeyedDecodingContainer {
             formatter.maximumFractionDigits = 12
             formatter.minimumFractionDigits = 0
             return formatter.string(from: NSNumber(value: doubleValue)) ?? "\(doubleValue)"
-        }
-
-        return nil
-    }
-
-    func decodeSymbolTextIfPresent(forKey key: Key) throws -> String? {
-        if let string = try? decodeIfPresent(String.self, forKey: key) {
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        if let instrument = try? decodeIfPresent(SnapTradeInstrumentDTO.self, forKey: key) {
-            return instrument.symbol ?? instrument.rawSymbol
         }
 
         return nil

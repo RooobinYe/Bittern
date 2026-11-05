@@ -24,12 +24,19 @@ enum CredentialsStoreError: LocalizedError {
     }
 }
 
+protocol CredentialsStorage {
+    func load() throws -> SnapTradeCredentials?
+    func save(_ credentials: SnapTradeCredentials) throws
+    func delete() throws
+}
+
 final class CredentialsStore: ObservableObject {
     @Published private(set) var credentials: SnapTradeCredentials?
 
-    private let storage = KeychainCredentialsStorage()
+    private let storage: CredentialsStorage
 
-    init() {
+    init(storage: CredentialsStorage = KeychainCredentialsStorage()) {
+        self.storage = storage
         credentials = try? storage.load()
     }
 
@@ -45,7 +52,7 @@ final class CredentialsStore: ObservableObject {
     }
 }
 
-private struct KeychainCredentialsStorage {
+struct KeychainCredentialsStorage: CredentialsStorage {
     private let service = "com.robinye.Bittern.snaptrade"
     private let account = "default"
 

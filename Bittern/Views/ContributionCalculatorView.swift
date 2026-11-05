@@ -17,12 +17,13 @@ struct ContributionCalculatorView: View {
     @State private var contributionAmount: Double?
     @FocusState private var focusedField: ContributionFocusField?
 
+    /// The Contribution Amount is in the elected holdings' currency.
     private var currencyCode: String {
-        viewModel.snapshot.currencyCode
+        electedHoldings.first?.currencyCode ?? viewModel.displayCurrencyCode
     }
 
     private var providerNamesByAccountID: [String: String] {
-        Dictionary(uniqueKeysWithValues: viewModel.snapshot.accounts.map { ($0.id, $0.providerName) })
+        Dictionary(uniqueKeysWithValues: (viewModel.snapshot?.accounts ?? []).map { ($0.id, $0.providerName) })
     }
 
     private func providerName(for holding: PortfolioHolding) -> String {
@@ -68,7 +69,8 @@ struct ContributionCalculatorView: View {
                     marketValue: marketValue,
                     price: price,
                     usesWholeShares: holding.quantityUnit == .shares,
-                    targetPercent: target
+                    targetPercent: target,
+                    currencyCode: holding.currencyCode
                 )
             )
         }
@@ -173,7 +175,6 @@ struct ContributionCalculatorView: View {
                         holding: holding,
                         accountDisplayName: providerName(for: holding),
                         color: colors[holding.id] ?? BitternTheme.allocationColor(at: 0),
-                        currencyCode: currencyCode,
                         isPrivacyEnabled: isPrivacyEnabled,
                         isElectable: isElectable(holding),
                         isElected: isElectable(holding) && isElected(holding),
@@ -238,6 +239,10 @@ struct ContributionCalculatorView: View {
             return "Elect at least one holding."
         }
 
+        if Set(electedHoldings.map(\.currencyCode)).count > 1 {
+            return "Elected holdings must share one currency."
+        }
+
         if contributionAmount == nil || (contributionAmount ?? 0) <= 0 {
             return "Enter a contribution amount."
         }
@@ -281,8 +286,13 @@ struct ContributionCalculatorView: View {
     }
 
     private func prunePlan() {
-        let allHoldings = viewModel.snapshot.holdings
-        guard !viewModel.snapshot.isDemo, !allHoldings.isEmpty else { return }
+        guard let snapshot = viewModel.snapshot,
+              !snapshot.isDemo,
+              !snapshot.holdings.isEmpty
+        else {
+            return
+        }
+        let allHoldings = snapshot.holdings
 
         var pruned = plan
         pruned.prune(keeping: allHoldings)
@@ -296,7 +306,6 @@ private struct ContributionHoldingRow: View {
     let holding: PortfolioHolding
     let accountDisplayName: String
     let color: Color
-    let currencyCode: String
     let isPrivacyEnabled: Bool
     let isElectable: Bool
     let isElected: Bool
@@ -372,6 +381,10 @@ private struct ContributionHoldingRow: View {
             }
         }
         .opacity(isElectable ? 1 : 0.4)
+    }
+
+    private var currencyCode: String {
+        holding.currencyCode
     }
 
     private var subtitle: String {

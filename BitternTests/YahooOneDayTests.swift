@@ -14,7 +14,7 @@ extension NetworkTests {
             let data = try Fixture.data(fixture)
             let session = StubURLProtocol.session { _ in (200, data) }
             let client = YahooFinanceClient(session: session, currentDate: { date })
-            return try await client.priceHistory(for: "TEST", instrumentKind: kind, range: .oneDay)
+            return try await client.priceHistory(for: "TEST", instrumentKind: kind, currencyCode: "USD", range: .oneDay)
         }
 
         @Test func duringTheRegularSessionShowsOnlyThatSession() async throws {
@@ -105,7 +105,25 @@ extension NetworkTests {
             let client = YahooFinanceClient(session: session, currentDate: { now })
 
             await #expect(throws: YahooFinanceError.self) {
-                try await client.priceHistory(for: "TEST", instrumentKind: .stock, range: .oneDay)
+                try await client.priceHistory(for: "TEST", instrumentKind: .stock, currencyCode: "USD", range: .oneDay)
+            }
+        }
+    }
+
+    @Suite struct YahooPriceHistoryCurrencyTests {
+        @Test func refusesAChartQuotedInAnotherCurrency() async throws {
+            let data = try Fixture.data("yahoo-history-regular")
+            let session = StubURLProtocol.session { _ in (200, data) }
+            let now = marketTime(day: 6, hour: 11)
+            let client = YahooFinanceClient(session: session, currentDate: { now })
+
+            await #expect(throws: YahooFinanceError.self) {
+                try await client.priceHistory(
+                    for: "TEST",
+                    instrumentKind: .stock,
+                    currencyCode: "GBP",
+                    range: .threeMonths
+                )
             }
         }
     }

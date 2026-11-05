@@ -87,10 +87,10 @@ struct PortfolioAccountsView: View {
     }
 
     private var providerGroups: [PortfolioProviderGroup] {
-        let accounts = viewModel.snapshot.accounts
+        let accounts = viewModel.snapshot?.accounts ?? []
         let holdings = viewModel.thresholdFilteredHoldings
         let holdingColorLookup = BitternTheme.holdingAllocationColors(
-            for: viewModel.snapshot.holdings
+            for: viewModel.snapshot?.holdings ?? []
         )
 
         let groupedAccounts = Dictionary(grouping: accounts, by: \.providerName)

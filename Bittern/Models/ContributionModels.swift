@@ -88,6 +88,7 @@ enum ContributionCalculator {
         let usesWholeShares: Bool
         /// 0–100 scale, as entered by the user.
         let targetPercent: Double
+        let currencyCode: String
     }
 
     struct HoldingOutcome {
@@ -125,7 +126,9 @@ enum ContributionCalculator {
     ) -> Outcome? {
         guard contributionAmount.isFinite,
               contributionAmount > 0,
-              !elected.isEmpty
+              !elected.isEmpty,
+              // The Contribution Pool is a sum, so it needs one currency.
+              Set(elected.map(\.currencyCode)).count == 1
         else {
             return nil
         }

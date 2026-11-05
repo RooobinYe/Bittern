@@ -69,7 +69,7 @@ private final class PortfolioHistoryViewModel: ObservableObject {
     @Published var selectedRange: PortfolioHistoryRange = .fiveDays
     @Published var selectedPoint: PortfolioHistoryPoint?
     @Published private(set) var allPoints: [PortfolioHistoryPoint] = []
-    @Published private(set) var currencyCode = "USD"
+    @Published private(set) var currencyCode = ""
     @Published var errorMessage: String?
 
     private let reloadRunner = CancelableTaskRunner()
@@ -89,12 +89,12 @@ private final class PortfolioHistoryViewModel: ObservableObject {
         filtered(points: allPoints, for: selectedRange)
     }
 
-    func loadIfNeeded(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot) async {
+    func loadIfNeeded(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot?) async {
         guard allPoints.isEmpty else { return }
         await reload(credentials: credentials, snapshot: snapshot)
     }
 
-    func reload(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot) async {
+    func reload(credentials: SnapTradeCredentials?, snapshot: PortfolioSnapshot?) async {
         await reloadRunner.run { [weak self] gen in
             guard let self else { return }
 
@@ -109,10 +109,6 @@ private final class PortfolioHistoryViewModel: ObservableObject {
             do {
                 let client = SnapTradeClient(credentials: credentials)
                 let accounts = try await historyAccounts(client: client, snapshot: snapshot)
-                guard !accounts.isEmpty else {
-                    throw PortfolioHistoryError.noAccounts
-                }
-
                 let histories = try await withThrowingTaskGroup(
                     of: SnapTradeAccountBalanceHistoryDTO.self,
                     returning: [SnapTradeAccountBalanceHistoryDTO].self
@@ -133,21 +129,9 @@ private final class PortfolioHistoryViewModel: ObservableObject {
                 // Discard stale results.
                 guard gen == reloadRunner.generation else { return }
 
-                let currencies = Set(
-                    histories.compactMap { history in
-                        history.currency?
-                            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                            .nilIfEmpty
-                    }
-                )
-                currencyCode = currencies.count == 1
-                    ? (currencies.first ?? snapshot.currencyCode)
-                    : snapshot.currencyCode
-
-                allPoints = aggregate(histories: histories)
-                if allPoints.isEmpty {
-                    throw PortfolioHistoryError.emptyHistory
-                }
+                let result = try PortfolioHistoryAggregator.aggregate(histories: histories)
+                currencyCode = result.currencyCode
+                allPoints = result.points
             } catch {
                 guard gen == reloadRunner.generation else { return }
                 allPoints = []
@@ -161,40 +145,13 @@ private final class PortfolioHistoryViewModel: ObservableObject {
 
     private func historyAccounts(
         client: SnapTradeClient,
-        snapshot: PortfolioSnapshot
+        snapshot: PortfolioSnapshot?
     ) async throws -> [PortfolioHistoryAccount] {
-        if !snapshot.accounts.isEmpty {
-            return snapshot.accounts.map {
-                PortfolioHistoryAccount(id: $0.id, currencyCode: $0.currencyCode)
-            }
+        if let snapshot, !snapshot.accounts.isEmpty {
+            return snapshot.accounts.map { PortfolioHistoryAccount(id: $0.id) }
         }
 
-        return try await client.listAccounts().map {
-            PortfolioHistoryAccount(id: $0.id, currencyCode: $0.balance?.total?.currency)
-        }
-    }
-
-    private func aggregate(histories: [SnapTradeAccountBalanceHistoryDTO]) -> [PortfolioHistoryPoint] {
-        let calendar = Calendar.current
-        var totalsByDate: [Date: Double] = [:]
-
-        for history in histories {
-            for point in history.history {
-                guard let date = point.date,
-                      let totalValue = point.totalValue,
-                      totalValue >= 0
-                else {
-                    continue
-                }
-
-                let day = calendar.startOfDay(for: date)
-                totalsByDate[day, default: 0] += totalValue
-            }
-        }
-
-        return totalsByDate
-            .map { PortfolioHistoryPoint(date: $0.key, totalValue: $0.value) }
-            .sorted { $0.date < $1.date }
+        return try await client.listAccounts().map { PortfolioHistoryAccount(id: $0.id) }
     }
 
     private func filtered(
@@ -223,21 +180,6 @@ private final class PortfolioHistoryViewModel: ObservableObject {
 
 private struct PortfolioHistoryAccount {
     let id: String
-    let currencyCode: String?
-}
-
-private enum PortfolioHistoryError: LocalizedError {
-    case noAccounts
-    case emptyHistory
-
-    var errorDescription: String? {
-        switch self {
-        case .noAccounts:
-            "No connected portfolio accounts were found."
-        case .emptyHistory:
-            "SnapTrade did not return balance history for these accounts."
-        }
-    }
 }
 
 private struct PortfolioHistoryHeader: View {
@@ -315,9 +257,7 @@ private struct PortfolioHistoryHeader: View {
     }
 
     private var totalValueText: String {
-        guard let displayPoint else {
-            return isPrivacyEnabled ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode) : "N/A"
-        }
+        guard let displayPoint else { return "N/A" }
 
         return isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
@@ -325,12 +265,13 @@ private struct PortfolioHistoryHeader: View {
     }
 
     private var changeAmountText: String {
+        guard let valueDelta else { return "N/A" }
+
         if isPrivacyEnabled {
-            let sign = valueDelta.map { $0 < 0 ? "-" : $0 > 0 ? "+" : "" } ?? ""
+            let sign = valueDelta < 0 ? "-" : valueDelta > 0 ? "+" : ""
             return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
         }
 
-        guard let valueDelta else { return "N/A" }
         return PortfolioFormat.wholeMoney(valueDelta, currencyCode: currencyCode, signed: true)
     }
 
@@ -415,12 +356,6 @@ private extension Array where Element == PortfolioHistoryPoint {
         }
 
         return filter { $0.date >= startDate }
-    }
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
     }
 }
 
