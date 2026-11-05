@@ -1,14 +1,17 @@
 # 命令
 
-- 编译（暂无测试 target，这是目前唯一的检查）：`xcodebuild -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+- 编译：`xcodebuild -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+- 测试：`xcodebuild test -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO`
 
 # 约定
 
 - 金融数据 quick to fail：不用 0、默认值或估算代替缺失数据，不静默丢弃持仓，不跨币种相加
-- 现有代码里还有违反上一条的写法（见 ROADMAP.md 阶段 1），不要照抄
+- 只支持单一币种，不做换算，理由见 `docs/adr/0002-single-currency-portfolio.md`
 - 术语和业务含义以 CONTEXT.md 为准，与代码不一致时先指出来
 
 # 注意
 
 - 工程默认隔离是 `MainActor`，要在后台运行的代码需显式标 `nonisolated`
+- Xcode 27 beta 在测试失败时可能卡在符号化，`xcodebuild` 不退出：结果看 `.xcresult` 的 `Staging` 目录里的 `StandardOutputAndStandardError.txt`
+- 测试替换了 Keychain 和缓存文件，不要在测试里用默认的 `CredentialsStore` 或 `PortfolioCache`
 - 仓库是公开的，凭据只放在不入库的 `Bittern Local` scheme 里
