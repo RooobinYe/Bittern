@@ -1,0 +1,96 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "USD",
+     "symbol": "BTC-USD",
+     "exchangeTimezoneName": "UTC",
+     "regularMarketPrice": 70300.0,
+     "chartPreviousClose": 69000.0,
+     "previousClose": 69000.0,
+     "hasPrePostMarketData": false,
+     "dataGranularity": "5m",
+     "range": "5d",
+     "currentTradingPeriod": {
+      "pre": {
+       "timezone": "EST",
+       "start": 1793923200,
+       "end": 1793923200,
+       "gmtoffset": -18000
+      },
+      "regular": {
+       "timezone": "EST",
+       "start": 1793923200,
+       "end": 1794009600,
+       "gmtoffset": -18000
+      },
+      "post": {
+       "timezone": "EST",
+       "start": 1794009600,
+       "end": 1794009600,
+       "gmtoffset": -18000
+      }
+     },
+     "tradingPeriods": [
+      [
+       {
+        "start": 1793836800,
+        "end": 1793923200
+       }
+      ],
+      [
+       {
+        "start": 1793923200,
+        "end": 1794009600
+       }
+      ]
+     ]
+    },
+    "timestamp": [
+     1793840400,
+     1793923200,
+     1793926800,
+     1793930400
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "close": [
+        68000.0,
+        70000.0,
+        70100.0,
+        70300.0
+       ],
+       "open": [
+        68000.0,
+        70000.0,
+        70100.0,
+        70300.0
+       ],
+       "high": [
+        68000.0,
+        70000.0,
+        70100.0,
+        70300.0
+       ],
+       "low": [
+        68000.0,
+        70000.0,
+        70100.0,
+        70300.0
+       ],
+       "volume": [
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

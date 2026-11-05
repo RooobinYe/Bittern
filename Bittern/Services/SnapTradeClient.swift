@@ -25,10 +25,16 @@ struct SnapTradeClient {
     private let credentials: SnapTradeCredentials
     private let baseURL = URL(string: "https://api.snaptrade.com/api/v1")!
     private let session: URLSession
+    private let currentDate: @Sendable () -> Date
 
-    init(credentials: SnapTradeCredentials, session: URLSession = .shared) {
+    init(
+        credentials: SnapTradeCredentials,
+        session: URLSession = .shared,
+        currentDate: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.credentials = credentials.sanitized
         self.session = session
+        self.currentDate = currentDate
     }
 
     func registerUser(userId: String) async throws -> SnapTradeRegisteredUserDTO {
@@ -202,7 +208,7 @@ struct SnapTradeClient {
             url: baseURL.appendingPathComponent(normalizedPath),
             resolvingAgainstBaseURL: false
         )
-        let timestamp = String(Int(Date().timeIntervalSince1970))
+        let timestamp = String(Int(currentDate().timeIntervalSince1970))
         components?.queryItems = queryItems + [
             URLQueryItem(name: "clientId", value: credentials.clientId),
             URLQueryItem(name: "timestamp", value: timestamp)
