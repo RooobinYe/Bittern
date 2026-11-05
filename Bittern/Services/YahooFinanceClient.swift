@@ -910,11 +910,11 @@ struct YahooFinanceClient {
         }) {
             return try regularOneDaySeries(
                 regularPeriod: regularPeriod,
-                regularPeriods: regularPeriods,
                 points: points,
                 timeZone: timeZone,
                 granularity: granularity,
-                fallbackBaseline: meta.chartPreviousClose,
+                meta: meta,
+                requestedAt: requestedAt,
                 symbol: symbol
             )
         }
@@ -929,10 +929,10 @@ struct YahooFinanceClient {
                 regularPeriod: regularPeriod,
                 postMarketPeriod: postMarketPeriod,
                 preMarketPeriod: nil,
-                regularPeriods: regularPeriods,
                 points: points,
                 granularity: granularity,
-                fallbackBaseline: meta.chartPreviousClose,
+                meta: meta,
+                requestedAt: requestedAt,
                 symbol: symbol
             )
         }
@@ -952,10 +952,10 @@ struct YahooFinanceClient {
                 regularPeriod: regularPeriod,
                 postMarketPeriod: postMarketPeriod,
                 preMarketPeriod: preMarketPeriod,
-                regularPeriods: regularPeriods,
                 points: points,
                 granularity: granularity,
-                fallbackBaseline: meta.chartPreviousClose,
+                meta: meta,
+                requestedAt: requestedAt,
                 symbol: symbol
             )
         }
@@ -980,21 +980,21 @@ struct YahooFinanceClient {
                 regularPeriod: regularPeriod,
                 postMarketPeriod: postMarketPeriod,
                 preMarketPeriod: nil,
-                regularPeriods: regularPeriods,
                 points: points,
                 granularity: granularity,
-                fallbackBaseline: meta.chartPreviousClose,
+                meta: meta,
+                requestedAt: requestedAt,
                 symbol: symbol
             )
         }
 
         return try regularOneDaySeries(
             regularPeriod: regularPeriod,
-            regularPeriods: regularPeriods,
             points: points,
             timeZone: timeZone,
             granularity: granularity,
-            fallbackBaseline: meta.chartPreviousClose,
+            meta: meta,
+            requestedAt: requestedAt,
             symbol: symbol
         )
     }
@@ -1052,21 +1052,20 @@ struct YahooFinanceClient {
 
     private func regularOneDaySeries(
         regularPeriod: PriceChartTimeSegment,
-        regularPeriods: [PriceChartTimeSegment],
         points: [HoldingPricePoint],
         timeZone: TimeZone,
         granularity: TimeInterval,
-        fallbackBaseline: Double?,
+        meta: YahooChartMetaDTO,
+        requestedAt: Date,
         symbol: String
     ) throws -> HoldingPriceSeries {
-        let regularPoints = observations(in: regularPeriod, from: points)
-            .map {
-                HoldingPricePoint(
-                    date: $0.date,
-                    price: $0.price,
-                    session: .regular
-                )
-            }
+        let regularPoints = try regularSessionPoints(
+            in: regularPeriod,
+            from: points,
+            meta: meta,
+            requestedAt: requestedAt,
+            symbol: symbol
+        )
         guard let firstPoint = regularPoints.first,
               let lastPoint = regularPoints.last
         else {
@@ -1095,12 +1094,7 @@ struct YahooFinanceClient {
         return HoldingPriceSeries(
             points: regularPoints,
             timeDomain: timeDomain,
-            baselinePrice: baselinePrice(
-                before: regularPeriod,
-                regularPeriods: regularPeriods,
-                points: points,
-                fallback: fallbackBaseline
-            )
+            baselinePrice: meta.previousClose
         )
     }
 
@@ -1108,20 +1102,19 @@ struct YahooFinanceClient {
         regularPeriod: PriceChartTimeSegment,
         postMarketPeriod: PriceChartTimeSegment?,
         preMarketPeriod: PriceChartTimeSegment?,
-        regularPeriods: [PriceChartTimeSegment],
         points: [HoldingPricePoint],
         granularity: TimeInterval,
-        fallbackBaseline: Double?,
+        meta: YahooChartMetaDTO,
+        requestedAt: Date,
         symbol: String
     ) throws -> HoldingPriceSeries {
-        let regularPoints = observations(in: regularPeriod, from: points)
-            .map {
-                HoldingPricePoint(
-                    date: $0.date,
-                    price: $0.price,
-                    session: .regular
-                )
-            }
+        let regularPoints = try regularSessionPoints(
+            in: regularPeriod,
+            from: points,
+            meta: meta,
+            requestedAt: requestedAt,
+            symbol: symbol
+        )
         guard !regularPoints.isEmpty else {
             throw YahooFinanceError.invalidChartMetadata(
                 "No regular-session observations for \(symbol)."
@@ -1177,13 +1170,48 @@ struct YahooFinanceClient {
         return HoldingPriceSeries(
             points: regularPoints + postMarketPoints + preMarketPoints,
             timeDomain: PriceChartTimeDomain(segments: timeSegments),
-            baselinePrice: baselinePrice(
-                before: regularPeriod,
-                regularPeriods: regularPeriods,
-                points: points,
-                fallback: fallbackBaseline
-            )
+            baselinePrice: meta.previousClose
         )
+    }
+
+    /// With extended hours included, the bar stamped at a session's closing
+    /// boundary holds post-market trades, so its close is not the regular
+    /// close (e.g. an earnings gap). A completed session therefore ends on
+    /// Yahoo's own regular-market price, the value the holding quote uses.
+    private func regularSessionPoints(
+        in period: PriceChartTimeSegment,
+        from points: [HoldingPricePoint],
+        meta: YahooChartMetaDTO,
+        requestedAt: Date,
+        symbol: String
+    ) throws -> [HoldingPricePoint] {
+        let observedPoints = points.filter { contains($0.date, in: period) }
+            .map {
+                HoldingPricePoint(
+                    date: $0.date,
+                    price: $0.price,
+                    session: .regular
+                )
+            }
+        guard !observedPoints.isEmpty, period.end <= requestedAt else {
+            return observedPoints
+        }
+        guard let regularClose = meta.regularMarketPrice,
+              regularClose.isFinite,
+              regularClose > 0
+        else {
+            throw YahooFinanceError.invalidChartMetadata(
+                "Missing regular close for \(symbol)."
+            )
+        }
+
+        return observedPoints + [
+            HoldingPricePoint(
+                date: period.end,
+                price: regularClose,
+                session: .regular
+            )
+        ]
     }
 
     private func chartPeriods(
@@ -1227,37 +1255,11 @@ struct YahooFinanceClient {
         }
     }
 
-    private func baselinePrice(
-        before regularPeriod: PriceChartTimeSegment,
-        regularPeriods: [PriceChartTimeSegment],
-        points: [HoldingPricePoint],
-        fallback: Double?
-    ) -> Double? {
-        guard let precedingPeriod = precedingRegularPeriod(
-            for: regularPeriod,
-            in: regularPeriods
-        ) else {
-            return fallback
-        }
-
-        return observations(in: precedingPeriod, from: points).last?.price
-            ?? fallback
-    }
-
-    private func observations(
-        in period: PriceChartTimeSegment,
-        from points: [HoldingPricePoint]
-    ) -> [HoldingPricePoint] {
-        points.filter { contains($0.date, in: period, includesEnd: true) }
-    }
-
     private func contains(
         _ date: Date,
-        in period: PriceChartTimeSegment,
-        includesEnd: Bool = false
+        in period: PriceChartTimeSegment
     ) -> Bool {
-        period.start <= date
-            && (includesEnd ? date <= period.end : date < period.end)
+        period.start <= date && date < period.end
     }
 
     private func coversFullCalendarDay(
@@ -1328,6 +1330,7 @@ private struct YahooChartMetaDTO: Decodable {
     let symbol: String?
     let regularMarketPrice: Double?
     let chartPreviousClose: Double?
+    let previousClose: Double?
     let shortName: String?
     let longName: String?
     let exchangeTimezoneName: String?
