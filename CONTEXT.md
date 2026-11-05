@@ -58,6 +58,16 @@ _Avoid_: Post-market market value, current holding gain
 The change in a holding's value across the most recently completed regular session, measured from the preceding regular close to the latest regular close. It remains distinct from any subsequent Pre-Market or Post-Market Holding Change.
 _Avoid_: Current change, pre-market change, after-hours change
 
+### Portfolio Valuation
+
+**Portfolio Currency**:
+The single currency every holding in a sum shares. Bittern never converts between currencies, so holdings in more than one currency are all still shown, each in its own currency, but have no total.
+_Avoid_: Base currency, reporting currency, converted value
+
+**Complete Snapshot**:
+A portfolio snapshot in which every holding has a current price. Only a Complete Snapshot advances "Updated" and is kept for the next launch; one with missing prices is shown with those holdings and all totals as N/A.
+_Avoid_: Fresh data, successful refresh
+
 ### Contribution Planning
 
 **Contribution Amount**:
@@ -138,4 +148,7 @@ _Avoid_: Preset, profile, saved scenario
 - Whether leftover cash should be greedily re-deployed into extra whole shares — first resolved as never (mental verifiability), revised 2026-08-11 after real use left ~20% of a contribution unspent: Greedy Top-Up re-deployed it, but a zero-Buy-Amount holding is still never bought.
 - How "closest to target" trades off against "least cash left over" — resolved 2026-08-11, superseding Greedy Top-Up: the user accepted trading mental verifiability for optimality and delegated the weighing; both failure modes are priced in dollars at 1:1 as **Misallocation**, which a completed **Optimal Share Search** minimizes exactly (ties break toward less Residual Cash), still never buying a zero-Buy-Amount holding. Reaching the safety node limit instead surfaces the incumbent as an **Estimated Result**.
 - Holdings with no current price pass the minimum-value filter but have no Regular-Market Valuation — resolved: they are never electable; a Contribution Pool containing an unpriced holding is undefined.
+- Whether Bittern should support several currencies — resolved 2026-11-06: no. The portfolio is entirely in US dollars, so conversion and per-currency subtotals would be unused machinery. What stays is a guard against ever summing unlike amounts: see docs/adr/0002-single-currency-portfolio.md.
+- What a `cost_basis` of zero means — resolved: the broker doesn't know the cost, not that the position was free. It is treated as unknown.
+- Whether a position's `cost_basis` is a total or a per-unit price — resolved 2026-11-06: per unit. SnapTrade documents it as the "book price or average purchase price", and real holdings show it at the scale of the share price, not of price × quantity.
 - Degenerate inputs (Contribution Amount of zero, or zero Elected Holdings) — resolved: no results are shown; there is no zero-money allocation.
