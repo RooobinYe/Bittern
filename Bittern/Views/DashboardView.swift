@@ -873,7 +873,7 @@ private struct HoldingsSection: View {
     }
 
     private var updatedLabel: some View {
-        Text("Updated \(PortfolioFormat.timeWithSeconds(snapshot.lastUpdated))")
+        Text("Updated \(PortfolioFormat.lastUpdated(snapshot.lastUpdated))")
             .font(.caption.weight(.semibold))
             .foregroundStyle(BitternTheme.secondaryInk)
             .fixedSize(horizontal: false, vertical: true)

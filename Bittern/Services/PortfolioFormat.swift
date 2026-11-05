@@ -170,7 +170,23 @@ enum PortfolioFormat {
         return formatter.string(from: date)
     }
 
-    static func timeWithSeconds(_ date: Date) -> String {
+    /// A persisted snapshot can be days old, so anything before today states
+    /// its date; a bare time of day would read as just refreshed.
+    static func lastUpdated(_ date: Date, relativeTo now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        if calendar.isDate(date, inSameDayAs: now) {
+            return timeWithSeconds(date)
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = calendar.isDate(date, equalTo: now, toGranularity: .year)
+            ? "d MMM, HH:mm"
+            : "d MMM yyyy, HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private static func timeWithSeconds(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter.string(from: date)
