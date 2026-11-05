@@ -57,24 +57,28 @@ struct DashboardView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(
-                        item: portfolioShareItem,
-                        preview: SharePreview("Bittern Portfolio")
-                    ) {
-                        Image(systemName: "square.and.arrow.up")
+                    if let portfolioShareItem {
+                        ShareLink(
+                            item: portfolioShareItem,
+                            preview: SharePreview("Bittern Portfolio")
+                        ) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .accessibilityLabel("Share portfolio")
                     }
-                    .accessibilityLabel("Share portfolio")
                 }
             }
             .navigationDestination(isPresented: $isShowingSettings) {
                 SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
             }
             .navigationDestination(for: PortfolioHolding.self) { holding in
-                HoldingDetailView(
-                    holding: holding,
-                    snapshot: viewModel.displaySnapshot,
-                    allocationHoldings: viewModel.snapshot.holdings
-                )
+                if let snapshot = viewModel.displaySnapshot {
+                    HoldingDetailView(
+                        holding: holding,
+                        snapshot: snapshot,
+                        allocationHoldings: viewModel.snapshot?.holdings ?? []
+                    )
+                }
             }
 #if DEBUG
             .task {
@@ -84,8 +88,8 @@ struct DashboardView: View {
         }
     }
 
-    private var portfolioShareItem: PortfolioShareItem {
-        let shareSnapshot = dashboardShareSnapshot
+    private var portfolioShareItem: PortfolioShareItem? {
+        guard let shareSnapshot = dashboardShareSnapshot else { return nil }
         let screenshotWidth = min(
             max(shareSnapshot.viewportSize.width, 1),
             DashboardLayoutMetrics.maximumExportWidth
@@ -121,11 +125,17 @@ struct DashboardView: View {
         }
     }
 
-    private var dashboardShareSnapshot: DashboardShareSnapshot {
-        DashboardShareSnapshot(
-            filterAccounts: viewModel.snapshot.accounts,
-            portfolio: viewModel.displaySnapshot,
-            allocationHoldings: viewModel.snapshot.holdings,
+    private var dashboardShareSnapshot: DashboardShareSnapshot? {
+        guard let snapshot = viewModel.snapshot,
+              let portfolio = viewModel.displaySnapshot
+        else {
+            return nil
+        }
+
+        return DashboardShareSnapshot(
+            filterAccounts: snapshot.accounts,
+            portfolio: portfolio,
+            allocationHoldings: snapshot.holdings,
             sortedHoldings: viewModel.sortedHoldings,
             selectedProviderName: viewModel.selectedProviderName,
             performanceMode: viewModel.performanceMode,
@@ -153,8 +163,9 @@ struct DashboardView: View {
         // The debug export always captures the full, unfiltered portfolio.
         let userThreshold = viewModel.minPriceThreshold
         viewModel.minPriceThreshold = 0
-        var shareSnapshot = dashboardShareSnapshot
+        let exportSnapshot = dashboardShareSnapshot
         viewModel.minPriceThreshold = userThreshold
+        guard var shareSnapshot = exportSnapshot else { return }
         shareSnapshot.isPrivacyEnabled = false
         let screenshotWidth = min(
             max(shareSnapshot.viewportSize.width, 1),
@@ -345,21 +356,43 @@ private enum DashboardRenderPurpose {
 private struct DashboardContent: View {
     @ObservedObject var viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
+
     var body: some View {
-        GeometryReader { proxy in
-            DashboardVisualContent(
-                filterAccounts: viewModel.snapshot.accounts,
-                portfolio: viewModel.displaySnapshot,
-                allocationHoldings: viewModel.snapshot.holdings,
-                sortedHoldings: viewModel.sortedHoldings,
-                selectedProviderName: $viewModel.selectedProviderName,
-                performanceMode: $viewModel.performanceMode,
-                sortOption: $viewModel.sortOption,
-                isPrivacyEnabled: $isPrivacyEnabled,
-                layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
-                purpose: .interactive,
-                refresh: { await viewModel.refresh() }
+        switch viewModel.loadState {
+        case .notLoaded:
+            ContentUnavailableView(
+                "No Portfolio Connected",
+                systemImage: "building.columns",
+                description: Text("Connect a brokerage in Settings to see your holdings.")
             )
+        case .loading:
+            ProgressView("Loading portfolio…")
+        case .failed(let message):
+            ContentUnavailableView {
+                Label("Portfolio Unavailable", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try Again") {
+                    Task { await viewModel.fullRefresh() }
+                }
+            }
+        case .loaded(let snapshot):
+            GeometryReader { proxy in
+                DashboardVisualContent(
+                    filterAccounts: snapshot.accounts,
+                    portfolio: viewModel.displaySnapshot ?? snapshot,
+                    allocationHoldings: snapshot.holdings,
+                    sortedHoldings: viewModel.sortedHoldings,
+                    selectedProviderName: $viewModel.selectedProviderName,
+                    performanceMode: $viewModel.performanceMode,
+                    sortOption: $viewModel.sortOption,
+                    isPrivacyEnabled: $isPrivacyEnabled,
+                    layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
+                    purpose: .interactive,
+                    refresh: { await viewModel.refresh() }
+                )
+            }
         }
     }
 }
@@ -873,7 +906,10 @@ private struct HoldingsSection: View {
     }
 
     private var updatedLabel: some View {
-        Text("Updated \(PortfolioFormat.lastUpdated(snapshot.lastUpdated))")
+        Text(
+            snapshot.lastUpdated.map { "Updated \(PortfolioFormat.lastUpdated($0))" }
+                ?? "Prices incomplete"
+        )
             .font(.caption.weight(.semibold))
             .foregroundStyle(BitternTheme.secondaryInk)
             .fixedSize(horizontal: false, vertical: true)

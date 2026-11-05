@@ -347,7 +347,9 @@ struct PortfolioAccount: Identifiable, Hashable, Codable, Sendable {
     let providerLogoURL: URL?
     let isConnectionDisabled: Bool
     let totalBalance: Double?
-    let currencyCode: String
+    /// The balance's currency, which SnapTrade may omit. Holdings carry their
+    /// own currency, so this never decides how a holding is valued.
+    let currencyCode: String?
 
     var providerName: String {
         let institution = institutionName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -417,8 +419,10 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         return quantity * currentPrice
     }
 
+    /// A zero cost means the broker doesn't know it (for example after a
+    /// transfer), not that the position was free.
     var costBasis: Double? {
-        guard let averageCost, averageCost >= 0 else { return nil }
+        guard let averageCost, averageCost > 0 else { return nil }
         return quantity * averageCost
     }
 
@@ -484,83 +488,88 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
     let dayGainPercent: Double?
     let allTimeGainAmount: Double?
     let allTimeGainPercent: Double?
+    /// The currency of the totals. Meaningless while `hasMixedCurrencies`, when
+    /// every total is nil, and a placeholder when there are no holdings.
     let currencyCode: String
     let hasMixedCurrencies: Bool
-    let lastUpdated: Date
+    /// When every holding last had a price; nil if that has never been true.
+    let lastUpdated: Date?
     let isDemo: Bool
 
+    /// Totals are nil unless every holding contributes to them in one shared
+    /// currency: Bittern never converts, so there is no honest sum otherwise
+    /// (docs/adr/0002-single-currency-portfolio.md).
     static func make(
         accounts: [PortfolioAccount],
         holdings: [PortfolioHolding],
-        lastUpdated: Date = Date(),
+        lastUpdated: Date? = Date(),
         isDemo: Bool = false
     ) -> PortfolioSnapshot {
-        var totalMarketValue: Double = 0
-        var hasCompleteMarketValue = true
-        var hasCompleteCostBasis = true
-        var totalCostBasis: Double = 0
-        var hasCompleteDayGain = true
-        var totalDayGain: Double = 0
-        var hasCompleteTotalReturn = true
-        var totalReturnAmount: Double = 0
-        var currencyCodes: Set<String> = []
+        let currencyCodes = Set(holdings.map(\.currencyCode))
+        let hasMixedCurrencies = currencyCodes.count > 1
 
-        for h in holdings {
-            if let mv = h.marketValue {
-                totalMarketValue += mv
-            } else {
-                hasCompleteMarketValue = false
+        func total(_ value: (PortfolioHolding) -> Double?) -> Double? {
+            guard !holdings.isEmpty, !hasMixedCurrencies else { return nil }
+            var sum = 0.0
+            for holding in holdings {
+                guard let amount = value(holding) else { return nil }
+                sum += amount
             }
-            if let cb = h.costBasis {
-                totalCostBasis += cb
-            } else {
-                hasCompleteCostBasis = false
-            }
-            if let dg = h.dayGainAmount {
-                totalDayGain += dg
-            } else {
-                hasCompleteDayGain = false
-            }
-            if let totalReturn = h.totalReturnAmount {
-                totalReturnAmount += totalReturn
-            } else {
-                hasCompleteTotalReturn = false
-            }
-            currencyCodes.insert(h.currencyCode)
-        }
-        for a in accounts {
-            currencyCodes.insert(a.currencyCode)
+            return sum
         }
 
-        let totalMarketValueOrNil = hasCompleteMarketValue ? totalMarketValue : nil
-        let dayGainAmount = hasCompleteMarketValue && hasCompleteDayGain ? totalDayGain : nil
-        let dayGainPercent = dayGainAmount.flatMap { amount in
-            let previousMarketValue = totalMarketValue - amount
-            return previousMarketValue == 0 ? 0 : amount / abs(previousMarketValue)
+        func ratio(_ amount: Double?, of base: Double?) -> Double? {
+            guard let amount, let base, base != 0 else { return nil }
+            return amount / abs(base)
         }
-        let allTimeGainAmount = hasCompleteTotalReturn && hasCompleteCostBasis ? totalReturnAmount : nil
-        let allTimeGainPercent = allTimeGainAmount.flatMap { amount in
-            totalCostBasis == 0 ? 0 : amount / abs(totalCostBasis)
+
+        let totalMarketValue = total(\.marketValue)
+        let dayGainAmount = totalMarketValue == nil ? nil : total(\.dayGainAmount)
+        let previousMarketValue = totalMarketValue.flatMap { value in
+            dayGainAmount.map { value - $0 }
         }
-        let currencyCode = holdings.first?.currencyCode ?? accounts.first?.currencyCode ?? "USD"
+        let totalCostBasis = total(\.costBasis)
+        let allTimeGainAmount = totalCostBasis == nil ? nil : total(\.totalReturnAmount)
 
         return PortfolioSnapshot(
             accounts: accounts,
             holdings: holdings,
-            totalMarketValue: totalMarketValueOrNil,
+            totalMarketValue: totalMarketValue,
             dayGainAmount: dayGainAmount,
-            dayGainPercent: dayGainPercent,
+            dayGainPercent: ratio(dayGainAmount, of: previousMarketValue),
             allTimeGainAmount: allTimeGainAmount,
-            allTimeGainPercent: allTimeGainPercent,
-            currencyCode: currencyCode,
-            hasMixedCurrencies: currencyCodes.count > 1,
+            allTimeGainPercent: ratio(allTimeGainAmount, of: totalCostBasis),
+            currencyCode: holdings.first?.currencyCode ?? "USD",
+            hasMixedCurrencies: hasMixedCurrencies,
             lastUpdated: lastUpdated,
             isDemo: isDemo
         )
     }
 
     static let empty = PortfolioSnapshot.make(accounts: [], holdings: [], isDemo: true)
-    static let emptyLive = PortfolioSnapshot.make(accounts: [], holdings: [], isDemo: false)
+
+    /// Symbols of holdings that have no usable price.
+    var unpricedSymbols: [String] {
+        Array(Set(holdings.filter { $0.currentPrice == nil }.map(\.symbol))).sorted()
+    }
+
+    /// The same inputs with totals recomputed by today's rules. Used on data
+    /// persisted by an earlier version.
+    func recomputed() -> PortfolioSnapshot {
+        .make(accounts: accounts, holdings: holdings, lastUpdated: lastUpdated, isDemo: isDemo)
+    }
+
+    /// A partial refresh has no `lastUpdated` of its own, so it keeps showing
+    /// when the prices were last complete.
+    func inheritingLastUpdated(from previous: PortfolioSnapshot?) -> PortfolioSnapshot {
+        guard lastUpdated == nil, let previous else { return self }
+        return .make(
+            accounts: accounts,
+            holdings: holdings,
+            lastUpdated: previous.lastUpdated,
+            isDemo: isDemo
+        )
+    }
 }
 
 extension PortfolioSnapshot {

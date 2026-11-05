@@ -70,6 +70,7 @@ enum YahooFinanceError: LocalizedError {
     case emptySymbols
     case invalidResponse
     case invalidChartMetadata(String)
+    case currencyMismatch(symbol: String, expected: String, actual: String?)
     case decodingFailed(String)
     case httpStatus(Int, String)
 
@@ -83,6 +84,8 @@ enum YahooFinanceError: LocalizedError {
             "Yahoo returned a non-HTTP response."
         case .invalidChartMetadata(let reason):
             "Yahoo returned invalid chart timing data. \(reason)"
+        case .currencyMismatch(let symbol, let expected, let actual):
+            "Yahoo quotes \(symbol) in \(actual ?? "an unknown currency"), not \(expected)."
         case .decodingFailed(let reason):
             "Yahoo returned an undecodable response. \(reason)"
         case .httpStatus(let status, let body):
@@ -92,6 +95,8 @@ enum YahooFinanceError: LocalizedError {
 }
 
 struct YahooFinanceClient {
+    static let maximumConcurrentRequests = 6
+
     private let session: URLSession
     private let currentDate: @Sendable () -> Date
     private let baseURL = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart")!
@@ -135,13 +140,15 @@ struct YahooFinanceClient {
             "Quotes requested inputCount=\(requests.count, privacy: .public) uniqueCount=\(normalizedRequests.count, privacy: .public) assets=\(logAssets(normalizedRequests)) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
-        // Fetch every symbol independently — the chart API accepts one
-        // ticker per request.  Use TaskGroup for concurrency.
+        // The chart API accepts one ticker per request. A portfolio refresh
+        // must not open an unbounded number of them at once.
         let requestedAt = currentDate()
         let results = await withTaskGroup(
             of: (original: String, result: YahooRegularQuoteResult?).self
         ) { group in
-            for request in normalizedRequests {
+            var pending = normalizedRequests.makeIterator()
+            func addNext() {
+                guard let request = pending.next() else { return }
                 group.addTask {
                     let result = await fetchQuote(
                         for: request,
@@ -150,12 +157,16 @@ struct YahooFinanceClient {
                     return (request.symbol, result)
                 }
             }
+            for _ in 0..<Self.maximumConcurrentRequests {
+                addNext()
+            }
 
             var dict: [String: YahooRegularQuoteResult] = [:]
             for await (original, result) in group {
                 if let result {
                     dict[original] = result
                 }
+                addNext()
             }
             return dict
         }
@@ -244,6 +255,7 @@ struct YahooFinanceClient {
     func priceHistory(
         for symbol: String,
         instrumentKind: PortfolioInstrumentKind?,
+        currencyCode: String,
         range: HoldingChartRange
     ) async throws -> HoldingPriceSeries {
         let candidates = candidateSymbols(for: symbol, instrumentKind: instrumentKind)
@@ -261,6 +273,7 @@ struct YahooFinanceClient {
                 let history = try await fetchHistoryOne(
                     candidate: candidate,
                     instrumentKind: instrumentKind,
+                    currencyCode: currencyCode,
                     range: range
                 )
                 if !history.points.isEmpty {
@@ -515,17 +528,23 @@ struct YahooFinanceClient {
             of: (symbol: String, quote: YahooExtendedHoursQuoteDTO).self,
             returning: [String: YahooExtendedHoursQuoteDTO].self
         ) { group in
-            for item in requests {
+            var pending = requests.makeIterator()
+            func addNext() {
+                guard let item = pending.next() else { return }
                 group.addTask {
                     let quote = try await fetchExtendedHoursQuote(item.request)
                     return (item.symbol, quote)
                 }
+            }
+            for _ in 0..<Self.maximumConcurrentRequests {
+                addNext()
             }
 
             var quotes: [String: YahooExtendedHoursQuoteDTO] = [:]
             do {
                 for try await (symbol, quote) in group {
                     quotes[symbol] = quote
+                    addNext()
                 }
                 return quotes
             } catch {
@@ -733,6 +752,7 @@ struct YahooFinanceClient {
     private func fetchHistoryOne(
         candidate symbol: String,
         instrumentKind: PortfolioInstrumentKind?,
+        currencyCode: String,
         range: HoldingChartRange
     ) async throws -> HoldingPriceSeries {
         let requestedAt = currentDate()
@@ -784,6 +804,13 @@ struct YahooFinanceClient {
             throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
         }
 
+        guard result.meta?.currency == currencyCode else {
+            throw YahooFinanceError.currencyMismatch(
+                symbol: symbol,
+                expected: currencyCode,
+                actual: result.meta?.currency
+            )
+        }
         guard timestamps.count == closes.count else {
             throw YahooFinanceError.invalidChartMetadata(
                 "Timestamp and close counts differ for \(symbol)."

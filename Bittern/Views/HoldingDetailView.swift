@@ -159,6 +159,7 @@ private final class HoldingDetailViewModel: ObservableObject {
                 let history = try await yahooClient.priceHistory(
                     for: holding.symbol,
                     instrumentKind: holding.instrumentKind,
+                    currencyCode: holding.currencyCode,
                     range: range
                 )
                 guard gen == loadRunner.generation else { return }

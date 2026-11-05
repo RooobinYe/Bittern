@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "2f7dc9b3-5c33-4668-3440-2b31e056ebe6",
+      "symbol": {
+        "id": "2bcd7cc3-e922-4976-bce1-9858296801c3",
+        "symbol": "AAPL",
+        "raw_symbol": "AAPL",
+        "description": "Apple Inc.",
+        "currency": { "id": "87b24961-b51e-4db8-9226-f198f6518a89", "code": "USD", "name": "US Dollar" }
+      },
+      "amount": 26.5,
+      "currency": { "id": "87b24961-b51e-4db8-9226-f198f6518a89", "code": "USD", "name": "US Dollar" },
+      "type": "DIVIDEND",
+      "trade_date": "2026-03-22T16:27:55Z"
+    }
+  ],
+  "pagination": { "offset": 0, "limit": 1000, "total": 1 }
+}

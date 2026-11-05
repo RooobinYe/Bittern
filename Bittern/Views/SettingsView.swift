@@ -35,7 +35,7 @@ struct SettingsView: View {
                 NavigationLink {
                     MinimumMarketValueView(
                         threshold: $minPriceThreshold,
-                        currencyCode: viewModel.visibleSnapshot.currencyCode
+                        currencyCode: viewModel.displayCurrencyCode
                     )
                 } label: {
                     SettingsValueLabel(
@@ -104,12 +104,12 @@ struct SettingsView: View {
     private var formattedMinimumMarketValue: String {
         PortfolioFormat.price(
             max(minPriceThreshold, 0),
-            currencyCode: viewModel.visibleSnapshot.currencyCode
+            currencyCode: viewModel.displayCurrencyCode
         )
     }
 
     private var connectedAccountsValue: String {
-        let count = viewModel.snapshot.accounts.count
+        let count = viewModel.snapshot?.accounts.count ?? 0
         return count == 0 ? "None" : "\(count)"
     }
 }

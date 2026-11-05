@@ -14,7 +14,7 @@ enum Fixture {
 
 /// Clock values from `scripts/generate_yahoo_fixtures.py`: November 2026, US
 /// Eastern Standard Time.
-func marketTime(day: Int, hour: Int, minute: Int = 0) -> Date {
+nonisolated func marketTime(day: Int, hour: Int, minute: Int = 0) -> Date {
     var components = DateComponents()
     components.calendar = Calendar(identifier: .gregorian)
     components.timeZone = TimeZone(secondsFromGMT: -18_000)

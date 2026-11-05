@@ -11,14 +11,28 @@ struct ContributionCalculatorTests {
         value: Double,
         price: Double,
         target: Double,
-        wholeShares: Bool = true
+        wholeShares: Bool = true,
+        currency: String = "USD"
     ) -> Input {
         Input(
             id: id,
             marketValue: value,
             price: price,
             usesWholeShares: wholeShares,
-            targetPercent: target
+            targetPercent: target,
+            currencyCode: currency
+        )
+    }
+
+    @Test func refusesToPoolHoldingsInDifferentCurrencies() {
+        #expect(
+            ContributionCalculator.calculate(
+                elected: [
+                    input("A", value: 100, price: 10, target: 50, currency: "USD"),
+                    input("B", value: 100, price: 10, target: 50, currency: "CAD")
+                ],
+                contributionAmount: 100
+            ) == nil
         )
     }
 

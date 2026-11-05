@@ -1,0 +1,43 @@
+{
+  "results": [
+    {
+      "instrument": {
+        "kind": "stock",
+        "id": "2bcd7cc3-e922-4976-bce1-9858296801c3",
+        "symbol": "AAPL",
+        "raw_symbol": "AAPL",
+        "description": "Apple Inc.",
+        "currency": "USD",
+        "exchange": "XNAS",
+        "figi_instrument": null
+      },
+      "units": "10.5",
+      "price": "123.45",
+      "cost_basis": "118.2",
+      "currency": "USD",
+      "cash_equivalent": false
+    },
+    {
+      "instrument": {
+        "kind": "crypto",
+        "id": "0d3f8e1a-7a5e-4d8e-9c55-6a7a6e4e1b11",
+        "symbol": "BTC",
+        "raw_symbol": "BTC",
+        "description": "Bitcoin"
+      },
+      "units": "0.25",
+      "price": "70000",
+      "cost_basis": null,
+      "currency": "USD"
+    },
+    {
+      "instrument": { "kind": "cash", "code": "USD" },
+      "units": "500",
+      "price": "1",
+      "cost_basis": null,
+      "currency": "USD",
+      "cash_equivalent": true
+    }
+  ],
+  "data_freshness": { "as_of": "2026-11-06T15:00:00Z" }
+}

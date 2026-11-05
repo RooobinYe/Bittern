@@ -7,9 +7,27 @@ import Foundation
 import Combine
 import OSLog
 
+/// Whether there is portfolio data to show, kept apart from an empty portfolio
+/// so that no data is never displayed as a value of zero.
+enum PortfolioLoadState {
+    /// Nothing to show and nothing on the way: no credentials yet.
+    case notLoaded
+    /// The first load is in flight, with nothing to show meanwhile.
+    case loading
+    /// Data is showing; a refresh of it reports through `isLoading`.
+    case loaded(PortfolioSnapshot)
+    /// The load failed with nothing to fall back on.
+    case failed(String)
+
+    var snapshot: PortfolioSnapshot? {
+        guard case .loaded(let snapshot) = self else { return nil }
+        return snapshot
+    }
+}
+
 @MainActor
 final class DashboardViewModel: ObservableObject {
-    @Published private(set) var snapshot: PortfolioSnapshot = .emptyLive
+    @Published private(set) var loadState: PortfolioLoadState
     @Published var errorMessage: String?
     @Published var performanceMode: PerformanceMode = .today {
         didSet {
@@ -27,6 +45,8 @@ final class DashboardViewModel: ObservableObject {
 
     private let credentialsStore: CredentialsStore
     private let repository: PortfolioRepository
+    private let loadCachedSnapshot: @Sendable () async -> PortfolioSnapshot?
+    private let saveCachedSnapshot: @Sendable (PortfolioSnapshot) -> Void
     private var bootstrapTask: Task<Void, Never>?
     private var cacheLoadFlight: CacheLoadFlight?
     private var refreshFlight: RefreshFlight?
@@ -64,14 +84,28 @@ final class DashboardViewModel: ObservableObject {
     init(
         credentialsStore: CredentialsStore,
         repository: PortfolioRepository? = nil,
-        initialSnapshot: PortfolioSnapshot? = nil
+        initialSnapshot: PortfolioSnapshot? = nil,
+        loadCachedSnapshot: @escaping @Sendable () async -> PortfolioSnapshot? = {
+            await PortfolioCache.loadAsync()
+        },
+        saveCachedSnapshot: @escaping @Sendable (PortfolioSnapshot) -> Void = {
+            PortfolioCache.save($0)
+        }
     ) {
         self.credentialsStore = credentialsStore
         self.repository = repository ?? LivePortfolioRepository()
+        self.loadCachedSnapshot = loadCachedSnapshot
+        self.saveCachedSnapshot = saveCachedSnapshot
         minPriceThreshold = UserDefaults.standard.object(
             forKey: AppSettingKey.minPriceThreshold
         ) as? Double ?? 1.0
-        snapshot = initialSnapshot ?? .emptyLive
+        if let initialSnapshot {
+            loadState = .loaded(initialSnapshot)
+        } else {
+            loadState = credentialsStore.credentials?.sanitized.isComplete == true
+                ? .loading
+                : .notLoaded
+        }
         hasPortfolioBaseline = initialSnapshot != nil
         baselineCredentials = initialSnapshot == nil
             ? nil
@@ -90,8 +124,18 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
+    var snapshot: PortfolioSnapshot? {
+        loadState.snapshot
+    }
+
+    /// The currency for amounts that aren't portfolio data, such as the minimum
+    /// market value setting, which exists before any portfolio has loaded.
+    var displayCurrencyCode: String {
+        visibleSnapshot?.currencyCode ?? "USD"
+    }
+
     var sortedHoldings: [PortfolioHolding] {
-        displaySnapshot.holdings.sorted { lhs, rhs in
+        (displaySnapshot?.holdings ?? []).sorted { lhs, rhs in
             switch sortOption {
             case .gainAmount:
                 isOrdered(lhs.performanceAmount(for: performanceMode), before: rhs.performanceAmount(for: performanceMode), ascending: false)
@@ -105,7 +149,8 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
-    var visibleSnapshot: PortfolioSnapshot {
+    var visibleSnapshot: PortfolioSnapshot? {
+        guard let snapshot else { return nil }
         guard let selectedProviderName else {
             return snapshot
         }
@@ -129,8 +174,8 @@ final class DashboardViewModel: ObservableObject {
     /// `visibleSnapshot` with holdings under the minimum price threshold
     /// removed and totals recomputed. All dashboard display surfaces consume
     /// this single filtering pass.
-    var displaySnapshot: PortfolioSnapshot {
-        let base = visibleSnapshot
+    var displaySnapshot: PortfolioSnapshot? {
+        guard let base = visibleSnapshot else { return nil }
         let holdings = base.holdings.filter { meetsMinPriceThreshold($0) }
         guard holdings.count != base.holdings.count else {
             return base
@@ -147,7 +192,7 @@ final class DashboardViewModel: ObservableObject {
     /// Holdings across every account (no provider filter) with the minimum
     /// price threshold applied. The accounts screen consumes this.
     var thresholdFilteredHoldings: [PortfolioHolding] {
-        snapshot.holdings.filter { meetsMinPriceThreshold($0) }
+        (snapshot?.holdings ?? []).filter { meetsMinPriceThreshold($0) }
     }
 
     private func meetsMinPriceThreshold(_ holding: PortfolioHolding) -> Bool {
@@ -212,7 +257,7 @@ final class DashboardViewModel: ObservableObject {
         }
 
         let flightID = makeFlightID()
-        let task = Task { await PortfolioCache.loadAsync() }
+        let task = Task { [loadCachedSnapshot] in await loadCachedSnapshot() }
         let flight = CacheLoadFlight(id: flightID, task: task)
         cacheLoadFlight = flight
 
@@ -230,7 +275,8 @@ final class DashboardViewModel: ObservableObject {
         }
 
         if let cachedSnapshot {
-            snapshot = cachedSnapshot
+            // The cache may predate today's rules for what counts as known.
+            loadState = .loaded(cachedSnapshot.recomputed())
             cacheWasHit = true
             hasPortfolioBaseline = true
             baselineCredentials = credentialsStore.credentials?.sanitized
@@ -263,7 +309,7 @@ final class DashboardViewModel: ObservableObject {
             )
         }
 
-        if effectiveKind == .price && snapshot.holdings.isEmpty {
+        if effectiveKind == .price && snapshot?.holdings.isEmpty != false {
             errorMessage = nil
             AppLog.portfolio.debug(
                 "Price refresh skipped because the loaded portfolio has no holdings"
@@ -318,6 +364,9 @@ final class DashboardViewModel: ObservableObject {
         refreshFlight = flight
         errorMessage = nil
         isLoading = true
+        if snapshot == nil {
+            loadState = .loading
+        }
         AppLog.portfolio.debug(
             "Refresh started kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
         )
@@ -334,27 +383,22 @@ final class DashboardViewModel: ObservableObject {
         }
 
         do {
-            let newSnapshot: PortfolioSnapshot
+            let result: PortfolioLoadResult
             var didFailExtendedHours = false
-            var partialFailure = PortfolioLoadPartialFailure()
             do {
                 switch kind {
                 case .price:
-                    let baseSnapshot = snapshot
-                    newSnapshot = try await repository.refreshPrices(
-                        for: baseSnapshot
-                    )
+                    guard let baseSnapshot = snapshot else { return }
+                    result = try await repository.refreshPrices(for: baseSnapshot)
                 case .full:
-                    let result = try await repository.loadPortfolio(
-                        credentials: credentials
-                    )
-                    newSnapshot = result.snapshot
-                    partialFailure = result.partialFailure
+                    result = try await repository.loadPortfolio(credentials: credentials)
                 }
             } catch let error as PortfolioExtendedHoursRefreshError {
-                newSnapshot = error.regularSnapshot
+                result = PortfolioLoadResult(
+                    snapshot: error.regularSnapshot,
+                    partialFailure: error.partialFailure
+                )
                 didFailExtendedHours = true
-                partialFailure = error.partialFailure
             }
 
             guard canCommit(flightID: flightID, credentials: credentials) else {
@@ -364,7 +408,8 @@ final class DashboardViewModel: ObservableObject {
                 return
             }
 
-            snapshot = newSnapshot
+            let newSnapshot = result.snapshot.inheritingLastUpdated(from: snapshot)
+            loadState = .loaded(newSnapshot)
             hasPortfolioBaseline = true
             baselineCredentials = credentials
             if kind == .full,
@@ -372,28 +417,42 @@ final class DashboardViewModel: ObservableObject {
                !newSnapshot.accounts.contains(where: { $0.providerName == selectedProviderName }) {
                 self.selectedProviderName = nil
             }
-            PortfolioCache.save(newSnapshot)
+            // A snapshot with holes shows what's known for now, but the next
+            // launch should fall back on the last complete one.
+            if newSnapshot.unpricedSymbols.isEmpty {
+                saveCachedSnapshot(newSnapshot)
+            }
             if didFailExtendedHours {
                 AppLog.portfolio.warning(
                     "Refresh committed regular snapshot after extended-hours batch failure kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
                 )
             }
-            if partialFailure.dividendsFailed {
-                errorMessage = "Some dividend data couldn’t be loaded."
-            } else if didFailExtendedHours {
-                errorMessage = "Extended-hours data couldn’t be refreshed. Regular prices are still available."
+            if let message = result.partialFailure.message(
+                didFailExtendedHours: didFailExtendedHours,
+                hasMixedCurrencies: newSnapshot.hasMixedCurrencies
+            ) {
+                errorMessage = message
             }
             AppLog.portfolio.debug(
-                "Refresh saved snapshot kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public) accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public)"
+                "Refresh committed snapshot kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public) accounts=\(newSnapshot.accounts.count, privacy: .public) holdings=\(newSnapshot.holdings.count, privacy: .public) unpriced=\(newSnapshot.unpricedSymbols.count, privacy: .public)"
             )
         } catch {
             guard canCommit(flightID: flightID, credentials: credentials) else {
                 return
             }
-            errorMessage = UserFacingError.message(
-                for: error,
-                fallback: "Portfolio couldn’t be refreshed. Your existing data is still available."
-            )
+            if snapshot == nil {
+                loadState = .failed(
+                    UserFacingError.message(
+                        for: error,
+                        fallback: "Portfolio couldn’t be loaded. Please try again."
+                    )
+                )
+            } else {
+                errorMessage = UserFacingError.message(
+                    for: error,
+                    fallback: "Portfolio couldn’t be refreshed. Your existing data is still available."
+                )
+            }
             AppLog.portfolio.error(
                 "Refresh failed kind=\(kind.logName, privacy: .public) flight=\(flightID, privacy: .public): \(AppLog.describe(error))"
             )
@@ -435,6 +494,10 @@ final class DashboardViewModel: ObservableObject {
         }
         refreshFlight = nil
         isLoading = false
+        // The flight ended without committing anything (its result went stale).
+        if case .loading = loadState {
+            loadState = .notLoaded
+        }
     }
 
     private func resetForMissingCredentials() {
@@ -442,7 +505,7 @@ final class DashboardViewModel: ObservableObject {
             refreshFlight.task.cancel()
             self.refreshFlight = nil
         }
-        snapshot = .emptyLive
+        loadState = .notLoaded
         selectedProviderName = nil
         errorMessage = nil
         hasPortfolioBaseline = false

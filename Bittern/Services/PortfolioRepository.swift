@@ -8,11 +8,58 @@ import OSLog
 
 protocol PortfolioRepository {
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult
-    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot
+    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult
 }
 
-struct PortfolioLoadPartialFailure: Sendable {
+struct PortfolioCurrencyMismatch: Equatable, Sendable {
+    let symbol: String
+    let holdingCurrency: String
+    let quoteCurrency: String?
+}
+
+struct PortfolioLoadPartialFailure: Equatable, Sendable {
     var dividendsFailed = false
+    /// Holdings Yahoo returned no usable price for.
+    var missingQuoteSymbols: [String] = []
+    /// Holdings whose price can't be used because it's in another currency.
+    var currencyMismatches: [PortfolioCurrencyMismatch] = []
+
+    /// What the user needs to know about data that loaded but isn't whole.
+    func message(didFailExtendedHours: Bool, hasMixedCurrencies: Bool) -> String? {
+        var parts: [String] = []
+        if !missingQuoteSymbols.isEmpty {
+            parts.append(
+                "No price for \(missingQuoteSymbols.joined(separator: ", ")), so totals aren’t shown."
+            )
+        }
+        for mismatch in currencyMismatches {
+            parts.append(
+                "\(mismatch.symbol) is held in \(mismatch.holdingCurrency) but quoted in \(mismatch.quoteCurrency ?? "an unknown currency"), so its price isn’t shown."
+            )
+        }
+        if hasMixedCurrencies {
+            parts.append("Holdings use more than one currency, so totals aren’t shown.")
+        }
+        if dividendsFailed {
+            parts.append("Some dividend data couldn’t be loaded.")
+        }
+        if didFailExtendedHours {
+            parts.append("Extended-hours data couldn’t be refreshed. Regular prices are still available.")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+}
+
+enum PortfolioDataError: LocalizedError, Equatable {
+    case unreadablePositions(count: Int, accountNames: [String])
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadablePositions(let count, let accountNames):
+            let subject = count == 1 ? "1 position" : "\(count) positions"
+            return "\(subject) in \(accountNames.joined(separator: ", ")) came back without a symbol, quantity or currency, so the portfolio can’t be shown completely."
+        }
+    }
 }
 
 struct PortfolioLoadResult: Sendable {
@@ -28,13 +75,27 @@ struct PortfolioExtendedHoursRefreshError: Error, Sendable {
 struct LivePortfolioRepository: PortfolioRepository {
     private let dividendActivityTypes = ["DIVIDEND", "REI", "STOCK_DIVIDEND"]
     private let brandfetch = BrandfetchClient()
+    private let session: URLSession
+    private let currentDate: @Sendable () -> Date
+
+    init(
+        session: URLSession = .shared,
+        currentDate: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.session = session
+        self.currentDate = currentDate
+    }
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult {
         AppLog.portfolio.debug(
             "Portfolio load started taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
-        let snapTrade = SnapTradeClient(credentials: credentials)
-        let yahoo = YahooFinanceClient()
+        let snapTrade = SnapTradeClient(
+            credentials: credentials,
+            session: session,
+            currentDate: currentDate
+        )
+        let yahoo = YahooFinanceClient(session: session, currentDate: currentDate)
 
         let accountSources = try await loadAccountSources(from: snapTrade)
         AppLog.portfolio.debug(
@@ -50,7 +111,7 @@ struct LivePortfolioRepository: PortfolioRepository {
                 providerLogoURL: source.connection?.logoURL,
                 isConnectionDisabled: source.connection?.disabled == true,
                 totalBalance: dto.balance?.total?.amount,
-                currencyCode: dto.balance?.total?.currency ?? "USD"
+                currencyCode: dto.balance?.total?.currency
             )
         }
 
@@ -83,14 +144,10 @@ struct LivePortfolioRepository: PortfolioRepository {
             }
         }
 
-        let quoteRequests = positionsByAccount.compactMap { _, position -> YahooQuoteRequest? in
-            guard let symbol = position.resolvedSymbol else { return nil }
-            return YahooQuoteRequest(
-                symbol: symbol,
-                instrumentKind: PortfolioInstrumentKind(
-                    snapTradeValue: position.instrument?.kind
-                )
-            )
+        let positions = try readablePositions(from: positionsByAccount)
+
+        let quoteRequests = positions.map {
+            YahooQuoteRequest(symbol: $0.symbol, instrumentKind: $0.instrumentKind)
         }
         AppLog.portfolio.debug(
             "Loading quotes assets=\(quoteRequests.count, privacy: .public)"
@@ -111,31 +168,25 @@ struct LivePortfolioRepository: PortfolioRepository {
             "Loaded dividend activity accounts=\(dividendActivitiesByAccount.count, privacy: .public)"
         )
 
-        let holdings = positionsByAccount.compactMap { account, position -> PortfolioHolding? in
-            guard let rawSymbol = position.resolvedSymbol?.trimmedNonEmpty else {
-                return nil
-            }
-            guard let units = position.units else {
-                return nil
-            }
-
-            let symbol = rawSymbol.uppercased()
-            let quote = quotes[symbol]
-            let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
-            let previousClose = quote?.regularMarketPreviousClose
-            let averageCost = position.resolvedAverageCost
-            let currencyCode = position.resolvedCurrency ?? account.currencyCode
-            let name = position.resolvedName ?? symbol
-            let instrumentKind = PortfolioInstrumentKind(
-                snapTradeValue: position.instrument?.kind
+        var mismatches: [PortfolioCurrencyMismatch] = []
+        let holdings = positions.map { position -> PortfolioHolding in
+            let account = position.account
+            let symbol = position.symbol
+            let currencyCode = position.currencyCode
+            let priced = pricedValues(
+                quote: quotes[symbol],
+                symbol: symbol,
+                currencyCode: currencyCode,
+                quantity: position.units,
+                mismatches: &mismatches
             )
-            let logoURL = brandfetch.logoURL(for: symbol, kind: instrumentKind)
+            let logoURL = brandfetch.logoURL(for: symbol, kind: position.instrumentKind)
             AppLog.portfolio.debug(
-                "Logo resolution symbol=\(symbol) snapTradeKind=\(position.instrument?.kind ?? "nil", privacy: .public) resolvedKind=\(instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(brandfetch.isConfigured, privacy: .public) url=\(brandfetch.redactedDescription(for: logoURL))"
+                "Logo resolution symbol=\(symbol) resolvedKind=\(position.instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(brandfetch.isConfigured, privacy: .public) url=\(brandfetch.redactedDescription(for: logoURL))"
             )
-            let id = [account.id, position.id ?? position.instrument?.id ?? symbol]
+            let id = [account.id, position.dto.instrument?.id ?? symbol]
                 .joined(separator: "-")
-            let dividendsReceived = dividendActivitiesByAccount[account.id].map {
+            let dividendsReceived = dividendActivitiesByAccount[account.id].flatMap {
                 dividendAmount(
                     for: symbol,
                     currencyCode: currencyCode,
@@ -147,23 +198,17 @@ struct LivePortfolioRepository: PortfolioRepository {
                 id: id,
                 accountID: account.id,
                 symbol: symbol,
-                name: name,
-                instrumentKind: instrumentKind,
+                name: position.dto.resolvedName ?? symbol,
+                instrumentKind: position.instrumentKind,
                 logoURL: logoURL,
                 accountName: account.name,
-                quantity: units,
-                quantityDisplay: position.unitsDisplay,
-                averageCost: averageCost,
-                currentPrice: currentPrice,
-                previousClose: previousClose,
-                preMarketChange: preMarketChange(
-                    quote: quote,
-                    quantity: units
-                ),
-                postMarketChange: postMarketChange(
-                    quote: quote,
-                    quantity: units
-                ),
+                quantity: position.units,
+                quantityDisplay: position.dto.unitsDisplay,
+                averageCost: position.dto.resolvedAverageCost,
+                currentPrice: priced.currentPrice,
+                previousClose: priced.previousClose,
+                preMarketChange: priced.preMarketChange,
+                postMarketChange: priced.postMarketChange,
                 currencyCode: currencyCode,
                 dividendsReceived: dividendsReceived
             )
@@ -176,28 +221,17 @@ struct LivePortfolioRepository: PortfolioRepository {
         AppLog.portfolio.debug(
             "Portfolio load completed accounts=\(accounts.count, privacy: .public) holdings=\(holdings.count, privacy: .public)"
         )
-        let snapshot = PortfolioSnapshot.make(
+        return try result(
             accounts: accounts,
             holdings: holdings,
-            lastUpdated: Date(),
-            isDemo: false
-        )
-        let partialFailure = PortfolioLoadPartialFailure(
-            dividendsFailed: didFailSomeDividends
-        )
-        guard !quoteBatch.didFailExtendedHours else {
-            throw PortfolioExtendedHoursRefreshError(
-                regularSnapshot: snapshot,
-                partialFailure: partialFailure
-            )
-        }
-        return PortfolioLoadResult(
-            snapshot: snapshot,
-            partialFailure: partialFailure
+            isDemo: false,
+            dividendsFailed: didFailSomeDividends,
+            mismatches: mismatches,
+            didFailExtendedHours: quoteBatch.didFailExtendedHours
         )
     }
 
-    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioSnapshot {
+    func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult {
         let quoteRequests = snapshot.holdings.map {
             YahooQuoteRequest(
                 symbol: $0.symbol,
@@ -211,7 +245,10 @@ struct LivePortfolioRepository: PortfolioRepository {
 
         let quoteBatch: YahooQuoteBatch
         do {
-            quoteBatch = try await YahooFinanceClient().quotes(
+            quoteBatch = try await YahooFinanceClient(
+                session: session,
+                currentDate: currentDate
+            ).quotes(
                 for: quoteRequests
             )
         } catch {
@@ -228,14 +265,19 @@ struct LivePortfolioRepository: PortfolioRepository {
             "Price refresh quote summary succeeded=\(quoteSymbols.count, privacy: .public)/\(normalizedSymbols.count, privacy: .public) quoteSymbols=\(AppLog.list(quoteSymbols)) missingSymbols=\(AppLog.list(missingSymbols))"
         )
 
+        var mismatches: [PortfolioCurrencyMismatch] = []
         let updatedHoldings = snapshot.holdings.map { holding -> PortfolioHolding in
             let symbol = normalized(holding.symbol)
-            let quote = quotes[symbol]
-            let currentPrice = quote?.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil }
-            let previousClose = quote?.regularMarketPreviousClose
+            let priced = pricedValues(
+                quote: quotes[symbol],
+                symbol: symbol,
+                currencyCode: holding.currencyCode,
+                quantity: holding.quantity,
+                mismatches: &mismatches
+            )
 
             AppLog.portfolio.debug(
-                "Price refresh holding symbol=\(symbol) quoteFound=\(quote != nil, privacy: .public) oldPrice=\(AppLog.optional(holding.currentPrice)) newPrice=\(AppLog.optional(currentPrice)) oldPreviousClose=\(AppLog.optional(holding.previousClose)) newPreviousClose=\(AppLog.optional(previousClose))"
+                "Price refresh holding symbol=\(symbol) quoteFound=\(quotes[symbol] != nil, privacy: .public) oldPrice=\(AppLog.optional(holding.currentPrice)) newPrice=\(AppLog.optional(priced.currentPrice)) oldPreviousClose=\(AppLog.optional(holding.previousClose)) newPreviousClose=\(AppLog.optional(priced.previousClose))"
             )
 
             return PortfolioHolding(
@@ -249,34 +291,132 @@ struct LivePortfolioRepository: PortfolioRepository {
                 quantity: holding.quantity,
                 quantityDisplay: holding.quantityDisplay,
                 averageCost: holding.averageCost,
-                currentPrice: currentPrice,
-                previousClose: previousClose,
-                preMarketChange: preMarketChange(
-                    quote: quote,
-                    quantity: holding.quantity
-                ),
-                postMarketChange: postMarketChange(
-                    quote: quote,
-                    quantity: holding.quantity
-                ),
+                currentPrice: priced.currentPrice,
+                previousClose: priced.previousClose,
+                preMarketChange: priced.preMarketChange,
+                postMarketChange: priced.postMarketChange,
                 currencyCode: holding.currencyCode,
                 dividendsReceived: holding.dividendsReceived
             )
         }
 
-        let refreshedSnapshot = PortfolioSnapshot.make(
+        return try result(
             accounts: snapshot.accounts,
             holdings: updatedHoldings,
-            lastUpdated: Date(),
-            isDemo: snapshot.isDemo
+            isDemo: snapshot.isDemo,
+            dividendsFailed: false,
+            mismatches: mismatches,
+            didFailExtendedHours: quoteBatch.didFailExtendedHours
         )
-        guard !quoteBatch.didFailExtendedHours else {
-            throw PortfolioExtendedHoursRefreshError(
-                regularSnapshot: refreshedSnapshot,
-                partialFailure: PortfolioLoadPartialFailure()
+    }
+
+    /// Positions that can become holdings. Cash isn't a holding; anything else
+    /// missing a symbol, quantity or currency fails the load, because leaving
+    /// it out would quietly understate the portfolio.
+    private func readablePositions(
+        from positionsByAccount: [(PortfolioAccount, SnapTradePositionDTO)]
+    ) throws -> [ReadablePosition] {
+        var readable: [ReadablePosition] = []
+        var unreadableCount = 0
+        var unreadableAccounts: [String] = []
+
+        for (account, position) in positionsByAccount where !position.isCash {
+            guard let symbol = position.resolvedSymbol?.trimmedNonEmpty,
+                  let units = position.units,
+                  let currencyCode = position.resolvedCurrency?.trimmedNonEmpty
+            else {
+                unreadableCount += 1
+                if !unreadableAccounts.contains(account.name) {
+                    unreadableAccounts.append(account.name)
+                }
+                continue
+            }
+
+            readable.append(
+                ReadablePosition(
+                    account: account,
+                    dto: position,
+                    symbol: symbol.uppercased(),
+                    units: units,
+                    currencyCode: currencyCode.uppercased(),
+                    instrumentKind: PortfolioInstrumentKind(
+                        snapTradeValue: position.instrument?.kind
+                    )
+                )
             )
         }
-        return refreshedSnapshot
+
+        guard unreadableCount == 0 else {
+            throw PortfolioDataError.unreadablePositions(
+                count: unreadableCount,
+                accountNames: unreadableAccounts
+            )
+        }
+        return readable
+    }
+
+    /// The price fields of a holding, or none of them when the quote is absent
+    /// or in another currency. The comparison is exact on purpose: Yahoo quotes
+    /// London shares in pence as "GBp", which isn't "GBP".
+    private func pricedValues(
+        quote: YahooQuoteDTO?,
+        symbol: String,
+        currencyCode: String,
+        quantity: Double,
+        mismatches: inout [PortfolioCurrencyMismatch]
+    ) -> PricedValues {
+        guard let quote else { return .none }
+        guard quote.currency == currencyCode else {
+            let mismatch = PortfolioCurrencyMismatch(
+                symbol: symbol,
+                holdingCurrency: currencyCode,
+                quoteCurrency: quote.currency
+            )
+            if !mismatches.contains(mismatch) {
+                mismatches.append(mismatch)
+            }
+            return .none
+        }
+
+        return PricedValues(
+            currentPrice: quote.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil },
+            previousClose: quote.regularMarketPreviousClose,
+            preMarketChange: preMarketChange(quote: quote, quantity: quantity),
+            postMarketChange: postMarketChange(quote: quote, quantity: quantity)
+        )
+    }
+
+    private func result(
+        accounts: [PortfolioAccount],
+        holdings: [PortfolioHolding],
+        isDemo: Bool,
+        dividendsFailed: Bool,
+        mismatches: [PortfolioCurrencyMismatch],
+        didFailExtendedHours: Bool
+    ) throws -> PortfolioLoadResult {
+        let unpricedSymbols = Set(
+            holdings.filter { $0.currentPrice == nil }.map(\.symbol)
+        )
+        let snapshot = PortfolioSnapshot.make(
+            accounts: accounts,
+            holdings: holdings,
+            lastUpdated: unpricedSymbols.isEmpty ? currentDate() : nil,
+            isDemo: isDemo
+        )
+        let partialFailure = PortfolioLoadPartialFailure(
+            dividendsFailed: dividendsFailed,
+            missingQuoteSymbols: unpricedSymbols
+                .subtracting(mismatches.map(\.symbol))
+                .sorted(),
+            currencyMismatches: mismatches
+        )
+        guard !didFailExtendedHours else {
+            throw PortfolioExtendedHoursRefreshError(
+                regularSnapshot: snapshot,
+                partialFailure: partialFailure
+            )
+        }
+        return PortfolioLoadResult(snapshot: snapshot, partialFailure: partialFailure)
     }
 
     private func preMarketChange(
@@ -424,29 +564,34 @@ struct LivePortfolioRepository: PortfolioRepository {
         }
     }
 
+    /// Dividends received for a symbol, or nil if some were paid in another
+    /// currency: they can't be added, and leaving them out would understate
+    /// the return.
     private func dividendAmount(
         for symbol: String,
         currencyCode: String,
         activities: [SnapTradeActivityDTO]
-    ) -> Double {
+    ) -> Double? {
         let normalizedSymbol = normalized(symbol)
         let normalizedCurrencyCode = currencyCode.uppercased()
 
-        return activities.reduce(0) { total, activity in
+        var total = 0.0
+        for activity in activities {
             guard let activitySymbol = activity.resolvedSymbol.map(normalized),
                   activitySymbol == normalizedSymbol,
                   let amount = activity.amount
             else {
-                return total
+                continue
             }
 
-            if let activityCurrency = activity.currency?.uppercased(),
+            if let activityCurrency = activity.currencyCode?.uppercased(),
                activityCurrency != normalizedCurrencyCode {
-                return total
+                return nil
             }
 
-            return total + max(amount, 0)
+            total += max(amount, 0)
         }
+        return total
     }
 
     private func normalized(_ symbol: String) -> String {
@@ -458,6 +603,29 @@ struct LivePortfolioRepository: PortfolioRepository {
 private struct AccountSource {
     let account: SnapTradeAccountDTO
     let connection: SnapTradeConnectionDTO?
+}
+
+private struct ReadablePosition {
+    let account: PortfolioAccount
+    let dto: SnapTradePositionDTO
+    let symbol: String
+    let units: Double
+    let currencyCode: String
+    let instrumentKind: PortfolioInstrumentKind?
+}
+
+private struct PricedValues {
+    let currentPrice: Double?
+    let previousClose: Double?
+    let preMarketChange: HoldingExtendedHoursChange?
+    let postMarketChange: HoldingExtendedHoursChange?
+
+    static let none = PricedValues(
+        currentPrice: nil,
+        previousClose: nil,
+        preMarketChange: nil,
+        postMarketChange: nil
+    )
 }
 
 private extension String {
