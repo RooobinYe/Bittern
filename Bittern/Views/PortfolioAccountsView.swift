@@ -138,6 +138,7 @@ struct PortfolioAccountsView: View {
 
     private func clear() {
         do {
+            try PortfolioCache.clear()
             try credentialsStore.clear()
             clientId = ""
             consumerKey = ""
