@@ -73,12 +73,17 @@ struct HoldingDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentMargins(.horizontal, 24, for: .scrollContent)
+            .softNavigationBarEdge()
             .refreshable {
                 await Task {
                     await detailModel.refreshSelectedRange()
                 }.value
             }
         }
+        // The header already shows the full name; the symbol stays readable
+        // once it scrolls away and never truncates in the inline bar.
+        .navigationTitle(holding.symbol)
+        .navigationBarTitleDisplayMode(.inline)
         .errorToast(message: $detailModel.errorMessage)
         .task {
             await detailModel.loadSelectedRangeIfNeeded()
