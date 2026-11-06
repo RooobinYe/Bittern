@@ -36,15 +36,21 @@ extension NetworkTests {
         }
 
         /// One account at one broker, holding `positions`. `quotes` maps a
-        /// symbol to its Yahoo response; a missing symbol gets a 404.
+        /// symbol to its Yahoo response; a missing symbol gets a 404. With
+        /// `failsExtendedHours`, every extended-hours request gets a 500.
         private func repository(
             positions: [String],
             quotes: [String: Data],
-            activities: String = #"{"data":[],"pagination":{"total":0}}"#
+            activities: String = #"{"data":[],"pagination":{"total":0}}"#,
+            failsExtendedHours: Bool = false,
+            at date: Date? = nil
         ) -> LivePortfolioRepository {
             let positionsJSON = #"{"results":[\#(positions.joined(separator: ","))],"data_freshness":{"as_of":"2026-11-06T15:00:00Z"}}"#
             let session = StubURLProtocol.session { request in
                 let path = request.url?.path ?? ""
+                if failsExtendedHours, request.queryValue("interval") == "1m" {
+                    return (500, Data())
+                }
                 if path.hasPrefix("/v8/finance/chart/") {
                     let symbol = String(path.dropFirst("/v8/finance/chart/".count))
                     guard let data = quotes[symbol] else { return (404, Data()) }
@@ -63,8 +69,8 @@ extension NetworkTests {
                     return (404, Data())
                 }
             }
-            let date = now
-            return LivePortfolioRepository(session: session, currentDate: { date })
+            let date = date ?? now
+            return makeLiveRepository(session: session, currentDate: { date })
         }
 
         @Test func buildsHoldingsFromThePublishedShapes() async throws {
@@ -188,6 +194,25 @@ extension NetworkTests {
 
             #expect(result.snapshot.holdings.first?.dividendsReceived == nil)
             #expect(result.snapshot.allTimeGainAmount == nil)
+        }
+
+        /// Losing the extended-hours quote is a partial failure, reported in
+        /// the result next to the regular prices it leaves intact.
+        @Test func extendedHoursFailureIsReportedWithRegularPrices() async throws {
+            let repository = repository(
+                positions: [position()],
+                quotes: ["AAPL": try Fixture.data("yahoo-quote-extended-hours")],
+                failsExtendedHours: true,
+                at: marketTime(day: 6, hour: 17, minute: 30)
+            )
+
+            let result = try await repository.loadPortfolio(credentials: credentials)
+            let holding = try #require(result.snapshot.holdings.first)
+
+            #expect(result.partialFailure.extendedHoursFailed)
+            #expect(holding.currentPrice == 108.5)
+            #expect(holding.postMarketChange == nil)
+            #expect(try #require(result.partialFailure.message(hasMixedCurrencies: false)).contains("Extended-hours"))
         }
 
         @Test func positionsInTwoCurrenciesKeepEveryHoldingButNoTotal() async throws {

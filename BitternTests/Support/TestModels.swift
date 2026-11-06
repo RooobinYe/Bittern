@@ -41,3 +41,18 @@ func makeAccount(id: String = "a1", currencyCode: String = "USD") -> PortfolioAc
         currencyCode: currencyCode
     )
 }
+
+/// The live repository with every client on `session`.
+func makeLiveRepository(
+    session: URLSession,
+    currentDate: @escaping @Sendable () -> Date
+) -> LivePortfolioRepository {
+    LivePortfolioRepository(
+        makeSnapTradeClient: { credentials in
+            SnapTradeClient(credentials: credentials, session: session, currentDate: currentDate)
+        },
+        yahoo: YahooFinanceClient(session: session, currentDate: currentDate),
+        brandfetch: BrandfetchClient(session: session),
+        currentDate: currentDate
+    )
+}
