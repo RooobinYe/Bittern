@@ -95,7 +95,7 @@ struct SettingsView: View {
             }
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .softNavigationBarEdge()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
     }
@@ -155,7 +155,7 @@ private struct SnapTradeCredentialsView: View {
             }
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .softNavigationBarEdge()
         .navigationTitle("Credentials")
         .navigationBarTitleDisplayMode(.inline)
     }
