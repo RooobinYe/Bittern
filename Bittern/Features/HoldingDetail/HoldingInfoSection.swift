@@ -5,18 +5,12 @@
 
 import SwiftUI
 
+/// The position as a list section: value, cost, quantity, share of the
+/// portfolio and how the return adds up.
 struct HoldingInfoSection: View {
     let holding: PortfolioHolding
     let snapshot: PortfolioSnapshot
     let isPrivacyEnabled: Bool
-
-    private var allocation: Double? {
-        snapshot.allocation(of: holding)
-    }
-
-    private var unitLabel: String {
-        holding.quantityUnit.title
-    }
 
     private var formattedQuantity: String {
         if let quantityDisplay = holding.quantityDisplay?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -24,16 +18,14 @@ struct HoldingInfoSection: View {
             return quantityDisplay
         }
 
-        return preciseQuantity(holding.quantity)
+        return PortfolioFormat.preciseQuantity(holding.quantity)
     }
 
     private var averagePriceText: String {
-        if isPrivacyEnabled {
-            return PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
-        }
-
-        guard let averageCost = holding.averageCost else { return "N/A" }
-        return PortfolioFormat.price(averageCost, currencyCode: holding.currencyCode)
+        guard let averageCost = holding.averageCost else { return PortfolioFormat.missing }
+        return isPrivacyEnabled
+            ? PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
+            : PortfolioFormat.price(averageCost, currencyCode: holding.currencyCode)
     }
 
     private var returnEquation: HoldingReturnEquation? {
@@ -68,103 +60,54 @@ struct HoldingInfoSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                Text("My Holdings")
-                    .font(.title.bold())
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-
-                Spacer(minLength: 8)
-
-                Text(allocationText)
-                    .font(.subheadline.bold().monospacedDigit())
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color(uiColor: .secondarySystemFill))
-                    .clipShape(Capsule())
+        Section {
+            LabeledContent("Market Value") {
+                Text(marketValueText)
+                    .font(.keyFigure(.body))
             }
 
-            VStack(spacing: 0) {
-                HoldingInfoRow(
-                    title: "Market Value",
-                    value: totalText
-                )
-
-                Divider().overlay(BitternTheme.softLine)
-
-                HoldingInfoRow(
-                    title: "Average Cost",
-                    value: averagePriceText
-                )
-
-                Divider().overlay(BitternTheme.softLine)
-
-                HoldingInfoRow(title: unitLabel, value: isPrivacyEnabled ? "••••" : formattedQuantity)
-
-                if let returnEquation {
-                    Divider().overlay(BitternTheme.softLine)
-
-                    HoldingReturnEquationGrid(
-                        equation: returnEquation,
-                        currencyCode: holding.currencyCode,
-                        isPrivacyEnabled: isPrivacyEnabled
-                    )
-                }
+            LabeledContent("Average Cost") {
+                Text(averagePriceText)
+                    .monospacedDigit()
             }
-            .bitternPanel()
-        }
-    }
 
-    private var allocationText: String {
-        guard let allocation else { return "N/A of portfolio" }
-        return "\(PortfolioFormat.percent(allocation)) of portfolio"
-    }
+            LabeledContent(holding.quantityUnit.title) {
+                Text(isPrivacyEnabled ? "••••" : formattedQuantity)
+                    .monospacedDigit()
+            }
 
-    private var totalText: String {
-        if isPrivacyEnabled {
-            return holding.marketValue == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
-        }
+            LabeledContent("Share of Portfolio") {
+                Text(snapshot.allocation(of: holding).map { PortfolioFormat.percent($0) } ?? PortfolioFormat.missing)
+                    .monospacedDigit()
+            }
 
-        guard let marketValue = holding.marketValue else { return "N/A" }
-        return PortfolioFormat.money(marketValue, currencyCode: holding.currencyCode)
-    }
-}
-
-private struct HoldingInfoRow: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(title)
-                .font(.headline.bold())
-                .foregroundStyle(BitternTheme.secondaryInk)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
-
-            Spacer(minLength: 14)
-
-            Text(value)
-                .font(.title2.bold().monospacedDigit())
+            if let returnEquation {
+                HoldingReturnEquationRow(
+                    equation: returnEquation,
+                    currencyCode: holding.currencyCode,
+                    isPrivacyEnabled: isPrivacyEnabled
+                )
+            }
+        } header: {
+            Text("My Holdings")
+                .font(.title3.bold())
                 .foregroundStyle(BitternTheme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.56)
-                .multilineTextAlignment(.trailing)
+                .textCase(nil)
         }
-        .frame(minHeight: 64)
-        .padding(.horizontal, 18)
+    }
+
+    private var marketValueText: String {
+        guard let marketValue = holding.marketValue else { return PortfolioFormat.missing }
+        return isPrivacyEnabled
+            ? PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
+            : PortfolioFormat.money(marketValue, currencyCode: holding.currencyCode)
     }
 }
 
 private struct HoldingReturnMetric: Identifiable {
     let title: String
-    let amount: Double?
-    let percent: Double?
+    let amount: Double
+    let percent: Double
 
     var id: String { title }
 }
@@ -175,71 +118,54 @@ private struct HoldingReturnEquation {
     let totalReturn: HoldingReturnMetric
 }
 
-private struct HoldingReturnEquationGrid: View {
+/// Price gain + dividends = total return, as three columns; at accessibility
+/// text sizes, as three rows.
+private struct HoldingReturnEquationRow: View {
     let equation: HoldingReturnEquation
     let currencyCode: String
     let isPrivacyEnabled: Bool
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
-        ZStack {
-            HStack(spacing: 0) {
-                HoldingReturnMetricCell(
-                    metric: equation.priceGain,
-                    currencyCode: currencyCode,
-                    isPrivacyEnabled: isPrivacyEnabled
-                )
-                .frame(maxWidth: .infinity)
-
-                Divider()
-                    .frame(width: 1)
-                    .overlay(BitternTheme.softLine)
-
-                HoldingReturnMetricCell(
-                    metric: equation.dividends,
-                    currencyCode: currencyCode,
-                    isPrivacyEnabled: isPrivacyEnabled
-                )
-                .frame(maxWidth: .infinity)
-
-                Divider()
-                    .frame(width: 1)
-                    .overlay(BitternTheme.softLine)
-
-                HoldingReturnMetricCell(
-                    metric: equation.totalReturn,
-                    currencyCode: currencyCode,
-                    isPrivacyEnabled: isPrivacyEnabled
-                )
-                .frame(maxWidth: .infinity)
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 12) {
+                cell(equation.priceGain, alignment: .leading)
+                cell(equation.dividends, alignment: .leading)
+                cell(equation.totalReturn, alignment: .leading)
             }
-
-            GeometryReader { proxy in
-                HoldingReturnOperator(symbol: "+")
-                    .position(x: proxy.size.width / 3, y: proxy.size.height * 0.62)
-
-                HoldingReturnOperator(symbol: "=")
-                    .position(x: proxy.size.width * 2 / 3, y: proxy.size.height * 0.62)
+        } else {
+            HStack(alignment: .center, spacing: 4) {
+                cell(equation.priceGain, alignment: .center)
+                ReturnOperator(symbol: "+", name: "plus")
+                cell(equation.dividends, alignment: .center)
+                ReturnOperator(symbol: "=", name: "equals")
+                cell(equation.totalReturn, alignment: .center)
             }
-            .allowsHitTesting(false)
+            .padding(.vertical, 4)
         }
-        .frame(minHeight: 112)
+    }
+
+    private func cell(_ metric: HoldingReturnMetric, alignment: HorizontalAlignment) -> some View {
+        HoldingReturnMetricCell(
+            metric: metric,
+            currencyCode: currencyCode,
+            isPrivacyEnabled: isPrivacyEnabled,
+            alignment: alignment
+        )
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 }
 
-private struct HoldingReturnOperator: View {
+private struct ReturnOperator: View {
     let symbol: String
+    let name: String
 
     var body: some View {
         Text(symbol)
-            .font(.title2)
+            .font(.body)
             .foregroundStyle(BitternTheme.secondaryInk)
-            .frame(width: 32, height: 32)
-            .background(BitternTheme.surface)
-            .clipShape(Circle())
-            .overlay {
-                Circle()
-                    .stroke(BitternTheme.softLine.opacity(0.8), lineWidth: 1)
-            }
+            .accessibilityLabel(name)
     }
 }
 
@@ -247,64 +173,31 @@ private struct HoldingReturnMetricCell: View {
     let metric: HoldingReturnMetric
     let currencyCode: String
     let isPrivacyEnabled: Bool
+    let alignment: HorizontalAlignment
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: alignment, spacing: 2) {
             Text(metric.title)
-                .font(.headline.bold())
+                .font(.subheadline)
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
-                .minimumScaleFactor(0.62)
 
-            VStack(spacing: 2) {
-                Text(amountText)
-                    .font(.title2.bold().monospacedDigit())
-                    .foregroundStyle(metricColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.62)
+            Text(amountText)
+                .font(.keyFigure(.body))
+                .foregroundStyle(BitternTheme.performanceColor(metric.amount))
+                .lineLimit(1)
 
-                Text(percentText)
-                    .font(.title3.bold().monospacedDigit())
-                    .foregroundStyle(metricColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.62)
-            }
+            Text(PortfolioFormat.percent(metric.percent))
+                .font(.keyFigure(.subheadline))
+                .foregroundStyle(BitternTheme.performanceColor(metric.amount))
+                .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 16)
+        .accessibilityElement(children: .combine)
     }
 
     private var amountText: String {
-        guard let amount = metric.amount else { return "--" }
-        return isPrivacyEnabled
+        isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
-            : PortfolioFormat.wholeMoney(amount, currencyCode: currencyCode)
-    }
-
-    private var percentText: String {
-        guard let percent = metric.percent else { return "(--)" }
-        return "(\(PortfolioFormat.percent(percent)))"
-    }
-
-    private var metricColor: Color {
-        guard let amount = metric.amount else {
-            return BitternTheme.secondaryInk
-        }
-
-        return BitternTheme.performanceColor(amount)
+            : PortfolioFormat.wholeMoney(metric.amount, currencyCode: currencyCode)
     }
 }
-
-private let preciseQuantityFormatter: NumberFormatter = {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.usesGroupingSeparator = false
-    formatter.maximumFractionDigits = 12
-    formatter.minimumFractionDigits = 0
-    return formatter
-}()
-
-private func preciseQuantity(_ value: Double) -> String {
-    return preciseQuantityFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
-}
-

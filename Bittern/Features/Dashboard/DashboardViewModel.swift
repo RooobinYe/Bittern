@@ -147,6 +147,18 @@ final class DashboardViewModel {
         visibleSnapshot?.filtered(minimumMarketValue: minPriceThreshold)
     }
 
+    /// How many of the selected provider's holdings the minimum market value
+    /// hides.
+    var hiddenHoldingCount: Int {
+        visibleSnapshot?.holdings.count { !$0.meetsMinimumMarketValue(minPriceThreshold) } ?? 0
+    }
+
+    /// Saves a new minimum market value. Anything that isn't a non-negative
+    /// number shows every holding.
+    func setMinimumMarketValue(_ value: Double) {
+        minPriceThreshold = value.isFinite ? max(value, 0) : 0
+    }
+
     var sortedHoldings: [PortfolioHolding] {
         sortOption.sorted(displaySnapshot?.holdings ?? [], by: performanceMode)
     }

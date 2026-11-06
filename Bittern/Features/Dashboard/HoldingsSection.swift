@@ -5,139 +5,94 @@
 
 import SwiftUI
 
-struct HoldingsSection: View {
-    let sortedHoldings: [PortfolioHolding]
-    let snapshot: PortfolioSnapshot
-    let holdingColorLookup: [String: Color]
+/// The holdings title, when prices were updated, and the menu that picks
+/// the return, the order and the minimum market value.
+struct HoldingsHeader: View {
+    let lastUpdated: Date?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
-    let isPrivacyEnabled: Bool
+    let minimumMarketValue: Double
+    let hiddenHoldingCount: Int
+    let currencyCode: String
+    /// Nil shows the menu's label without the menu, as in the exported image.
     let controls: DashboardControls?
-    @State private var marketTime = Date()
-
-    private var nextExtendedHoursBoundary: Date? {
-        sortedHoldings.flatMap { holding in
-            [
-                holding.activePreMarketChange(at: marketTime)?.sessionEnd,
-                holding.activePostMarketChange(at: marketTime)?.sessionEnd
-            ].compactMap { $0 }
-        }.min()
-    }
+    let editMinimumValue: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.bottom, 8)
-
-            if sortedHoldings.isEmpty {
-                EmptyHoldingsView()
-                    .padding(.top, 24)
-            } else {
-                holdingsList
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                titles
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                optionsMenu
             }
-        }
-        .onChange(of: snapshot.lastUpdated) { _, _ in
-            marketTime = Date()
-        }
-        .task(id: nextExtendedHoursBoundary) {
-            guard let boundary = nextExtendedHoursBoundary else { return }
-            do {
-                try await Task.sleep(for: .seconds(max(boundary.timeIntervalSinceNow, 0)))
-            } catch {
-                return
-            }
-            marketTime = Date()
-        }
-    }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Holdings")
-                    .font(.title2.bold())
-                    .foregroundStyle(BitternTheme.ink)
-
-                Text(
-                    snapshot.lastUpdated.map { "Updated \(PortfolioFormat.lastUpdated($0))" }
-                        ?? "Prices incomplete"
-                )
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(BitternTheme.secondaryInk)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                titles
+                optionsMenu
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 4)
+    }
 
-            sortControl
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.top, 3)
+    private var titles: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Holdings")
+                .font(.title2.bold())
+                .foregroundStyle(BitternTheme.ink)
+
+            Text(lastUpdated.map { "Updated \(PortfolioFormat.lastUpdated($0))" } ?? "Prices incomplete")
+                .font(.footnote)
+                .foregroundStyle(BitternTheme.secondaryInk)
         }
     }
 
     @ViewBuilder
-    private var sortControl: some View {
-        let label = HoldingsSortLabel(title: sortTitle)
+    private var optionsMenu: some View {
+        let label = HoldingsOptionsLabel(title: sortTitle)
         if let controls {
             Menu {
-                Section("Return") {
+                Picker("Return", selection: Binding(
+                    get: { performanceMode },
+                    set: controls.selectPerformanceMode
+                )) {
                     ForEach(PerformanceMode.allCases) { mode in
-                        Button {
-                            controls.selectPerformanceMode(mode)
-                        } label: {
-                            Label(mode.title, systemImage: mode.systemImage)
-                        }
+                        Label(mode.title, systemImage: mode.systemImage)
+                            .tag(mode)
                     }
                 }
+                .pickerStyle(.inline)
 
-                Section("Sort") {
+                Picker("Sort By", selection: Binding(
+                    get: { sortOption },
+                    set: controls.selectSortOption
+                )) {
                     ForEach(HoldingSortOption.allCases) { option in
-                        Button {
-                            controls.selectSortOption(option)
-                        } label: {
-                            Label(option.title, systemImage: option.systemImage)
-                        }
+                        Label(option.title, systemImage: option.systemImage)
+                            .tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+
+                Section {
+                    Button(action: editMinimumValue) {
+                        Label("Minimum Value", systemImage: "line.3.horizontal.decrease")
+                        Text(minimumValueSubtitle)
                     }
                 }
             } label: {
                 label
             }
-            .accessibilityLabel("Holding return and sort options")
+            .accessibilityLabel("Holding options")
+            .accessibilityValue(sortTitle)
         } else {
             label
         }
     }
 
-    /// The live list loads rows lazily and opens each holding; the export
-    /// renders every row.
-    @ViewBuilder
-    private var holdingsList: some View {
-        if controls != nil {
-            LazyVStack(spacing: 0) {
-                ForEach(sortedHoldings) { holding in
-                    NavigationLink(value: HoldingRoute(holdingID: holding.id)) {
-                        row(for: holding)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        } else {
-            VStack(spacing: 0) {
-                ForEach(sortedHoldings) { holding in
-                    row(for: holding)
-                }
-            }
-        }
-    }
-
-    private func row(for holding: PortfolioHolding) -> HoldingListRow {
-        HoldingListRow(
-            holding: holding,
-            allocation: snapshot.allocation(of: holding),
-            performanceMode: performanceMode,
-            isPrivacyEnabled: isPrivacyEnabled,
-            color: holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0),
-            showsDivider: holding.id != sortedHoldings.last?.id,
-            marketTime: marketTime
-        )
+    private var minimumValueSubtitle: String {
+        let minimum = PortfolioFormat.price(minimumMarketValue, currencyCode: currencyCode)
+        return "\(minimum)\(PortfolioFormat.separator)\(hiddenHoldingCount) hidden"
     }
 
     private var sortTitle: String {
@@ -155,37 +110,88 @@ struct HoldingsSection: View {
     }
 }
 
-private struct HoldingsSortLabel: View {
+private struct HoldingsOptionsLabel: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(title)
-                .font(.callout.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.76)
+                .font(.subheadline)
 
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption)
+                .accessibilityHidden(true)
         }
         .foregroundStyle(BitternTheme.secondaryInk)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
-private struct EmptyHoldingsView: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "tray")
-                .font(.title2)
-                .foregroundStyle(BitternTheme.secondaryInk)
+struct EmptyHoldingsView: View {
+    /// Why there may be nothing to show, when holdings are hidden.
+    let hiddenNote: String?
 
-            Text("No holdings")
-                .font(.headline)
-                .foregroundStyle(BitternTheme.ink)
+    var body: some View {
+        ContentUnavailableView {
+            Label("No Holdings", systemImage: "tray")
+        } description: {
+            if let hiddenNote {
+                Text(hiddenNote)
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 132)
-        .background(BitternTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct MinimumMarketValueEditor: ViewModifier {
+    @Binding var isPresented: Bool
+    let value: Double
+    let currencyCode: String
+    let save: (Double) -> Void
+
+    @State private var draft: Double?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Minimum Value (\(currencyCode))", isPresented: $isPresented) {
+                TextField(
+                    "0.00",
+                    value: $draft,
+                    format: .number.precision(.fractionLength(0...2))
+                )
+                .keyboardType(.decimalPad)
+
+                Button("Cancel", role: .cancel) {}
+
+                Button("Save") {
+                    save(draft ?? 0)
+                }
+            } message: {
+                Text("Holdings worth less than this are hidden throughout the app. Enter 0 to show every holding.")
+            }
+            .onChange(of: isPresented) { _, isPresented in
+                if isPresented {
+                    draft = value
+                }
+            }
+    }
+}
+
+extension View {
+    func minimumMarketValueEditor(
+        isPresented: Binding<Bool>,
+        value: Double,
+        currencyCode: String,
+        save: @escaping (Double) -> Void
+    ) -> some View {
+        modifier(
+            MinimumMarketValueEditor(
+                isPresented: isPresented,
+                value: value,
+                currencyCode: currencyCode,
+                save: save
+            )
+        )
     }
 }
 

@@ -2,276 +2,333 @@
 //  SettingsView.swift
 //  Bittern
 //
+//  The SnapTrade connection, its saved credentials and the accounts it
+//  brings in, as one form in a sheet.
+//
 
 import SwiftUI
 
 struct SettingsView: View {
     let credentialsStore: CredentialsStore
-    @Bindable var viewModel: DashboardViewModel
-    @AppStorage(AppSettingKey.appearanceMode) private var appearanceModeRaw = AppAppearance.automatic.rawValue
+    let viewModel: DashboardViewModel
+    @State private var connection: BrokerageConnectionModel
+    @State private var isConfirmingClear = false
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.portfolioRepository) private var repository
+    @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
-    var body: some View {
-        Form {
-            Section {
-                Picker("Appearance", selection: $appearanceModeRaw) {
-                    ForEach(AppAppearance.allCases) { appearance in
-                        Label(appearance.title, systemImage: appearance.systemImage)
-                            .tag(appearance.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .listRowInsets(.vertical, 0)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } header: {
-                Text("Appearance")
-            } footer: {
-                Text("System follows the appearance selected for your iPhone.")
-            }
-
-            Section {
-                NavigationLink {
-                    MinimumMarketValueView(
-                        threshold: $viewModel.minPriceThreshold,
-                        currencyCode: viewModel.displayCurrencyCode
-                    )
-                } label: {
-                    SettingsValueLabel(
-                        title: "Minimum Market Value",
-                        value: formattedMinimumMarketValue
-                    )
-                }
-            } header: {
-                Text("Filters")
-            } footer: {
-                Text("Holdings below this value are hidden from your portfolio.")
-            }
-
-            Section {
-                NavigationLink {
-                    ContributionCalculatorView(viewModel: viewModel)
-                } label: {
-                    SettingsNavigationLabel(
-                        title: "Contributions",
-                        systemImage: "dollarsign.arrow.circlepath"
-                    )
-                }
-
-                NavigationLink {
-                    PortfolioHistoryView(credentialsStore: credentialsStore, dashboardViewModel: viewModel)
-                        .navigationTitle("History")
-                        .navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    SettingsNavigationLabel(
-                        title: "History",
-                        systemImage: "chart.xyaxis.line"
-                    )
-                }
-
-                NavigationLink {
-                    PortfolioAccountsView(credentialsStore: credentialsStore, viewModel: viewModel)
-                        .navigationTitle("Portfolio Accounts")
-                        .navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    SettingsNavigationLabel(
-                        title: "Portfolio Accounts",
-                        systemImage: "building.columns",
-                        value: connectedAccountsValue
-                    )
-                }
-
-                NavigationLink {
-                    SnapTradeCredentialsView(credentialsStore: credentialsStore)
-                } label: {
-                    SettingsNavigationLabel(
-                        title: "Credentials",
-                        systemImage: "key"
-                    )
-                }
-            } header: {
-                Text("Portfolio")
-            }
-        }
-        .fontDesign(.default)
-        .softNavigationBarEdge()
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.large)
+    init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
+        self.credentialsStore = credentialsStore
+        self.viewModel = viewModel
+        _connection = State(initialValue: BrokerageConnectionModel(credentialsStore: credentialsStore))
     }
 
-    private var formattedMinimumMarketValue: String {
-        PortfolioFormat.price(
-            max(viewModel.minPriceThreshold, 0),
-            currencyCode: viewModel.displayCurrencyCode
-        )
-    }
-
-    private var connectedAccountsValue: String {
-        let count = viewModel.snapshot?.accounts.count ?? 0
-        return count == 0 ? "None" : "\(count)"
-    }
-}
-
-private struct SnapTradeCredentialsView: View {
-    let credentialsStore: CredentialsStore
-
-    private var credentials: SnapTradeCredentials? {
+    private var savedCredentials: SnapTradeCredentials? {
         credentialsStore.credentials?.sanitized
     }
 
     var body: some View {
-        Form {
-            if let credentials {
-                Section {
-                    CredentialsValueRow(title: "Client ID", value: credentials.clientId)
-                    CredentialsValueRow(title: "Consumer Key", value: credentials.consumerKey)
-                    CredentialsValueRow(title: "User ID", value: credentials.userId)
-                    CredentialsValueRow(title: "User Key", value: credentials.userSecret)
-                } header: {
-                    Text("SnapTrade")
-                } footer: {
-                    Text("Touch and hold a value to select or copy it.")
+        NavigationStack {
+            Form {
+                apiKeySection
+                connectSection
+
+                if let savedCredentials, savedCredentials.hasSnapTradeUser {
+                    userSection(savedCredentials)
                 }
-            } else {
-                Section {
-                    HStack(alignment: .top, spacing: 13) {
-                        Image(systemName: "key.slash")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(BitternTheme.accent)
-                            .frame(width: 24)
-                            .accessibilityHidden(true)
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("No Credentials")
+                accountSections
 
-                            Text("Connect SnapTrade to create saved credentials.")
-                                .font(.footnote)
-                                .foregroundStyle(BitternTheme.secondaryInk)
-                                .fixedSize(horizontal: false, vertical: true)
+                if savedCredentials != nil {
+                    Section {
+                        Button("Clear Credentials", role: .destructive) {
+                            isConfirmingClear = true
                         }
                     }
                 }
             }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .close) {
+                        dismiss()
+                    }
+                }
+            }
+            .refreshable {
+                await viewModel.fullRefresh()
+            }
+            .errorToast(message: presentedErrorMessage)
+            .confirmationDialog(
+                "Clear SnapTrade credentials?",
+                isPresented: $isConfirmingClear,
+                titleVisibility: .visible
+            ) {
+                Button("Clear Credentials", role: .destructive) {
+                    connection.clear(dashboard: viewModel)
+                }
+            } message: {
+                Text("SnapTrade shows a User Secret only once. After it's cleared, Bittern can't get it back, and saving the API key again creates a new SnapTrade user.")
+            }
         }
-        .fontDesign(.default)
-        .softNavigationBarEdge()
-        .navigationTitle("Credentials")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Sections
+
+    private var apiKeySection: some View {
+        Section {
+            LabeledContent("Status", value: statusTitle)
+
+            TitledField(title: "Client ID") {
+                TextField("Required", text: $connection.clientId)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.none)
+                    .accessibilityLabel("Client ID")
+            }
+
+            TitledField(title: "Consumer Key") {
+                RevealableSecretField(title: "Consumer Key", text: $connection.consumerKey)
+            }
+
+            Button {
+                Task { await connection.save(using: repository, dashboard: viewModel) }
+            } label: {
+                ProgressButtonLabel(title: "Save", isInProgress: connection.isSaving)
+            }
+            .disabled(connection.isSaving)
+
+            if let successMessage = connection.successMessage {
+                Label {
+                    Text(successMessage)
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(BitternTheme.positivePerformance)
+                }
+            }
+        } header: {
+            Text("SnapTrade API Key")
+        } footer: {
+            Text(statusFooter)
+        }
+    }
+
+    private var connectSection: some View {
+        Section {
+            Button {
+                Task { await openConnectionPortal() }
+            } label: {
+                ProgressButtonLabel(title: "Connect Brokerage", isInProgress: connection.isOpeningPortal)
+            }
+            .disabled(connection.isOpeningPortal)
+        } footer: {
+            Text("Opens SnapTrade, where you sign in to your brokerage.")
+        }
+    }
+
+    private func userSection(_ credentials: SnapTradeCredentials) -> some View {
+        Section {
+            CredentialValueRow(title: "User ID", value: credentials.userId, isSecret: false)
+            CredentialValueRow(title: "User Secret", value: credentials.userSecret, isSecret: true)
+        } header: {
+            Text("SnapTrade User")
+        } footer: {
+            Text("Created when you saved the API key. Touch and hold a shown value to copy it.")
+        }
+    }
+
+    @ViewBuilder
+    private var accountSections: some View {
+        let providerGroups = ProviderHoldings.groups(
+            accounts: viewModel.snapshot?.accounts ?? [],
+            holdings: viewModel.thresholdFilteredHoldings
+        )
+        let holdingColorLookup = BitternTheme.holdingAllocationColors(
+            for: viewModel.snapshot?.holdings ?? []
+        )
+
+        if providerGroups.isEmpty {
+            Section("Accounts") {
+                ContentUnavailableView(
+                    "No Accounts",
+                    systemImage: "building.columns",
+                    description: Text("Brokerages you connect through SnapTrade appear here.")
+                )
+            }
+        } else {
+            ForEach(providerGroups) { group in
+                ProviderHoldingsSection(
+                    group: group,
+                    holdingColorLookup: holdingColorLookup,
+                    isPrivacyEnabled: isPrivacyEnabled
+                )
+            }
+        }
+    }
+
+    // MARK: - Status
+
+    private var statusTitle: String {
+        if savedCredentials?.isComplete == true {
+            return "Connected"
+        }
+        if savedCredentials?.hasAPIKey == true {
+            return "Incomplete"
+        }
+        return "Not Set Up"
+    }
+
+    private var statusFooter: String {
+        if savedCredentials?.isComplete == true {
+            return "Your API key is saved, and Bittern created a SnapTrade user for this device."
+        }
+        if savedCredentials?.hasAPIKey == true {
+            return "Save again to finish creating your SnapTrade user."
+        }
+        return "Enter the API key from your SnapTrade dashboard. Bittern creates the SnapTrade user for you."
+    }
+
+    /// This screen's own errors first, then the dashboard's.
+    private var presentedErrorMessage: Binding<String?> {
+        Binding(
+            get: { connection.errorMessage ?? viewModel.errorMessage },
+            set: { newValue in
+                connection.errorMessage = newValue
+                if newValue == nil {
+                    viewModel.errorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func openConnectionPortal() async {
+        guard let url = await connection.connectionPortalURL(
+            darkMode: colorScheme == .dark,
+            using: repository
+        ) else {
+            return
+        }
+        openURL(url)
     }
 }
 
-private struct CredentialsValueRow: View {
+/// A button title with a spinner beside it while its work runs.
+private struct ProgressButtonLabel: View {
     let title: String
-    let value: String
+    let isInProgress: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        HStack {
+            Text(title)
+            if isInProgress {
+                Spacer()
+                ProgressView()
+            }
+        }
+    }
+}
+
+/// A field with its title above it, so the title stays once it's filled in.
+private struct TitledField<Field: View>: View {
+    let title: String
+    @ViewBuilder let field: () -> Field
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.subheadline)
                 .foregroundStyle(BitternTheme.secondaryInk)
-
-            Text(value.isEmpty ? "N/A" : value)
-                .font(.footnote.monospaced())
-                .foregroundStyle(BitternTheme.ink)
-                .textSelection(.enabled)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 3)
-    }
-}
-
-private struct SettingsNavigationLabel: View {
-    let title: String
-    let systemImage: String
-    var value: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.medium))
-                .foregroundStyle(BitternTheme.accent)
-                .frame(width: 24)
                 .accessibilityHidden(true)
 
-            Text(title)
-                .foregroundStyle(BitternTheme.ink)
-
-            Spacer(minLength: 12)
-
-            if let value {
-                Text(value)
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-            }
+            field()
         }
     }
 }
 
-private struct SettingsValueLabel: View {
+/// A secret entered as dots, with an eye button that shows it.
+private struct RevealableSecretField: View {
+    let title: String
+    @Binding var text: String
+    @State private var isRevealed = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                if isRevealed {
+                    TextField("Required", text: $text)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else {
+                    SecureField("Required", text: $text)
+                }
+            }
+            .textContentType(.none)
+            .accessibilityLabel(title)
+
+            RevealButton(title: title, isRevealed: $isRevealed)
+        }
+    }
+}
+
+/// A saved credential. Secrets stay masked until the eye button shows them,
+/// so they don't end up in a screenshot or screen recording by accident.
+private struct CredentialValueRow: View {
     let title: String
     let value: String
+    let isSecret: Bool
+    @State private var isRevealed = false
+
+    private var isShowingValue: Bool {
+        !isSecret || isRevealed
+    }
 
     var body: some View {
-        LabeledContent(title) {
-            Text(value)
-                .foregroundStyle(BitternTheme.secondaryInk)
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+
+                if value.isEmpty {
+                    Text(PortfolioFormat.missing)
+                        .foregroundStyle(BitternTheme.secondaryInk)
+                } else if isShowingValue {
+                    Text(value)
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                } else {
+                    Text(String(repeating: "•", count: 12))
+                        .font(.body.monospaced())
+                        .accessibilityLabel("Hidden")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+
+            if isSecret, !value.isEmpty {
+                RevealButton(title: title, isRevealed: $isRevealed)
+            }
         }
     }
 }
 
-private struct MinimumMarketValueView: View {
-    @Binding var threshold: Double
-    let currencyCode: String
-    @FocusState private var isValueFocused: Bool
+private struct RevealButton: View {
+    let title: String
+    @Binding var isRevealed: Bool
 
     var body: some View {
-        Form {
-            Section {
-                LabeledContent("Minimum Value") {
-                    HStack(spacing: 8) {
-                        Text(currencyCode)
-                            .font(.subheadline)
-                            .foregroundStyle(BitternTheme.secondaryInk)
-
-                        TextField(
-                            "0.00",
-                            value: $threshold,
-                            format: .number.precision(.fractionLength(0...2))
-                        )
-                        .font(.body.monospacedDigit())
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.decimalPad)
-                        .focused($isValueFocused)
-                        .frame(minWidth: 72, maxWidth: 112)
-                    }
-                }
-            } footer: {
-                Text("Holdings with a market value below this amount are hidden throughout the app. Enter 0 to show every holding.")
-            }
+        Button {
+            isRevealed.toggle()
+        } label: {
+            Image(systemName: isRevealed ? "eye.slash" : "eye")
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .fontDesign(.default)
-        .navigationTitle("Minimum Value")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-
-                Button("Done") {
-                    normalizeThreshold()
-                    isValueFocused = false
-                }
-            }
-        }
-        .onDisappear(perform: normalizeThreshold)
-    }
-
-    private func normalizeThreshold() {
-        if threshold.isFinite {
-            threshold = max(threshold, 0)
-        } else {
-            threshold = 0
-        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(BitternTheme.secondaryInk)
+        .accessibilityLabel(isRevealed ? "Hide \(title)" : "Show \(title)")
     }
 }

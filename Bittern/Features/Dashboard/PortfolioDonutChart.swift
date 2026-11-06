@@ -92,54 +92,81 @@ private struct DonutPortfolioChart: View {
 
             ZStack {
                 Circle()
-                    .stroke(BitternTheme.surface, lineWidth: strokeWidth)
+                    .stroke(Color(uiColor: .secondarySystemFill), lineWidth: strokeWidth)
                     .frame(width: side, height: side)
                     .position(center)
 
-                ForEach(segments) { segment in
-                    DonutSegmentShape(
-                        startAngle: .degrees(segment.startAngle),
-                        endAngle: .degrees(segment.endAngle)
-                    )
-                    .stroke(segment.color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
-                    .frame(width: side, height: side)
-                    .position(center)
+                // VoiceOver reads the ring as one chart, with the allocation
+                // as its value and an audio graph through the descriptor.
+                ZStack {
+                    ForEach(segments) { segment in
+                        DonutSegmentShape(
+                            startAngle: .degrees(segment.startAngle),
+                            endAngle: .degrees(segment.endAngle)
+                        )
+                        .stroke(segment.color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
+                        .frame(width: side, height: side)
+                        .position(center)
+                    }
                 }
+                .accessibilityElement()
+                .accessibilityLabel("Allocation")
+                .accessibilityValue(allocationSummary(segments))
+                .accessibilityChartDescriptor(
+                    AllocationChartDescriptor(slices: segments.map { ($0.symbol, $0.share) })
+                )
 
                 VStack(spacing: centerSpacing) {
                     Text(totalMarketValueText)
-                        .font(.title.bold().monospacedDigit())
+                        .font(.keyFigure(.title, weight: .bold))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.62)
+                        // The ring's hole is a fixed size; at large text sizes
+                        // the total must shrink to stay inside it.
+                        .minimumScaleFactor(0.5)
 
                     Text(performanceText)
-                        .font(.headline.bold().monospacedDigit())
+                        .font(.keyFigure(.headline))
                         .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.68)
+                        .minimumScaleFactor(0.5)
 
                     performanceModeControl
                 }
-                .frame(width: side * 0.58)
+                .frame(width: side * 0.62)
+                // The ring's hole doesn't grow with the text, so the centre
+                // stops growing where its figures would no longer fit.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .position(center)
 
-                ForEach(segments) { segment in
-                    AllocationBubble(
-                        symbol: segment.symbol,
-                        logoURL: segment.logoURL,
-                        percent: segment.share,
-                        color: segment.color,
-                        scale: labelScale
-                    )
-                    .position(
-                        x: center.x + cos(segment.midAngle * .pi / 180) * labelRadius,
-                        y: center.y + sin(segment.midAngle * .pi / 180) * labelRadius
-                    )
+                GlassEffectContainer {
+                    BubbleRingLayout(radius: labelRadius, outerRingOffset: 36 * labelScale) {
+                        ForEach(segments) { segment in
+                            AllocationBubble(
+                                symbol: segment.symbol,
+                                logoURL: segment.logoURL,
+                                percent: segment.share,
+                                color: segment.color,
+                                scale: labelScale
+                            )
+                            .preferredBubbleAngle(segment.midAngle * .pi / 180)
+                        }
+                    }
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                // Bubbles past this size would cover the ring and each other.
+                // VoiceOver reads the same shares from the ring itself.
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .accessibilityHidden(true)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
+    }
+
+    private func allocationSummary(_ segments: [DonutSegment]) -> String {
+        segments
+            .map { "\($0.symbol) \(PortfolioFormat.percent($0.share, fractionDigits: 0))" }
+            .joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -147,23 +174,28 @@ private struct DonutPortfolioChart: View {
         let label = PerformanceModeLabel(title: performanceMode.title)
         if let selectPerformanceMode {
             Menu {
-                ForEach(PerformanceMode.allCases) { mode in
-                    Button {
-                        selectPerformanceMode(mode)
-                    } label: {
+                Picker("Return", selection: Binding(
+                    get: { performanceMode },
+                    set: selectPerformanceMode
+                )) {
+                    ForEach(PerformanceMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.systemImage)
+                            .tag(mode)
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 label
             }
+            .accessibilityLabel("Return")
+            .accessibilityValue(performanceMode.title)
         } else {
             label
         }
     }
 
     private var performanceText: String {
-        guard let performanceAmount, let performancePercent else { return "N/A" }
+        guard let performanceAmount, let performancePercent else { return PortfolioFormat.missing }
 
         if isPrivacyEnabled {
             return PortfolioFormat.hiddenChange(
@@ -177,11 +209,49 @@ private struct DonutPortfolioChart: View {
     }
 
     private var totalMarketValueText: String {
-        guard let totalMarketValue = snapshot.totalMarketValue else { return "N/A" }
+        guard let totalMarketValue = snapshot.totalMarketValue else { return PortfolioFormat.missing }
         return isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: snapshot.currencyCode)
             : PortfolioFormat.wholeMoney(totalMarketValue, currencyCode: snapshot.currencyCode)
     }
+}
+
+/// The allocation for VoiceOver's audio graph and chart summary: each slice's
+/// share of the portfolio.
+private struct AllocationChartDescriptor: AXChartDescriptorRepresentable {
+    let slices: [(symbol: String, share: Double)]
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let symbols = slices.map(\.symbol)
+        let xAxis = AXCategoricalDataAxisDescriptor(
+            title: "Holding",
+            categoryOrder: symbols
+        )
+        let yAxis = AXNumericDataAxisDescriptor(
+            title: "Share of portfolio",
+            range: 0...100,
+            gridlinePositions: []
+        ) { value in
+            PortfolioFormat.percent(value / 100, fractionDigits: 0)
+        }
+        let series = AXDataSeriesDescriptor(
+            name: "Allocation",
+            isContinuous: false,
+            dataPoints: slices.map { slice in
+                AXDataPoint(x: slice.symbol, y: slice.share * 100)
+            }
+        )
+
+        return AXChartDescriptor(
+            title: "Allocation",
+            summary: nil,
+            xAxis: xAxis,
+            yAxis: yAxis,
+            additionalAxes: [],
+            series: [series]
+        )
+    }
+
 }
 
 /// A slice of the allocation as drawn: its arc and its label's color.
@@ -247,14 +317,18 @@ private struct PerformanceModeLabel: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(title)
-                .font(.callout.weight(.semibold))
+                .font(.subheadline)
+                .lineLimit(1)
 
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption)
+                .accessibilityHidden(true)
         }
-        .foregroundStyle(BitternTheme.ink)
+        .foregroundStyle(BitternTheme.secondaryInk)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -284,6 +358,8 @@ private struct AllocationBubble: View {
     let color: Color
     let scale: CGFloat
 
+    @ScaledMetric(relativeTo: .caption2) private var iconSize: CGFloat = 24
+
     private var isOther: Bool { symbol == Self.otherSymbol }
 
     var body: some View {
@@ -292,20 +368,19 @@ private struct AllocationBubble: View {
                 symbol: symbol,
                 logoURL: logoURL,
                 color: isOther ? BitternTheme.ink : color,
-                size: 24 * scale,
-                fallbackLabel: isOther ? Self.otherSymbol : String(symbol.prefix(4)),
-                fallbackForegroundColor: isOther ? BitternTheme.background : .white
+                size: iconSize * scale,
+                fallbackLabel: isOther ? Self.otherSymbol : String(symbol.prefix(4))
             )
 
             Text(PortfolioFormat.percent(percent, fractionDigits: 0))
-                .font(.caption2.weight(.semibold).monospacedDigit())
+                .font(.keyFigure(.caption2, weight: .semibold))
                 .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                .fixedSize()
         }
         .padding(.leading, 4 * scale)
         .padding(.trailing, 7 * scale)
-        .frame(height: 34 * scale)
+        .frame(minHeight: (iconSize + 10) * scale)
         .glassEffect(.clear, in: .capsule)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(symbol), \(PortfolioFormat.percent(percent, fractionDigits: 0))")

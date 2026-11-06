@@ -2,10 +2,19 @@
 //  PortfolioFormat.swift
 //  Bittern
 //
+//  Every number and date the interface shows, formatted for the person's
+//  region: their separators, currency placement and 12- or 24-hour clock.
+//
 
 import Foundation
 
 enum PortfolioFormat {
+    /// Shown wherever a value is unknown. Never a zero or an estimate.
+    static let missing = "N/A"
+
+    /// Joins pieces of secondary information on one line.
+    static let separator = " · "
+
     static func hiddenMoney(currencyCode: String = "USD") -> String {
         currencyCode == "USD" ? "$••••" : "\(currencyCode) ••••"
     }
@@ -13,174 +22,175 @@ enum PortfolioFormat {
     static func hiddenChange(
         amount: Double,
         percent: Double,
-        currencyCode: String = "USD"
+        currencyCode: String = "USD",
+        locale: Locale = .autoupdatingCurrent
     ) -> String {
-        let sign = amount < 0 ? "-" : amount > 0 ? "+" : ""
-        return "\(sign)\(hiddenMoney(currencyCode: currencyCode)) (\(PortfolioFormat.percent(percent, signed: true)))"
+        "\(sign(of: amount))\(hiddenMoney(currencyCode: currencyCode)) (\(PortfolioFormat.percent(percent, signed: true, locale: locale)))"
+    }
+
+    /// A hidden amount that still shows which way it moved.
+    static func hiddenSignedMoney(_ amount: Double, currencyCode: String = "USD") -> String {
+        "\(sign(of: amount))\(hiddenMoney(currencyCode: currencyCode))"
     }
 
     static func money(
         _ value: Double,
         currencyCode: String = "USD",
-        signed: Bool = false
+        signed: Bool = false,
+        locale: Locale = .autoupdatingCurrent
     ) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currencyAccounting
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.currencyCode = currencyCode
-        if currencyCode == "USD" {
-            formatter.currencySymbol = "$"
-        }
-        formatter.maximumFractionDigits = 2
-        formatter.minimumFractionDigits = 2
-
-        let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(currencyCode) \(abs(value))"
-
-        guard signed else {
-            return value < 0 ? "-\(rendered)" : rendered
-        }
-
-        if value > 0 {
-            return "+\(rendered)"
-        }
-
-        if value < 0 {
-            return "-\(rendered)"
-        }
-
-        return rendered
+        currency(value, currencyCode: currencyCode, fractionDigits: 2...2, signed: signed, locale: locale)
     }
 
-    static func price(_ value: Double, currencyCode: String = "USD") -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currencyAccounting
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.currencyCode = currencyCode
-        if currencyCode == "USD" {
-            formatter.currencySymbol = "$"
-        }
-        formatter.maximumFractionDigits = value >= 100 ? 2 : 3
-        formatter.minimumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
-    }
-
-    static func percent(_ value: Double, signed: Bool = false, fractionDigits: Int = 2) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .percent
-        formatter.maximumFractionDigits = fractionDigits
-        formatter.minimumFractionDigits = fractionDigits
-
-        let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(abs(value) * 100)%"
-
-        guard signed else {
-            return value < 0 ? "-\(rendered)" : rendered
-        }
-
-        if value > 0 {
-            return "+\(rendered)"
-        }
-
-        if value < 0 {
-            return "-\(rendered)"
-        }
-
-        return rendered
-    }
-
-    /// Compact change label for the donut centre — rounds to whole dollars
-    /// so the text always fits on one line.
-    static func change(_ amount: Double, percent: Double, currencyCode: String = "USD") -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currencyAccounting
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.currencyCode = currencyCode
-        if currencyCode == "USD" {
-            formatter.currencySymbol = "$"
-        }
-        formatter.maximumFractionDigits = 0
-        formatter.minimumFractionDigits = 0
-
-        let absAmount = abs(amount)
-        let rendered = formatter.string(from: NSNumber(value: absAmount)) ?? "\(absAmount)"
-
-        let sign: String
-        if amount > 0 { sign = "+" }
-        else if amount < 0 { sign = "-" }
-        else { sign = "" }
-
-        // Percent with 2 decimals
-        let pct = String(format: "%.2f%%", abs(percent) * 100)
-
-        return "\(sign)\(rendered) (\(amount < 0 ? "-" : amount > 0 ? "+" : "")\(pct))"
+    /// Two decimals, or three below 100 where cents hide real movement.
+    static func price(
+        _ value: Double,
+        currencyCode: String = "USD",
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        currency(
+            value,
+            currencyCode: currencyCode,
+            fractionDigits: value >= 100 ? 2...2 : 2...3,
+            signed: false,
+            locale: locale
+        )
     }
 
     /// Whole-dollar money with no decimal places.
-    static func wholeMoney(_ value: Double, currencyCode: String = "USD", signed: Bool = false) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currencyAccounting
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.currencyCode = currencyCode
-        if currencyCode == "USD" {
-            formatter.currencySymbol = "$"
-        }
-        formatter.maximumFractionDigits = 0
-        formatter.minimumFractionDigits = 0
-
-        let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(abs(value))"
-
-        guard signed else {
-            return value < 0 ? "-\(rendered)" : rendered
-        }
-
-        if value > 0 { return "+\(rendered)" }
-        if value < 0 { return "-\(rendered)" }
-        return rendered
+    static func wholeMoney(
+        _ value: Double,
+        currencyCode: String = "USD",
+        signed: Bool = false,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        currency(value, currencyCode: currencyCode, fractionDigits: 0...0, signed: signed, locale: locale)
     }
 
-    static func shares(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 5
-        formatter.minimumFractionDigits = value.rounded() == value ? 0 : 2
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    static func percent(
+        _ value: Double,
+        signed: Bool = false,
+        fractionDigits: Int = 2,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        value.formatted(
+            .percent
+                .precision(.fractionLength(fractionDigits))
+                .sign(strategy: signed ? .always(includingZero: false) : .automatic)
+                .locale(locale)
+        )
     }
 
-    static func tokens(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 5
-        formatter.minimumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    /// A change in whole currency units with its percentage, such as
+    /// "+$1,234 (+1.20%)", short enough for the donut's centre.
+    static func change(
+        _ amount: Double,
+        percent: Double,
+        currencyCode: String = "USD",
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        "\(wholeMoney(amount, currencyCode: currencyCode, signed: true, locale: locale)) (\(PortfolioFormat.percent(percent, signed: true, locale: locale)))"
     }
 
-    static func quantity(_ value: Double, unit: HoldingQuantityUnit) -> String {
+    static func shares(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let fractionDigits = value.rounded() == value ? 0...5 : 2...5
+        return value.formatted(.number.precision(.fractionLength(fractionDigits)).locale(locale))
+    }
+
+    static func tokens(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        value.formatted(.number.precision(.fractionLength(0...5)).locale(locale))
+    }
+
+    static func quantity(
+        _ value: Double,
+        unit: HoldingQuantityUnit,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
         switch unit {
         case .shares:
-            shares(value)
+            shares(value, locale: locale)
         case .tokens:
-            tokens(value)
+            tokens(value, locale: locale)
         }
+    }
+
+    /// Every digit the broker reported, without grouping.
+    static func preciseQuantity(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        value.formatted(
+            .number
+                .precision(.fractionLength(0...12))
+                .grouping(.never)
+                .locale(locale)
+        )
     }
 
     /// A persisted snapshot can be days old, so anything before today states
     /// its date; a bare time of day would read as just refreshed.
-    static func lastUpdated(_ date: Date, relativeTo now: Date = Date()) -> String {
-        let calendar = Calendar.current
+    static func lastUpdated(
+        _ date: Date,
+        relativeTo now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
         if calendar.isDate(date, inSameDayAs: now) {
-            return timeWithSeconds(date)
+            return date.formatted(
+                .dateTime.hour().minute().second()
+                    .locale(locale)
+            )
         }
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = calendar.isDate(date, equalTo: now, toGranularity: .year)
-            ? "d MMM, HH:mm"
-            : "d MMM yyyy, HH:mm"
-        return formatter.string(from: date)
+        let style: Date.FormatStyle = calendar.isDate(date, equalTo: now, toGranularity: .year)
+            ? .dateTime.day().month(.abbreviated).hour().minute()
+            : .dateTime.day().month(.abbreviated).year().hour().minute()
+        return date.formatted(style.locale(locale))
     }
 
-    private static func timeWithSeconds(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
+    /// A day, such as "7 Nov".
+    static func day(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).locale(locale))
+    }
+
+    /// A day with its year, such as "7 Nov 2026".
+    static func dayWithYear(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).year().locale(locale))
+    }
+
+    /// A day and time of day, such as "7 Nov, 14:30" or "7 Nov, 2:30 PM".
+    static func dayAndTime(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(locale))
+    }
+
+    /// A time of day, such as "14:30" or "2:30 PM".
+    static func time(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.hour().minute().locale(locale))
+    }
+
+    /// A month with its year, such as "Nov 2026".
+    static func monthWithYear(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.month(.abbreviated).year().locale(locale))
+    }
+
+    /// A year, such as "2026".
+    static func year(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.year().locale(locale))
+    }
+
+    private static func currency(
+        _ value: Double,
+        currencyCode: String,
+        fractionDigits: ClosedRange<Int>,
+        signed: Bool,
+        locale: Locale
+    ) -> String {
+        value.formatted(
+            .currency(code: currencyCode)
+                .precision(.fractionLength(fractionDigits))
+                .sign(strategy: signed ? .always(showZero: false) : .automatic)
+                .locale(locale)
+        )
+    }
+
+    private static func sign(of amount: Double) -> String {
+        amount < 0 ? "-" : amount > 0 ? "+" : ""
     }
 }

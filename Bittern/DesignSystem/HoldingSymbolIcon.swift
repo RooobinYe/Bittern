@@ -14,7 +14,8 @@ struct HoldingSymbolIcon: View {
     let size: CGFloat
     var fallbackLabel: String? = nil
     var fallbackFont: Font = .caption.bold()
-    var fallbackForegroundColor: Color = .white
+
+    @Environment(\.self) private var environment
 
     private var label: String {
         if let fallbackLabel {
@@ -48,9 +49,46 @@ struct HoldingSymbolIcon: View {
     private var fallback: some View {
         Text(label)
             .font(fallbackFont)
-            .foregroundStyle(fallbackForegroundColor)
+            .foregroundStyle(fallbackForeground)
             .lineLimit(1)
+            // Four letters on a disc sized for the symbol's logo: shrinking
+            // them is the only way they stay inside the circle.
             .minimumScaleFactor(0.5)
+            .padding(.horizontal, size * 0.06)
             .frame(width: size, height: size)
+    }
+
+    private var fallbackForeground: Color {
+        let resolved = color.resolve(in: environment)
+        let luminance = ContrastingForeground.relativeLuminance(
+            linearRed: Double(resolved.linearRed),
+            linearGreen: Double(resolved.linearGreen),
+            linearBlue: Double(resolved.linearBlue)
+        )
+        switch ContrastingForeground.preferred(onLuminance: luminance) {
+        case .black:
+            return .black
+        case .white:
+            return .white
+        }
+    }
+}
+
+/// Black or white text, whichever contrasts more with a background.
+nonisolated enum ContrastingForeground: Equatable {
+    case black
+    case white
+
+    /// WCAG relative luminance from linear sRGB components.
+    static func relativeLuminance(linearRed: Double, linearGreen: Double, linearBlue: Double) -> Double {
+        0.2126 * linearRed + 0.7152 * linearGreen + 0.0722 * linearBlue
+    }
+
+    static func contrastRatio(_ lhs: Double, _ rhs: Double) -> Double {
+        (max(lhs, rhs) + 0.05) / (min(lhs, rhs) + 0.05)
+    }
+
+    static func preferred(onLuminance luminance: Double) -> ContrastingForeground {
+        contrastRatio(luminance, 0) > contrastRatio(luminance, 1) ? .black : .white
     }
 }
