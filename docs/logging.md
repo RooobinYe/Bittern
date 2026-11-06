@@ -12,7 +12,6 @@ logger wrappers.
 - `Persistence`: cache reads and writes
 - `Credentials`: credential setup and storage workflows
 - `Images`: remote logo loading
-- `Sharing`: share-sheet outcomes
 
 Add a category to `AppLog` only when it represents a stable area that is useful
 as a Console.app filter. Avoid categories named after individual types.

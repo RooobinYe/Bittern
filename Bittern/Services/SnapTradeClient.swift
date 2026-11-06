@@ -405,10 +405,6 @@ struct SnapTradeAccountDTO: Decodable {
         name ?? number ?? "Brokerage Account"
     }
 
-    var brokerageAuthorizationID: String? {
-        brokerageAuthorization?.id
-    }
-
     var displayInstitution: String {
         institutionName ?? brokerageAuthorization?.name ?? "SnapTrade"
     }

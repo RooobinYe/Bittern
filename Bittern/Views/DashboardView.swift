@@ -90,34 +90,16 @@ struct DashboardView: View {
 
     private var portfolioShareItem: PortfolioShareItem? {
         guard let shareSnapshot = dashboardShareSnapshot else { return nil }
-        let screenshotWidth = min(
-            max(shareSnapshot.viewportSize.width, 1),
-            DashboardLayoutMetrics.maximumExportWidth
-        )
         let screenshotColorScheme = colorScheme
         let screenshotScale = displayScale
         let screenshotDynamicTypeSize = dynamicTypeSize
 
         return PortfolioShareItem {
-            let logoData = await ScreenshotLogoLoader.load(
-                for: shareSnapshot.logoHoldings
-            )
-            let content = PortfolioShareScreenshotContent(
-                snapshot: shareSnapshot,
-                width: screenshotWidth
-            )
-            .fontDesign(.default)
-            .environment(\.dynamicTypeSize, screenshotDynamicTypeSize)
-            .environment(\.colorScheme, screenshotColorScheme)
-            .environment(\.isRenderingScreenshot, true)
-            .environment(\.screenshotLogoData, logoData)
-
-            guard let data = ScreenshotRenderer.render(
-                content,
-                width: screenshotWidth,
+            guard let data = await shareSnapshot.renderPNG(
+                colorScheme: screenshotColorScheme,
                 scale: screenshotScale,
-                backgroundColor: screenshotColorScheme.systemBackgroundColor
-            )?.pngData() else {
+                dynamicTypeSize: screenshotDynamicTypeSize
+            ) else {
                 throw PortfolioShareError.renderingFailed
             }
 
@@ -167,30 +149,12 @@ struct DashboardView: View {
         viewModel.minPriceThreshold = userThreshold
         guard var shareSnapshot = exportSnapshot else { return }
         shareSnapshot.isPrivacyEnabled = false
-        let screenshotWidth = min(
-            max(shareSnapshot.viewportSize.width, 1),
-            DashboardLayoutMetrics.maximumExportWidth
-        )
-        let screenshotColorScheme = colorScheme
-        let logoData = await ScreenshotLogoLoader.load(
-            for: shareSnapshot.logoHoldings
-        )
 
-        guard let image = ScreenshotRenderer.render(
-                  PortfolioShareScreenshotContent(
-                      snapshot: shareSnapshot,
-                      width: screenshotWidth
-                  )
-                  .fontDesign(.default)
-                  .environment(\.dynamicTypeSize, dynamicTypeSize)
-                  .environment(\.colorScheme, screenshotColorScheme)
-                  .environment(\.isRenderingScreenshot, true)
-                  .environment(\.screenshotLogoData, logoData),
-                  width: screenshotWidth,
+        guard let data = await shareSnapshot.renderPNG(
+                  colorScheme: colorScheme,
                   scale: displayScale,
-                  backgroundColor: screenshotColorScheme.systemBackgroundColor
+                  dynamicTypeSize: dynamicTypeSize
               ),
-              let data = image.pngData(),
               let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return
         }
@@ -243,6 +207,37 @@ private struct DashboardShareSnapshot: Sendable {
 
     var logoHoldings: [PortfolioHolding] {
         portfolio.holdings
+    }
+
+    /// Renders the dashboard as a PNG at the width it occupies on screen,
+    /// capped at the export maximum. Shared by the share sheet and the debug
+    /// launch export.
+    func renderPNG(
+        colorScheme: ColorScheme,
+        scale: CGFloat,
+        dynamicTypeSize: DynamicTypeSize
+    ) async -> Data? {
+        let width = min(
+            max(viewportSize.width, 1),
+            DashboardLayoutMetrics.maximumExportWidth
+        )
+        let logoData = await ScreenshotLogoLoader.load(for: logoHoldings)
+        let content = PortfolioShareScreenshotContent(
+            snapshot: self,
+            width: width
+        )
+        .fontDesign(.default)
+        .environment(\.dynamicTypeSize, dynamicTypeSize)
+        .environment(\.colorScheme, colorScheme)
+        .environment(\.isRenderingScreenshot, true)
+        .environment(\.screenshotLogoData, logoData)
+
+        return ScreenshotRenderer.render(
+            content,
+            width: width,
+            scale: scale,
+            backgroundColor: colorScheme.systemBackgroundColor
+        )?.pngData()
     }
 }
 
@@ -427,7 +422,6 @@ private struct DashboardVisualContent: View {
                     .padding(.horizontal)
                     .frame(maxWidth: .infinity)
             }
-            .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable { await performRefresh() }
 
         case (.stacked, .export):
@@ -512,7 +506,6 @@ private struct DashboardVisualContent: View {
                     }
                     .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
                     .contentMargins(.horizontal, 8, for: .scrollContent)
-                    .scrollEdgeEffectStyle(.soft, for: .top)
                     .refreshable { await performRefresh() }
                 } else {
                     splitHoldings
@@ -1131,7 +1124,7 @@ private struct PerformanceModeLabel: View {
     }
 }
 
-private struct DonutSegmentShape: Shape {
+nonisolated private struct DonutSegmentShape: Shape {
     var startAngle: Angle
     var endAngle: Angle
 
@@ -1543,28 +1536,40 @@ private extension PerformanceMode {
 }
 
 #if DEBUG
-struct DashboardView_Previews: PreviewProvider {
-    static var previews: some View {
-        Group {
-            preview(width: 393, height: 852, name: "Phone Portrait")
-            preview(width: 852, height: 393, name: "Phone Landscape")
-            preview(width: 600, height: 500, name: "Compact Window")
-            preview(width: 1_024, height: 768, name: "iPad Landscape")
-            preview(width: 1_200, height: 700, name: "Wide Window")
-        }
+#Preview("Phone Portrait", traits: .fixedLayout(width: 393, height: 852)) {
+    DashboardPreview()
+}
+
+#Preview("Phone Landscape", traits: .fixedLayout(width: 852, height: 393)) {
+    DashboardPreview()
+}
+
+#Preview("Compact Window", traits: .fixedLayout(width: 600, height: 500)) {
+    DashboardPreview()
+}
+
+#Preview("iPad Landscape", traits: .fixedLayout(width: 1_024, height: 768)) {
+    DashboardPreview()
+}
+
+#Preview("Wide Window", traits: .fixedLayout(width: 1_200, height: 700)) {
+    DashboardPreview()
+}
+
+private struct DashboardPreview: View {
+    @StateObject private var credentialsStore: CredentialsStore
+    @StateObject private var viewModel: DashboardViewModel
+
+    init() {
+        let credentialsStore = PreviewSupport.credentialsStore()
+        _credentialsStore = StateObject(wrappedValue: credentialsStore)
+        _viewModel = StateObject(
+            wrappedValue: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore)
+        )
     }
 
-    @MainActor
-    private static func preview(width: CGFloat, height: CGFloat, name: String) -> some View {
-        let store = CredentialsStore()
-        let viewModel = DashboardViewModel(
-            credentialsStore: store,
-            initialSnapshot: DemoPortfolio.snapshot
-        )
-
-        return DashboardView(viewModel: viewModel, credentialsStore: store)
-            .previewLayout(.fixed(width: width, height: height))
-            .previewDisplayName(name)
+    var body: some View {
+        DashboardView(viewModel: viewModel, credentialsStore: credentialsStore)
     }
 }
 #endif

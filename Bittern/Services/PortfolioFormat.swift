@@ -22,8 +22,7 @@ enum PortfolioFormat {
     static func money(
         _ value: Double,
         currencyCode: String = "USD",
-        signed: Bool = false,
-        compact: Bool = false
+        signed: Bool = false
     ) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currencyAccounting
@@ -32,8 +31,8 @@ enum PortfolioFormat {
         if currencyCode == "USD" {
             formatter.currencySymbol = "$"
         }
-        formatter.maximumFractionDigits = compact && abs(value) >= 10_000 ? 0 : 2
-        formatter.minimumFractionDigits = compact && abs(value) >= 10_000 ? 0 : 2
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 2
 
         let rendered = formatter.string(from: NSNumber(value: abs(value))) ?? "\(currencyCode) \(abs(value))"
 
@@ -161,13 +160,6 @@ enum PortfolioFormat {
         case .tokens:
             tokens(value)
         }
-    }
-
-    static func time(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
     }
 
     /// A persisted snapshot can be days old, so anything before today states
