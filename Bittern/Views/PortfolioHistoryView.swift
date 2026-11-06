@@ -40,6 +40,7 @@ struct PortfolioHistoryView: View {
         }
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .errorToast(message: $historyModel.errorMessage)
         .refreshable {
             await historyModel.reload(

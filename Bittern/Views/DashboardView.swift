@@ -422,6 +422,8 @@ private struct DashboardVisualContent: View {
                     .padding(.horizontal)
                     .frame(maxWidth: .infinity)
             }
+            // Not the default here: without it the navigation bar gets a hard edge.
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable { await performRefresh() }
 
         case (.stacked, .export):
@@ -506,6 +508,8 @@ private struct DashboardVisualContent: View {
                     }
                     .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
                     .contentMargins(.horizontal, 8, for: .scrollContent)
+                    // Not the default here: without it the navigation bar gets a hard edge.
+                    .scrollEdgeEffectStyle(.soft, for: .top)
                     .refreshable { await performRefresh() }
                 } else {
                     splitHoldings

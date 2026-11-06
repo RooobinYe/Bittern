@@ -73,6 +73,7 @@ struct HoldingDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentMargins(.horizontal, 24, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable {
                 await Task {
                     await detailModel.refreshSelectedRange()
