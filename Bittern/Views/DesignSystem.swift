@@ -185,9 +185,10 @@ extension View {
     }
 
     /// Fades content into the navigation bar instead of cutting it off with a
-    /// line. Not the default: on iOS 27 every screen here that shows a
-    /// navigation title got a hard edge without it, while the untitled holding
-    /// detail already fades.
+    /// line. Not the default whenever the navigation bar shows a title: on
+    /// iOS 27 the automatic style then becomes a hard edge, and stays soft
+    /// without a title. Adding a title to the holding detail made it hard;
+    /// removing History's made it soft. Use this on every titled scroll screen.
     func softNavigationBarEdge() -> some View {
         scrollEdgeEffectStyle(.soft, for: .top)
     }

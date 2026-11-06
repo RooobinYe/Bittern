@@ -72,7 +72,7 @@ BitternTests/
 
 - [ ] 全局改用 SF Pro，移除 `.fontDesign(.rounded)` 和各处的 `.fontDesign(.default)`
 - [ ] 收敛字重：正文和次要信息回到 Regular，去掉 `.headline.bold()`
-- [ ] 重排 Detail 页层级：只有价格用大号粗体，名称进导航标题，Section 标题用 Title 3，数据行用 Body
+- [ ] 重排 Detail 页层级：只有价格用大号粗体，名称进导航标题，Section 标题用 Title 3，数据行用 Body。加标题后导航栏会变成硬分界线，需要同时加 `softNavigationBarEdge()`
 - [ ] 减少 `minimumScaleFactor` 和写死的高度，图标尺寸用 `@ScaledMetric`，并在最大无障碍字号下检查
 
 **颜色与材质**
