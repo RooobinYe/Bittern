@@ -4,43 +4,52 @@ Bittern 接下来的修改计划，按建议顺序排列。
 
 - 术语以 [CONTEXT.md](CONTEXT.md) 为准。
 - 这里只写还没做的事，完成后勾选，整个阶段完成后可以删除。
-- 最后更新：2026-11-06
+- 最后更新：2026-11-07
 
 ## 阶段 4：设计与 HIG
 
 **目标：** 少自定义，多用系统组件。以 Contributions 页的克制为基准，推广到全局。
 
+**有意保留的偏离：** 持仓气泡和图表游标继续用液态玻璃，这是 Bittern 的视觉特色，不按 HIG 改成实色。
+
+**标注“先试”的条目：** 先做出来，再截图给用户对比，由用户决定是否采用；效果变差就按条目里写的退路处理。
+
 **信息架构**
 
-- [ ] 用 TabView 分成 Portfolio、History、Contribute
-- [ ] 设置改成 sheet 打开，入口换成 `gearshape`
+- [ ] 用 TabView 分成 Portfolio、History、Contribute，History 和 Contribute 从 Settings 里移出（Contribute 常用，History 不常用但也不属于设置）
+- [ ] Portfolio 的工具栏只用右侧：隐私开关、Share、`gearshape`，左侧留空；Settings 改成 sheet 打开
+- [ ] 账户筛选改用 `toolbarTitleMenu`，点标题切换账户
 - [ ] 删除 App 内的 Appearance 设置（HIG 建议跟随系统）
 - [ ] Minimum Market Value 挪到 Holdings 的菜单，并提示已隐藏几个持仓
 - [ ] 合并 Portfolio Accounts 和 Credentials 的凭据部分，用一个 Form
-- [ ] 凭据默认遮盖，查看时走 Face ID
+- [ ] 凭据默认显示为遮盖，点眼睛图标直接显示，不做 Face ID（个人使用，只防截图和录屏）
 - [ ] 清除凭据前加确认（userSecret 只生成一次，删掉后 App 内无法找回）
 - [ ] 空状态改用 `ContentUnavailableView`，并提供“连接券商”按钮
 
 **字体**
 
-- [ ] 全局改用 SF Pro，移除 `.fontDesign(.rounded)` 和各处的 `.fontDesign(.default)`
+- [ ] 先试：去掉全局的 `.fontDesign(.rounded)`，正文、列表和设置用 SF Pro，只在关键数字（总市值、价格、涨跌、气泡百分比）上保留圆体；截“全圆体”“全 SF Pro”“折中”三版给用户选
 - [ ] 收敛字重：正文和次要信息回到 Regular，去掉 `.headline.bold()`
 - [ ] 重排 Detail 页层级：只有价格用大号粗体，Section 标题用 Title 3，数据行用 Body（导航标题已是股票代码，全名留在页面顶部）
 - [ ] 减少 `minimumScaleFactor` 和写死的高度，图标尺寸用 `@ScaledMetric`，并在最大无障碍字号下检查
 
 **颜色与材质**
 
-- [ ] 内容层去掉 Liquid Glass：持仓气泡和图表游标改用实色或普通材质，并解决气泡重叠
-- [ ] 提高对比度：浅色模式的涨跌文字、图表基线标签、无 logo 时的白字
+- [ ] 解决持仓气泡重叠：按气泡宽度算出最小角度间隔，沿圆周把挤在一起的气泡推开，放不下时改成内外两圈交错；气泡包进 `GlassEffectContainer`，保留 `.glassEffect`
+- [ ] 重做图表游标：数据点用实色小圆点加背景色描边，往上画细竖线，顶端浮一个玻璃胶囊显示日期（可加数值）；先做两三种变体放进 `#Preview`，让用户在模拟器上选
+- [ ] 涨跌色在 asset catalog 里定义：浅色模式用更深的红绿，红 `#D70015`，绿以 `#248A3D` 为基础再压暗到白底 4.5:1 以上；深色模式保留 `systemGreen` 和 `systemRed`
+- [ ] 图表基线标签去掉额外的 `.opacity(0.62)`，直接用 `.secondary`
+- [ ] 无 logo 时按底色亮度选黑字或白字，不写死白色（混灰后的橙、黄配白字只有约 2.7:1）
+- [ ] 错误 toast 保留液态玻璃（属于控件层），去掉多余的 `.shadow`，出现时发 VoiceOver 通知
 - [ ] 统一卡片样式，用系统分组样式替代 8pt 圆角加描边的 `bitternPanel`
 
 **控件**
 
-- [ ] 账户筛选改用 `toolbarTitleMenu` 或工具栏 Menu，隐私开关移到工具栏
 - [ ] 排序和收益模式菜单改用 `Picker`，显示当前选项
 - [ ] 所有控件的点击区域不小于 44×44 pt
-- [ ] 持仓列表改用 `List`，恢复按压高亮和系统行为
-- [ ] 用 Swift Charts 替换 Canvas 折线图，加上坐标轴，并用 `SectorMark` 重做 donut
+- [ ] 先试：整页改成 `List`，恢复按压高亮和系统行为；如果 donut、滚动或横屏分栏变差，保留现在的写法，只补按压高亮和点击区域
+- [ ] 先试：用 Swift Charts 重写折线图，坐标轴从简（不画网格，纵轴放右侧只标 3 个值，横轴只标几个日期），用 `chartXSelection` 处理拖动，游标在 `chartOverlay` 里自己画；盘前盘后的灰线拆成单独的 series；效果不如现在的 Canvas 就截图对比，由用户决定
+- [ ] donut 保留手绘，不用 `SectorMark`（气泡位置依赖自己算的角度），用 `accessibilityChartDescriptor` 补上无障碍
 - [ ] 为自定义选择控件加 `.isSelected` 无障碍状态
 
 **文案与格式**
