@@ -17,21 +17,21 @@ struct PortfolioHistoryAggregatorTests {
     private func history(
         currency: String? = "USD",
         _ points: [(Int?, Double?)]
-    ) -> SnapTradeAccountBalanceHistoryDTO {
-        SnapTradeAccountBalanceHistoryDTO(
-            history: points.map { day, value in
-                SnapTradeAccountBalanceHistoryPointDTO(
+    ) -> AccountBalanceHistory {
+        AccountBalanceHistory(
+            currencyCode: currency,
+            readings: points.map { day, value in
+                AccountBalanceHistory.Reading(
                     date: day.map { self.date($0) },
                     totalValue: value
                 )
-            },
-            currency: currency
+            }
         )
     }
 
     private func aggregate(
-        _ histories: [SnapTradeAccountBalanceHistoryDTO]
-    ) throws -> PortfolioHistoryAggregator.Result {
+        _ histories: [AccountBalanceHistory]
+    ) throws -> PortfolioHistory {
         try PortfolioHistoryAggregator.aggregate(histories: histories, calendar: calendar)
     }
 
@@ -69,12 +69,12 @@ struct PortfolioHistoryAggregatorTests {
 
     @Test func twoPointsOnOneDayCountOnce() throws {
         let later = date(1).addingTimeInterval(3_600)
-        let history = SnapTradeAccountBalanceHistoryDTO(
-            history: [
-                SnapTradeAccountBalanceHistoryPointDTO(date: date(1), totalValue: 100),
-                SnapTradeAccountBalanceHistoryPointDTO(date: later, totalValue: 120)
-            ],
-            currency: "USD"
+        let history = AccountBalanceHistory(
+            currencyCode: "USD",
+            readings: [
+                AccountBalanceHistory.Reading(date: date(1), totalValue: 100),
+                AccountBalanceHistory.Reading(date: later, totalValue: 120)
+            ]
         )
 
         let result = try aggregate([history])

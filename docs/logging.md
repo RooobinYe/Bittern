@@ -1,7 +1,7 @@
 # Logging
 
 Bittern uses Apple Unified Logging through the loggers in
-`Bittern/Utilities/AppLog.swift`. Do not add `print`, `NSLog`, or file-local
+`Bittern/Data/AppLog.swift`. Do not add `print`, `NSLog`, or file-local
 logger wrappers.
 
 ## Categories
