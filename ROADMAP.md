@@ -6,29 +6,6 @@ Bittern 接下来的修改计划，按建议顺序排列。
 - 这里只写还没做的事，完成后勾选，整个阶段完成后可以删除。
 - 最后更新：2026-11-06
 
-## 阶段 2：低成本清理
-
-**目标：** 改动小、风险低，先把噪音去掉，后面的重构更好做。
-
-- [ ] `SWIFT_VERSION` 升到 6：给 `DonutSegmentShape` 加 `nonisolated` 后 Debug 已能零警告编过，还需验证 Release
-- [ ] 删除 `BitternApp.swift` 里覆盖 `UINavigationController.viewDidLoad` 的扩展，并验证返回手势
-- [ ] 删除多余的 `.toolbar(.visible, for: .navigationBar)` 和 `.scrollEdgeEffectStyle(.soft, for: .top)`
-- [ ] 删除死代码：
-  - `PortfolioAccount` 的 `totalBalance`、`connectionID`
-  - `PortfolioFormat.time`、`PortfolioFormat.money` 的 `compact:`
-  - `AppLog.sharing`（同步更新 `docs/logging.md`）
-  - `YahooQuoteDTO` 的 `fullName`、`displayName`、`shortName`、`longName`
-  - `YahooChartQuoteDTO` 的 `open`、`high`、`low`
-- [ ] `providerLogoURL`：在账户页显示出来，或者删掉
-- [ ] `candidateSymbols` 改成单值，删掉重试循环和过期注释
-- [ ] `DemoPortfolio` 放进 `#if DEBUG`，从生产路径移除 `isDemo` 和 `PortfolioSnapshot.empty`
-- [ ] 合并 `exportDebugScreenshotIfNeeded` 和 `portfolioShareItem` 的重复逻辑
-- [ ] `PreviewProvider` 换成 `#Preview`，Preview 不再访问真实 Keychain 和网络
-- [x] 修复 `AGENTS.md` 里失效的 `.claude/rules/` 引用
-- [ ] 新增 CI：构建、测试和凭据扫描（例如 gitleaks）
-
-**完成标准：** Swift 6 下 Debug 和 Release 都零警告，CI 在每个 PR 上运行。
-
 ## 阶段 3：架构整理
 
 **目标：** 依赖方向清晰，领域逻辑可以脱离 UI 和网络单独测试。
