@@ -67,7 +67,7 @@ struct PortfolioAccountsView: View {
                 .padding(.bottom, 42)
             }
             .contentMargins(.horizontal, 24, for: .scrollContent)
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            .softNavigationBarEdge()
             .refreshable {
                 await refresh()
             }

@@ -183,4 +183,12 @@ extension View {
     func errorToast(message: Binding<String?>) -> some View {
         modifier(ErrorToastModifier(message: message))
     }
+
+    /// Fades content into the navigation bar instead of cutting it off with a
+    /// line. Not the default: on iOS 27 every screen here that shows a
+    /// navigation title got a hard edge without it, while the untitled holding
+    /// detail already fades.
+    func softNavigationBarEdge() -> some View {
+        scrollEdgeEffectStyle(.soft, for: .top)
+    }
 }

@@ -117,7 +117,7 @@ struct ContributionCalculatorView: View {
             resultSection
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .softNavigationBarEdge()
         .navigationTitle("Contributions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
