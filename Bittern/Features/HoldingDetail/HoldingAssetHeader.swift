@@ -14,7 +14,8 @@ struct HoldingAssetHeader: View {
     let isPrivacyEnabled: Bool
     let avatarColor: Color
 
-    @ScaledMetric(relativeTo: .largeTitle) private var priceRowMinimumHeight: CGFloat = 41
+    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 64
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var displayPoint: HoldingPricePoint? {
         selectedPoint ?? defaultDisplayPoint
@@ -52,146 +53,120 @@ struct HoldingAssetHeader: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+        // At accessibility text sizes the logo moves above the price so the
+        // price keeps the full width.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+
+        layout {
+            if dynamicTypeSize.isAccessibilitySize {
+                avatar
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(holding.name)
-                    .font(.title.bold())
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.48)
-                    .allowsTightening(true)
+                    .font(.title3)
+                    .foregroundStyle(BitternTheme.secondaryInk)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(priceText)
-                        .font(.largeTitle.bold().monospacedDigit())
-                        .foregroundStyle(BitternTheme.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.62)
+                Text(priceText)
+                    .font(.keyFigure(.largeTitle, weight: .bold))
+                    .foregroundStyle(BitternTheme.ink)
+                    .lineLimit(1)
+                    // The price is the one figure that must stay whole on a
+                    // single line, so it shrinks before it would wrap.
+                    .minimumScaleFactor(0.6)
 
-                    Text(holding.currencyCode)
-                        .font(.title3.bold())
-                        .foregroundStyle(BitternTheme.ink)
-                        .lineLimit(1)
-                }
-                .frame(minHeight: priceRowMinimumHeight, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 9) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
                         changeAmountLabel
-                            .layoutPriority(1)
                         changePercentLabel
-                            .layoutPriority(1)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
 
-                    Text(selectionLabel)
-                        .font(.headline.bold())
-                        .foregroundStyle(BitternTheme.secondaryInk)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 4) {
+                        changeAmountLabel
+                        changePercentLabel
+                    }
                 }
+
+                Text(selectionLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
+            .accessibilityElement(children: .combine)
 
-            HoldingDetailAvatar(
-                symbol: holding.symbol,
-                logoURL: holding.logoURL,
-                color: avatarColor,
-                size: 84
-            )
-                .accessibilityLabel(holding.symbol)
+            if !dynamicTypeSize.isAccessibilitySize {
+                avatar
+            }
         }
+    }
+
+    private var avatar: some View {
+        HoldingSymbolIcon(
+            symbol: holding.symbol,
+            logoURL: holding.logoURL,
+            color: avatarColor,
+            size: avatarSize,
+            fallbackFont: .title2.bold()
+        )
+        .accessibilityHidden(true)
     }
 
     private var changeAmountLabel: some View {
         Text(changeAmountText)
-            .font(.headline.bold().monospacedDigit())
+            .font(.keyFigure(.body))
             .foregroundStyle(BitternTheme.performanceColor(priceDelta))
             .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .allowsTightening(true)
     }
 
     private var changePercentLabel: some View {
         Text(priceDeltaPercentText)
-            .font(.headline.bold().monospacedDigit())
+            .font(.keyFigure(.body))
             .foregroundStyle(BitternTheme.performanceColor(priceDelta))
             .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .allowsTightening(true)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(BitternTheme.performanceColor(priceDelta).opacity(0.18))
-            .clipShape(Capsule())
+            .padding(.vertical, 2)
+            .background(BitternTheme.performanceColor(priceDelta).opacity(0.15), in: .capsule)
     }
 
     private var changeAmountText: String {
+        guard let priceDelta else { return PortfolioFormat.missing }
         if isPrivacyEnabled {
-            guard let priceDelta else {
-                return "N/A"
-            }
-
-            if priceDelta > 0 {
-                return "+\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
-            }
-
-            if priceDelta < 0 {
-                return "-\(PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode))"
-            }
-
-            return PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
+            return PortfolioFormat.hiddenSignedMoney(priceDelta, currencyCode: holding.currencyCode)
         }
-
-        guard let priceDelta else { return "N/A" }
         return PortfolioFormat.money(priceDelta, currencyCode: holding.currencyCode, signed: true)
     }
 
     private var priceDeltaPercentText: String {
-        guard let priceDeltaPercent else { return "N/A" }
+        guard let priceDeltaPercent else { return PortfolioFormat.missing }
         return PortfolioFormat.percent(priceDeltaPercent, signed: true)
     }
 
     private var priceText: String {
+        guard let displayPoint else { return PortfolioFormat.missing }
         if isPrivacyEnabled {
-            return displayPoint == nil ? "N/A" : PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
+            return PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
         }
-
-        guard let displayPoint else { return "N/A" }
         return PortfolioFormat.price(displayPoint.price, currencyCode: holding.currencyCode)
     }
 
     private var selectionLabel: String {
         if range == .oneDay {
-            guard let point = displayPoint else { return "N/A" }
+            guard let point = displayPoint else { return PortfolioFormat.missing }
             return selectedPoint == nil
-                ? oneDayLatestDateFormatter.string(from: point.date)
-                : formattedSelectionDate(point.date, range: range)
+                ? PortfolioFormat.day(point.date)
+                : range.selectionLabel(for: point.date)
         }
 
         if selectedPoint != nil, let displayPoint {
-            return formattedSelectionDate(displayPoint.date, range: range)
+            return range.selectionLabel(for: displayPoint.date)
         }
 
         return range.summaryLabel
-    }
-}
-
-private struct HoldingDetailAvatar: View {
-    let symbol: String
-    let logoURL: URL?
-    let color: Color
-    let size: CGFloat
-
-    var body: some View {
-        HoldingSymbolIcon(
-            symbol: symbol,
-            logoURL: logoURL,
-            color: color,
-            size: size,
-            fallbackFont: .title2.bold()
-        )
     }
 }
 
@@ -205,6 +180,7 @@ struct HoldingChartSection: View {
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
+    var cursorStyle: PerformanceChartCursorStyle = .dateCapsule
 
     private var basePrice: Double? {
         range.detailChangeBasePrice(
@@ -220,10 +196,18 @@ struct HoldingChartSection: View {
     }
 
     var body: some View {
+        let range = range
+        let currencyCode = currencyCode
+
         PerformanceLineChartSection(
             points: series,
             value: { $0.price },
             xScale: xScale,
+            axisLabel: { range.axisLabel(for: $0.date) },
+            selectionLabel: { range.selectionLabel(for: $0.date) },
+            valueLabel: isPrivacyEnabled
+                ? nil
+                : { PortfolioFormat.price($0, currencyCode: currencyCode) },
             baseValue: basePrice,
             baselineLabel: basePrice.map {
                 isPrivacyEnabled
@@ -238,7 +222,9 @@ struct HoldingChartSection: View {
             rangeTitle: { $0.title },
             selectedRange: $range,
             selectedPoint: $selectedPoint,
-            isLoading: isLoading
+            isLoading: isLoading,
+            cursorStyle: cursorStyle,
+            background: Color(uiColor: .systemGroupedBackground)
         )
     }
 
@@ -251,31 +237,73 @@ struct HoldingChartSection: View {
     }
 }
 
-private let selectionDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = .autoupdatingCurrent
-    return formatter
-}()
-
-private let oneDayLatestDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = .autoupdatingCurrent
-    formatter.dateFormat = "d MMM"
-    return formatter
-}()
-
-private func formattedSelectionDate(_ date: Date, range: HoldingChartRange) -> String {
-    switch range {
-    case .oneDay:
-        selectionDateFormatter.dateFormat = "d MMM, HH:mm"
-    case .fiveDays:
-        selectionDateFormatter.dateFormat = "d MMM, HH:mm"
-    case .threeMonths, .oneYear, .fiveYears, .max:
-        selectionDateFormatter.dateFormat = "d MMM, yyyy"
+extension HoldingChartRange {
+    /// A point's date on the horizontal axis.
+    func axisLabel(for date: Date) -> String {
+        switch self {
+        case .oneDay:
+            PortfolioFormat.time(date)
+        case .fiveDays, .threeMonths:
+            PortfolioFormat.day(date)
+        case .oneYear:
+            PortfolioFormat.monthWithYear(date)
+        case .fiveYears, .max:
+            PortfolioFormat.year(date)
+        }
     }
 
-    return selectionDateFormatter.string(from: date)
+    /// A selected point's date, with the time of day where prices change
+    /// within a day.
+    func selectionLabel(for date: Date) -> String {
+        switch self {
+        case .oneDay, .fiveDays:
+            PortfolioFormat.dayAndTime(date)
+        case .threeMonths, .oneYear, .fiveYears, .max:
+            PortfolioFormat.dayWithYear(date)
+        }
+    }
 }
 
+#if DEBUG
+/// The cursor styles side by side, to pick one on the simulator.
+#Preview("Chart Cursors") {
+    CursorStylesPreview()
+}
+
+private struct CursorStylesPreview: View {
+    @State private var range = HoldingChartRange.threeMonths
+    @State private var selections: [PerformanceChartCursorStyle: HoldingPricePoint] = [:]
+
+    private let series: [HoldingPricePoint] = (0..<60).map { day in
+        HoldingPricePoint(
+            date: Date(timeIntervalSince1970: 1_780_000_000 + Double(day) * 86_400),
+            price: 180 + sin(Double(day) / 6) * 12 + Double(day) * 0.4
+        )
+    }
+
+    var body: some View {
+        List {
+            ForEach(PerformanceChartCursorStyle.allCases, id: \.self) { style in
+                Section(String(describing: style)) {
+                    HoldingChartSection(
+                        series: series,
+                        timeDomain: nil,
+                        previousClose: nil,
+                        oneDayBaselinePrice: nil,
+                        currencyCode: "USD",
+                        isPrivacyEnabled: false,
+                        range: $range,
+                        selectedPoint: Binding(
+                            get: { selections[style] ?? series[40] },
+                            set: { selections[style] = $0 }
+                        ),
+                        isLoading: false,
+                        cursorStyle: style
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+    }
+}
+#endif

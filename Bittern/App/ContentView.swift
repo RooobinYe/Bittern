@@ -8,20 +8,29 @@
 import SwiftUI
 
 struct ContentView: View {
+    private enum AppTab: Hashable {
+        case portfolio
+        case history
+        case contribute
+    }
+
     @State private var credentialsStore: CredentialsStore
     @State private var viewModel: DashboardViewModel
     @State private var wasInBackground = false
+    @State private var selectedTab = AppTab.portfolio
+    @State private var isShowingSettings = false
     private let repository: any PortfolioRepository
     private let logoSource: LogoSource
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(AppSettingKey.appearanceMode) private var appearanceModeRaw = AppAppearance.automatic.rawValue
 
     init(dependencies: AppDependencies) {
         self.init(
             credentialsStore: dependencies.credentialsStore,
             viewModel: DashboardViewModel(
                 credentialsStore: dependencies.credentialsStore,
-                repository: dependencies.repository
+                repository: dependencies.repository,
+                loadCachedSnapshot: dependencies.loadCachedSnapshot,
+                saveCachedSnapshot: dependencies.saveCachedSnapshot
             ),
             repository: dependencies.repository,
             logoSource: dependencies.logoSource
@@ -41,31 +50,52 @@ struct ContentView: View {
     }
 
     var body: some View {
-        DashboardView(viewModel: viewModel, credentialsStore: credentialsStore)
-            .fontDesign(.rounded)
-            .preferredColorScheme(currentAppearance.colorScheme)
-            .environment(\.portfolioRepository, repository)
-            .environment(\.logoSource, logoSource)
-            .task {
-                await viewModel.bootstrap()
+        TabView(selection: $selectedTab) {
+            Tab("Portfolio", systemImage: "chart.pie", value: AppTab.portfolio) {
+                DashboardView(viewModel: viewModel, showSettings: showSettings)
             }
-            .onChange(of: scenePhase) { _, newPhase in
-                switch newPhase {
-                case .background:
-                    wasInBackground = true
-                case .active where wasInBackground:
-                    wasInBackground = false
-                    Task {
-                        await viewModel.refresh()
-                    }
-                default:
-                    break
+
+            Tab("History", systemImage: "chart.xyaxis.line", value: AppTab.history) {
+                NavigationStack {
+                    PortfolioHistoryView(
+                        credentialsStore: credentialsStore,
+                        dashboardViewModel: viewModel,
+                        connectBrokerage: showSettings
+                    )
                 }
             }
+
+            Tab("Contribute", systemImage: "dollarsign.arrow.circlepath", value: AppTab.contribute) {
+                NavigationStack {
+                    ContributionCalculatorView(viewModel: viewModel, connectBrokerage: showSettings)
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
+        }
+        .environment(\.portfolioRepository, repository)
+        .environment(\.logoSource, logoSource)
+        .task {
+            await viewModel.bootstrap()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                wasInBackground = true
+            case .active where wasInBackground:
+                wasInBackground = false
+                Task {
+                    await viewModel.refresh()
+                }
+            default:
+                break
+            }
+        }
     }
 
-    private var currentAppearance: AppAppearance {
-        AppAppearance(rawValue: appearanceModeRaw) ?? .automatic
+    private func showSettings() {
+        isShowingSettings = true
     }
 }
 

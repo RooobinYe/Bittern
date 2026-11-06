@@ -23,6 +23,15 @@ enum DemoPortfolio {
             currencyCode: "USD"
         )
 
+        let exchange = PortfolioAccount(
+            id: "demo-exchange",
+            name: "Crypto Wallet",
+            institutionName: "Demo Exchange",
+            providerLogoURL: nil,
+            isConnectionDisabled: false,
+            currencyCode: "USD"
+        )
+
         let holdings = [
             PortfolioHolding(
                 id: "demo-aapl",
@@ -134,13 +143,46 @@ enum DemoPortfolio {
                 postMarketChange: nil,
                 currencyCode: "USD",
                 dividendsReceived: 0
-            )
+            ),
+            crypto(id: "demo-btc", symbol: "BTC", name: "Bitcoin", quantity: 0.07, price: 95_120, previousClose: 93_870, account: exchange),
+            crypto(id: "demo-eth", symbol: "ETH", name: "Ethereum", quantity: 1.6, price: 3_512.40, previousClose: 3_560.10, account: exchange),
+            crypto(id: "demo-sol", symbol: "SOL", name: "Solana", quantity: 26, price: 182.35, previousClose: 176.90, account: exchange),
+            crypto(id: "demo-doge", symbol: "DOGE", name: "Dogecoin", quantity: 2, price: 0.21, previousClose: 0.2, account: exchange)
         ]
 
         return PortfolioSnapshot.make(
-            accounts: [account],
+            accounts: [account, exchange],
             holdings: holdings,
             lastUpdated: Date()
+        )
+    }
+
+    private static func crypto(
+        id: String,
+        symbol: String,
+        name: String,
+        quantity: Double,
+        price: Double,
+        previousClose: Double,
+        account: PortfolioAccount
+    ) -> PortfolioHolding {
+        PortfolioHolding(
+            id: id,
+            accountID: account.id,
+            symbol: symbol,
+            name: name,
+            instrumentKind: .crypto,
+            logoURL: nil,
+            accountName: account.name,
+            quantity: quantity,
+            quantityDisplay: nil,
+            averageCost: price * 0.8,
+            currentPrice: price,
+            previousClose: previousClose,
+            preMarketChange: nil,
+            postMarketChange: nil,
+            currencyCode: "USD",
+            dividendsReceived: 0
         )
     }
 

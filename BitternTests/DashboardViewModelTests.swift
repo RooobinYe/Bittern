@@ -358,6 +358,52 @@ struct DashboardViewModelTests {
         #expect(viewModel(credentials: credentials).minPriceThreshold == 2_000)
     }
 
+    @Test func hiddenHoldingCountFollowsTheMinimumAndTheSelectedProvider() {
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let snapshot = PortfolioSnapshot.make(
+            accounts: [makeAccount(id: "a1"), makeAccount(id: "a2")],
+            holdings: [
+                makeHolding(symbol: "BIG", accountID: "a1", quantity: 10, currentPrice: 100),
+                makeHolding(symbol: "DUST", accountID: "a1", quantity: 1, currentPrice: 0.5),
+                makeHolding(symbol: "SMALL", accountID: "a2", quantity: 1, currentPrice: 20),
+                makeHolding(symbol: "NOPRICE", accountID: "a2", currentPrice: nil)
+            ]
+        )
+        let model = DashboardViewModel(
+            credentialsStore: CredentialsStore(storage: InMemoryCredentialsStorage(credentials)),
+            repository: repository,
+            defaults: defaults,
+            initialSnapshot: snapshot,
+            loadCachedSnapshot: { nil },
+            saveCachedSnapshot: { _ in }
+        )
+
+        model.setMinimumMarketValue(1)
+        #expect(model.hiddenHoldingCount == 1)
+
+        // An unpriced holding is never hidden: its value is unknown, not small.
+        model.setMinimumMarketValue(50)
+        #expect(model.hiddenHoldingCount == 2)
+        #expect(model.displaySnapshot?.holdings.map(\.symbol).sorted() == ["BIG", "NOPRICE"])
+
+        model.selectedProviderName = "Broker a2"
+        #expect(model.hiddenHoldingCount == 1)
+    }
+
+    @Test func aMinimumMarketValueThatIsntANonNegativeNumberShowsEverything() {
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let model = viewModel(credentials: credentials)
+
+        model.setMinimumMarketValue(-5)
+        #expect(model.minPriceThreshold == 0)
+
+        model.setMinimumMarketValue(.nan)
+        #expect(model.minPriceThreshold == 0)
+
+        model.setMinimumMarketValue(12.5)
+        #expect(model.minPriceThreshold == 12.5)
+    }
+
     // MARK: - Refreshes in flight
 
     @Test func aSecondRefreshJoinsTheOneInFlight() async {

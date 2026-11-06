@@ -8,11 +8,40 @@ import SwiftUI
 struct PortfolioHistoryView: View {
     let credentialsStore: CredentialsStore
     let dashboardViewModel: DashboardViewModel
+    let connectBrokerage: () -> Void
     @State private var model = PortfolioHistoryModel()
     @Environment(\.portfolioRepository) private var repository
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
+    private var isConnected: Bool {
+        credentialsStore.credentials?.sanitized.isComplete == true
+    }
+
     var body: some View {
+        Group {
+            if isConnected {
+                history
+            } else {
+                ContentUnavailableView {
+                    Label("No Portfolio Connected", systemImage: "chart.xyaxis.line")
+                } description: {
+                    Text("Connect a brokerage to see how your portfolio's value has changed.")
+                } actions: {
+                    Button("Connect Brokerage", action: connectBrokerage)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.large)
+        // Loads on appear and again whenever the credentials change.
+        .task(id: credentialsStore.credentials) {
+            guard isConnected else { return }
+            await load()
+        }
+    }
+
+    private var history: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 PortfolioHistoryHeader(
@@ -36,17 +65,13 @@ struct PortfolioHistoryView: View {
             }
             .frame(maxWidth: Self.maximumContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.top, 22)
+            .padding(.top, 8)
         }
         .background(BitternTheme.background.ignoresSafeArea())
-        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .contentMargins(.horizontal, 20, for: .scrollContent)
         .softNavigationBarEdge()
         .errorToast(message: $model.errorMessage)
         .refreshable {
-            await load()
-        }
-        // Loads on appear and again whenever the credentials change.
-        .task(id: credentialsStore.credentials) {
             await load()
         }
         .onChange(of: model.selectedRange) { _, _ in
@@ -93,55 +118,59 @@ private struct PortfolioHistoryHeader: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Portfolio Value")
-                .font(.title.bold())
+                .font(.title3)
+                .foregroundStyle(BitternTheme.secondaryInk)
+
+            Text(totalValueText)
+                .font(.keyFigure(.largeTitle, weight: .bold))
                 .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
-                .minimumScaleFactor(0.68)
+                // The total is the one figure that must stay whole on a
+                // single line, so it shrinks before it would wrap.
+                .minimumScaleFactor(0.6)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(totalValueText)
-                    .font(.largeTitle.bold().monospacedDigit())
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.56)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    changeAmountLabel
+                    changePercentLabel
+                }
 
-                Text(currencyCode)
-                    .font(.title3.bold())
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    changeAmountLabel
+                    changePercentLabel
+                }
             }
 
-            HStack(spacing: 9) {
-                Text(changeAmountText)
-                    .font(.headline.bold().monospacedDigit())
-                    .foregroundStyle(BitternTheme.performanceColor(valueDelta))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-
-                Text(changePercentText)
-                    .font(.headline.bold().monospacedDigit())
-                    .foregroundStyle(BitternTheme.performanceColor(valueDelta))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(BitternTheme.performanceColor(valueDelta).opacity(0.18))
-                    .clipShape(Capsule())
-
-                Text("· \(dateText)")
-                    .font(.headline.bold())
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.62)
-            }
+            Text(dateText)
+                .font(.subheadline)
+                .foregroundStyle(BitternTheme.secondaryInk)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var changeAmountLabel: some View {
+        Text(changeAmountText)
+            .font(.keyFigure(.body))
+            .foregroundStyle(BitternTheme.performanceColor(valueDelta))
+            .lineLimit(1)
+    }
+
+    private var changePercentLabel: some View {
+        Text(changePercentText)
+            .font(.keyFigure(.body))
+            .foregroundStyle(BitternTheme.performanceColor(valueDelta))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(BitternTheme.performanceColor(valueDelta).opacity(0.15), in: .capsule)
     }
 
     private var totalValueText: String {
-        guard let displayPoint else { return "N/A" }
+        guard let displayPoint else { return PortfolioFormat.missing }
 
         return isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
@@ -149,18 +178,17 @@ private struct PortfolioHistoryHeader: View {
     }
 
     private var changeAmountText: String {
-        guard let valueDelta else { return "N/A" }
+        guard let valueDelta else { return PortfolioFormat.missing }
 
         if isPrivacyEnabled {
-            let sign = valueDelta < 0 ? "-" : valueDelta > 0 ? "+" : ""
-            return "\(sign)\(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
+            return PortfolioFormat.hiddenSignedMoney(valueDelta, currencyCode: currencyCode)
         }
 
         return PortfolioFormat.wholeMoney(valueDelta, currencyCode: currencyCode, signed: true)
     }
 
     private var changePercentText: String {
-        guard let valueDeltaPercent else { return "N/A" }
+        guard let valueDeltaPercent else { return PortfolioFormat.missing }
         return PortfolioFormat.percent(valueDeltaPercent, signed: true)
     }
 
@@ -168,7 +196,7 @@ private struct PortfolioHistoryHeader: View {
         guard let displayPoint else { return range.title }
         return selectedPoint == nil
             ? range.title
-            : portfolioHistorySelectionDateFormatter.string(from: displayPoint.date)
+            : PortfolioFormat.dayWithYear(displayPoint.date)
     }
 }
 
@@ -187,6 +215,11 @@ private struct PortfolioHistoryChartSection: View {
             points: series,
             value: { $0.totalValue },
             xScale: .indexed,
+            axisLabel: { range.axisLabel(for: $0.date) },
+            selectionLabel: { PortfolioFormat.dayWithYear($0.date) },
+            valueLabel: isPrivacyEnabled
+                ? nil
+                : { [currencyCode] in PortfolioFormat.wholeMoney($0, currencyCode: currencyCode) },
             baseValue: baseValue,
             baselineLabel: baseValue.map {
                 isPrivacyEnabled
@@ -204,12 +237,17 @@ private struct PortfolioHistoryChartSection: View {
     }
 }
 
-private let portfolioHistorySelectionDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "d MMM, yyyy"
-    return formatter
-}()
+extension PortfolioHistoryRange {
+    /// A point's date on the horizontal axis.
+    func axisLabel(for date: Date) -> String {
+        switch self {
+        case .fiveDays, .threeMonths, .yearToDate:
+            PortfolioFormat.day(date)
+        case .oneYear:
+            PortfolioFormat.monthWithYear(date)
+        }
+    }
+}
 
 #if DEBUG
 #Preview {
@@ -217,7 +255,8 @@ private let portfolioHistorySelectionDateFormatter: DateFormatter = {
     NavigationStack {
         PortfolioHistoryView(
             credentialsStore: credentialsStore,
-            dashboardViewModel: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore)
+            dashboardViewModel: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore),
+            connectBrokerage: {}
         )
     }
 }

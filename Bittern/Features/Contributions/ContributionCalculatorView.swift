@@ -12,6 +12,7 @@ private enum ContributionFocusField: Hashable {
 
 struct ContributionCalculatorView: View {
     let viewModel: DashboardViewModel
+    let connectBrokerage: () -> Void
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
     @State private var plan = ContributionPlan.load()
     @State private var contributionAmount: Double?
@@ -28,15 +29,27 @@ struct ContributionCalculatorView: View {
         // The Contribution Amount is in the elected holdings' currency.
         let currencyCode = session.electedHoldings.first?.currencyCode ?? viewModel.displayCurrencyCode
 
-        Form {
-            amountSection(currencyCode: currencyCode)
-            holdingsSection(session)
-            resultSection(session, currencyCode: currencyCode)
+        Group {
+            if viewModel.snapshot == nil {
+                ContentUnavailableView {
+                    Label("No Portfolio Connected", systemImage: "dollarsign.arrow.circlepath")
+                } description: {
+                    Text("Connect a brokerage to plan a contribution across your holdings.")
+                } actions: {
+                    Button("Connect Brokerage", action: connectBrokerage)
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                Form {
+                    amountSection(currencyCode: currencyCode)
+                    holdingsSection(session)
+                    resultSection(session, currencyCode: currencyCode)
+                }
+                .softNavigationBarEdge()
+            }
         }
-        .fontDesign(.default)
-        .softNavigationBarEdge()
-        .navigationTitle("Contributions")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Contribute")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -75,17 +88,22 @@ struct ContributionCalculatorView: View {
         } header: {
             Text("Contribution")
         } footer: {
-            Text("The full amount is spent across the holdings you elect below.")
+            Text("Bittern splits this amount across the holdings you choose below, buying whole shares. Any part that can't be placed is shown as left over.")
         }
     }
 
     private func holdingsSection(_ session: ContributionSession) -> some View {
         Section {
             if session.holdings.isEmpty {
-                Text("No holdings available.")
-                    .foregroundStyle(BitternTheme.secondaryInk)
+                ContentUnavailableView(
+                    "No Holdings",
+                    systemImage: "tray",
+                    description: Text("Holdings above your minimum value appear here.")
+                )
             } else {
-                let colors = BitternTheme.holdingAllocationColors(for: session.holdings)
+                // Colored like everywhere else: by every holding, not only
+                // the ones above the minimum value.
+                let colors = BitternTheme.holdingAllocationColors(for: viewModel.snapshot?.holdings ?? session.holdings)
 
                 ForEach(session.holdings) { holding in
                     ContributionHoldingRow(
@@ -109,7 +127,7 @@ struct ContributionCalculatorView: View {
         } header: {
             Text("Holdings")
         } footer: {
-            Text("Target percentages describe each elected holding's share of the elected holdings plus this contribution, and must total exactly 100%.")
+            Text("A target is the share a holding should have of the chosen holdings plus this contribution, after buying. Targets must total exactly 100%.")
         }
     }
 
@@ -130,7 +148,7 @@ struct ContributionCalculatorView: View {
                         .foregroundStyle(BitternTheme.ink)
                 }
 
-                LabeledContent("Residual Cash") {
+                LabeledContent("Left Over") {
                     Text(formattedMoney(outcome.residualCash, currencyCode: currencyCode))
                         .font(.body.monospacedDigit())
                         .foregroundStyle(BitternTheme.secondaryInk)
@@ -195,13 +213,13 @@ private extension ContributionSession.IncompleteReason {
     var message: String {
         switch self {
         case .noElectedHoldings:
-            "Elect at least one holding."
+            "Choose at least one holding."
         case .mixedCurrencies:
-            "Elected holdings must share one currency."
+            "Chosen holdings must share one currency."
         case .missingAmount:
             "Enter a contribution amount."
         case .missingTargets:
-            "Enter a target for every elected holding."
+            "Enter a target for every chosen holding."
         case .targetsNotWhole:
             "Targets must total exactly 100%."
         }
@@ -220,6 +238,8 @@ private struct ContributionHoldingRow: View {
     let focusedField: FocusState<ContributionFocusField?>.Binding
     let onToggleElection: () -> Void
 
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 32
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -227,26 +247,29 @@ private struct ContributionHoldingRow: View {
                     Image(systemName: isElected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(isElected ? BitternTheme.accent : BitternTheme.secondaryInk)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .disabled(!isElectable)
-                .accessibilityLabel(isElected ? "Remove \(holding.symbol) from contribution" : "Include \(holding.symbol) in contribution")
+                .accessibilityLabel("Include \(holding.symbol)")
+                .accessibilityAddTraits(isElected ? .isSelected : [])
 
                 HoldingSymbolIcon(
                     symbol: holding.symbol,
                     logoURL: holding.logoURL,
                     color: color,
-                    size: 32
+                    size: iconSize
                 )
+                .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(holding.symbol)
-                        .font(.body.weight(.semibold))
                         .foregroundStyle(BitternTheme.ink)
                         .lineLimit(1)
 
                     Text(subtitle)
-                        .font(.footnote)
+                        .font(.subheadline)
                         .foregroundStyle(BitternTheme.secondaryInk)
                         .lineLimit(1)
                 }
@@ -264,7 +287,9 @@ private struct ContributionHoldingRow: View {
                         .multilineTextAlignment(.trailing)
                         .keyboardType(.decimalPad)
                         .focused(focusedField, equals: .target(holding.id))
-                        .frame(width: 56)
+                        .frame(minWidth: 56, minHeight: 44)
+                        .fixedSize()
+                        .accessibilityLabel("\(holding.symbol) target percentage")
 
                         Text("%")
                             .font(.subheadline)
@@ -281,9 +306,9 @@ private struct ContributionHoldingRow: View {
 
                     Text(PortfolioFormat.percent(outcome.postContributionPercent, fractionDigits: 1))
                 }
-                .font(.footnote.monospacedDigit())
+                .font(.subheadline.monospacedDigit())
                 .foregroundStyle(BitternTheme.secondaryInk)
-                .padding(.leading, 44)
+                .padding(.leading, 56)
             }
         }
         .opacity(isElectable ? 1 : 0.4)
@@ -295,12 +320,12 @@ private struct ContributionHoldingRow: View {
 
     private var subtitle: String {
         guard let marketValue = holding.marketValue else {
-            return "\(accountDisplayName) · No price"
+            return "\(accountDisplayName)\(PortfolioFormat.separator)No price"
         }
         let value = isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: currencyCode)
-            : PortfolioFormat.price(marketValue, currencyCode: currencyCode)
-        return "\(accountDisplayName) · \(value)"
+            : PortfolioFormat.wholeMoney(marketValue, currencyCode: currencyCode)
+        return "\(accountDisplayName)\(PortfolioFormat.separator)\(value)"
     }
 
     private func orderDescription(for outcome: ContributionCalculator.HoldingOutcome) -> String {
@@ -316,10 +341,10 @@ private struct ContributionHoldingRow: View {
         }
 
         if isPrivacyEnabled {
-            return "Buy •••• shares · \(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
+            return "Buy •••• shares\(PortfolioFormat.separator)\(PortfolioFormat.hiddenMoney(currencyCode: currencyCode))"
         }
 
         let unit = shareOrder == 1 ? "share" : "shares"
-        return "Buy \(shareOrder) \(unit) · \(PortfolioFormat.price(outcome.actualSpend, currencyCode: currencyCode))"
+        return "Buy \(shareOrder) \(unit)\(PortfolioFormat.separator)\(PortfolioFormat.price(outcome.actualSpend, currencyCode: currencyCode))"
     }
 }

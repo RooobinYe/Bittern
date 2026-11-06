@@ -15,6 +15,20 @@ enum PreviewSupport {
         CredentialsStore(storage: PreviewCredentialsStorage())
     }
 
+    /// A credentials store holding made-up credentials, kept in memory.
+    static func demoCredentialsStore() -> CredentialsStore {
+        let store = credentialsStore()
+        try? store.save(
+            SnapTradeCredentials(
+                clientId: "DEMO-CLIENT",
+                consumerKey: "demo-consumer-key",
+                userId: "demo-user",
+                userSecret: "demo-user-secret"
+            )
+        )
+        return store
+    }
+
     /// A dashboard model showing `snapshot`, with no cache and no network.
     static func dashboardViewModel(
         credentialsStore: CredentialsStore,
@@ -22,7 +36,7 @@ enum PreviewSupport {
     ) -> DashboardViewModel {
         DashboardViewModel(
             credentialsStore: credentialsStore,
-            repository: PreviewPortfolioRepository(),
+            repository: DemoPortfolioRepository(),
             defaults: UserDefaults(suiteName: "BitternPreview") ?? .standard,
             initialSnapshot: snapshot,
             loadCachedSnapshot: { nil },
@@ -39,12 +53,13 @@ private final class PreviewCredentialsStorage: CredentialsStorage {
     func delete() throws { credentials = nil }
 }
 
-/// Refreshing a preview leaves its data as it is; anything else is offline.
-private struct PreviewPortfolioRepository: PortfolioRepository {
+/// The demo portfolio with made-up price and balance history. Refreshing
+/// leaves the data as it is; connecting a brokerage is offline.
+struct DemoPortfolioRepository: PortfolioRepository {
     private let offline = UnavailablePortfolioRepository()
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult {
-        try await offline.loadPortfolio(credentials: credentials)
+        PortfolioLoadResult(snapshot: DemoPortfolio.snapshot, partialFailure: PortfolioLoadPartialFailure())
     }
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult {
@@ -52,11 +67,66 @@ private struct PreviewPortfolioRepository: PortfolioRepository {
     }
 
     func priceHistory(for holding: PortfolioHolding, range: HoldingChartRange) async throws -> HoldingPriceSeries {
-        try await offline.priceHistory(for: holding, range: range)
+        let price = holding.currentPrice ?? 100
+        let calendar = Calendar(identifier: .gregorian)
+        let today = calendar.startOfDay(for: Date())
+
+        guard range == .oneDay else {
+            let count = switch range {
+            case .oneDay, .fiveDays: 5 * 78
+            case .threeMonths: 63
+            case .oneYear: 252
+            case .fiveYears: 260
+            case .max: 400
+            }
+            let step: TimeInterval = switch range {
+            case .oneDay, .fiveDays: 5 * 60
+            case .threeMonths, .oneYear: 86_400
+            case .fiveYears, .max: 7 * 86_400
+            }
+            let points = (0..<count).map { index in
+                let progress = Double(index) / Double(count - 1)
+                return HoldingPricePoint(
+                    date: today.addingTimeInterval(-Double(count - 1 - index) * step),
+                    price: price * (0.82 + 0.18 * progress + 0.04 * sin(Double(index) / 7))
+                )
+            }
+            return HoldingPriceSeries(points: points, timeDomain: nil)
+        }
+
+        // 04:00 to 20:00, with regular trading from 09:30 to 16:00.
+        let start = today.addingTimeInterval(4 * 3_600)
+        let end = today.addingTimeInterval(20 * 3_600)
+        let regularOpen = today.addingTimeInterval(9.5 * 3_600)
+        let regularClose = today.addingTimeInterval(16 * 3_600)
+        let close = holding.previousClose ?? price
+        let points = stride(from: start, through: end, by: 5 * 60).map { date in
+            let elapsed = date.timeIntervalSince(start) / end.timeIntervalSince(start)
+            let session: PriceChartSession = date < regularOpen
+                ? .preMarket
+                : date >= regularClose ? .postMarket : .regular
+            return HoldingPricePoint(
+                date: date,
+                price: close + (price - close) * elapsed + close * 0.006 * sin(elapsed * 18),
+                session: session
+            )
+        }
+        return HoldingPriceSeries(
+            points: points,
+            timeDomain: PriceChartTimeDomain(start: start, end: end),
+            baselinePrice: close
+        )
     }
 
     func portfolioHistory(credentials: SnapTradeCredentials, accountIDs: [String]) async throws -> PortfolioHistory {
-        try await offline.portfolioHistory(credentials: credentials, accountIDs: accountIDs)
+        let today = Calendar(identifier: .gregorian).startOfDay(for: Date())
+        let points = (0..<400).map { index in
+            PortfolioHistoryPoint(
+                date: today.addingTimeInterval(-Double(399 - index) * 86_400),
+                totalValue: 70_000 + Double(index) * 55 + 2_500 * sin(Double(index) / 11)
+            )
+        }
+        return PortfolioHistory(points: points, currencyCode: "USD")
     }
 
     func registerUser(apiKey: SnapTradeCredentials) async throws -> SnapTradeCredentials {

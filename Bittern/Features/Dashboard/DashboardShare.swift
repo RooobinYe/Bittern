@@ -27,13 +27,15 @@ enum PortfolioShareError: Error {
 }
 
 struct DashboardShareSnapshot: Sendable {
-    let filterAccounts: [PortfolioAccount]
+    /// The dashboard's title: "Portfolio", or the provider it shows.
+    let title: String
     let portfolio: PortfolioSnapshot
     let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
-    let selectedProviderName: String?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
+    let minimumMarketValue: Double
+    let hiddenHoldingCount: Int
     var isPrivacyEnabled: Bool
     let viewportSize: CGSize
     let layoutMode: DashboardLayoutMode
@@ -54,7 +56,6 @@ struct DashboardShareSnapshot: Sendable {
         // ImageRenderer draws in one pass, so every logo must be in hand first.
         let logos = await preloadedLogos(from: logoSource)
         let content = PortfolioShareScreenshotContent(snapshot: self, width: width)
-            .fontDesign(.default)
             .environment(\.dynamicTypeSize, dynamicTypeSize)
             .environment(\.colorScheme, colorScheme)
             .environment(\.logoSource, .preloaded(logos))
@@ -103,17 +104,13 @@ struct DashboardShareSnapshot: Sendable {
 /// A deliberate document header for the exported portfolio. It is not a
 /// hand-built replacement for the system navigation bar.
 private struct PortfolioExportHeader: View {
-    var body: some View {
-        ZStack {
-            Text("Portfolio")
-                .font(.title2.bold())
-                .foregroundStyle(BitternTheme.ink)
+    let title: String
 
-            HStack {
-                PortfolioAvatarIcon(size: 40)
-                Spacer(minLength: 0)
-            }
-        }
+    var body: some View {
+        Text(title)
+            .font(.largeTitle.bold())
+            .foregroundStyle(BitternTheme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -123,7 +120,7 @@ private struct PortfolioShareScreenshotContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PortfolioExportHeader()
+            PortfolioExportHeader(title: snapshot.title)
                 .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
                 .padding(.horizontal)
                 .padding(.top, 16)
@@ -131,13 +128,13 @@ private struct PortfolioShareScreenshotContent: View {
                 .background(BitternTheme.background)
 
             DashboardVisualContent(
-                filterAccounts: snapshot.filterAccounts,
                 portfolio: snapshot.portfolio,
                 allocationHoldings: snapshot.allocationHoldings,
                 sortedHoldings: snapshot.sortedHoldings,
-                selectedProviderName: snapshot.selectedProviderName,
                 performanceMode: snapshot.performanceMode,
                 sortOption: snapshot.sortOption,
+                minimumMarketValue: snapshot.minimumMarketValue,
+                hiddenHoldingCount: snapshot.hiddenHoldingCount,
                 isPrivacyEnabled: snapshot.isPrivacyEnabled,
                 layoutMode: snapshot.layoutMode,
                 controls: nil

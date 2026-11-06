@@ -7,12 +7,11 @@ import SwiftUI
 
 struct DashboardView: View {
     @Bindable var viewModel: DashboardViewModel
-    let credentialsStore: CredentialsStore
+    let showSettings: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.logoSource) private var logoSource
-    @State private var isShowingSettings = false
     @State private var viewportSize = CGSize(width: 390, height: 844)
 #if DEBUG
     @State private var didRunDebugScreenshotExport = false
@@ -21,18 +20,23 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                BitternTheme.background.ignoresSafeArea()
-
-                DashboardContent(
-                    viewModel: viewModel,
-                    isPrivacyEnabled: $isPrivacyEnabled
-                )
-                .frame(maxWidth: .infinity)
-            }
+            DashboardContent(
+                viewModel: viewModel,
+                isPrivacyEnabled: $isPrivacyEnabled,
+                connectBrokerage: showSettings
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(BitternTheme.background)
             .errorToast(message: $viewModel.errorMessage)
-            .navigationTitle("Portfolio")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle(viewModel.selectedProviderName ?? "Portfolio")
+            // A title menu only attaches to an inline title.
+            .navigationBarTitleDisplayMode(.inline)
+            .modifier(
+                AccountTitleMenu(
+                    providerNames: viewModel.snapshot?.accounts.providerNames ?? [],
+                    selectedProviderName: $viewModel.selectedProviderName
+                )
+            )
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { newSize in
@@ -40,30 +44,35 @@ struct DashboardView: View {
                 viewportSize = newSize
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        isShowingSettings = true
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            isPrivacyEnabled.toggle()
+                        }
                     } label: {
-                        PortfolioAvatarIcon()
+                        Label(
+                            isPrivacyEnabled ? "Show Values" : "Hide Values",
+                            systemImage: isPrivacyEnabled ? "eye.slash" : "eye"
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("SnapTrade settings")
-                }
 
-                ToolbarItem(placement: .topBarTrailing) {
                     if let portfolioShareItem {
                         ShareLink(
                             item: portfolioShareItem,
                             preview: SharePreview("Bittern Portfolio")
                         ) {
-                            Image(systemName: "square.and.arrow.up")
+                            Label("Share Portfolio", systemImage: "square.and.arrow.up")
                         }
-                        .accessibilityLabel("Share portfolio")
                     }
                 }
-            }
-            .navigationDestination(isPresented: $isShowingSettings) {
-                SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
+
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: showSettings) {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
             }
             .navigationDestination(for: HoldingRoute.self) { route in
                 HoldingDetailDestination(route: route, viewModel: viewModel)
@@ -109,13 +118,14 @@ struct DashboardView: View {
             : visible.filtered(minimumMarketValue: viewModel.minPriceThreshold)
 
         return DashboardShareSnapshot(
-            filterAccounts: snapshot.accounts,
+            title: viewModel.selectedProviderName ?? "Portfolio",
             portfolio: portfolio,
             allocationHoldings: snapshot.holdings,
             sortedHoldings: viewModel.sortOption.sorted(portfolio.holdings, by: viewModel.performanceMode),
-            selectedProviderName: viewModel.selectedProviderName,
             performanceMode: viewModel.performanceMode,
             sortOption: viewModel.sortOption,
+            minimumMarketValue: viewModel.minPriceThreshold,
+            hiddenHoldingCount: includingSmallHoldings ? 0 : viewModel.hiddenHoldingCount,
             isPrivacyEnabled: isPrivacyEnabled,
             viewportSize: viewportSize,
             layoutMode: DashboardLayoutMetrics.layoutMode(in: viewportSize)
@@ -156,15 +166,39 @@ struct DashboardView: View {
 #endif
 }
 
-struct PortfolioAvatarIcon: View {
-    var size: CGFloat = 36
+/// Tapping the title switches between all accounts and a single provider.
+/// With one provider or none there is nothing to switch between.
+private struct AccountTitleMenu: ViewModifier {
+    let providerNames: [String]
+    @Binding var selectedProviderName: String?
 
-    var body: some View {
-        Image(systemName: "leaf.fill")
-            .font(.title3.bold())
-            .foregroundStyle(BitternTheme.accent)
-            .frame(width: size, height: size)
-            .offset(x: -1, y: -1)
+    func body(content: Content) -> some View {
+        if providerNames.count > 1 {
+            content.toolbarTitleMenu {
+                Picker("Account", selection: animatedSelection) {
+                    Label("All Accounts", systemImage: "square.stack")
+                        .tag(String?.none)
+
+                    ForEach(providerNames, id: \.self) { providerName in
+                        Text(providerName)
+                            .tag(Optional(providerName))
+                    }
+                }
+            }
+        } else {
+            content
+        }
+    }
+
+    private var animatedSelection: Binding<String?> {
+        Binding(
+            get: { selectedProviderName },
+            set: { newValue in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    selectedProviderName = newValue
+                }
+            }
+        )
     }
 }
 
@@ -190,19 +224,12 @@ struct PortfolioAvatarIcon: View {
 }
 
 private struct DashboardPreview: View {
-    @State private var credentialsStore: CredentialsStore
-    @State private var viewModel: DashboardViewModel
-
-    init() {
-        let credentialsStore = PreviewSupport.credentialsStore()
-        _credentialsStore = State(initialValue: credentialsStore)
-        _viewModel = State(
-            initialValue: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore)
-        )
-    }
+    @State private var viewModel = PreviewSupport.dashboardViewModel(
+        credentialsStore: PreviewSupport.credentialsStore()
+    )
 
     var body: some View {
-        DashboardView(viewModel: viewModel, credentialsStore: credentialsStore)
+        DashboardView(viewModel: viewModel, showSettings: {})
     }
 }
 #endif

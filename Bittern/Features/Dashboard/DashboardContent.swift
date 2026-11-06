@@ -35,25 +35,28 @@ enum DashboardLayoutMode: Sendable {
 /// controls, so its containers show the same labels without wrapping them in
 /// buttons and menus.
 struct DashboardControls {
-    let selectProvider: (String?) -> Void
-    let togglePrivacy: () -> Void
     let selectPerformanceMode: (PerformanceMode) -> Void
     let selectSortOption: (HoldingSortOption) -> Void
+    let setMinimumMarketValue: (Double) -> Void
     let refresh: () async -> Void
 }
 
 struct DashboardContent: View {
     let viewModel: DashboardViewModel
     @Binding var isPrivacyEnabled: Bool
+    let connectBrokerage: () -> Void
 
     var body: some View {
         switch viewModel.loadState {
         case .notLoaded:
-            ContentUnavailableView(
-                "No Portfolio Connected",
-                systemImage: "building.columns",
-                description: Text("Connect a brokerage in Settings to see your holdings.")
-            )
+            ContentUnavailableView {
+                Label("No Portfolio Connected", systemImage: "building.columns")
+            } description: {
+                Text("Connect a brokerage to see your holdings.")
+            } actions: {
+                Button("Connect Brokerage", action: connectBrokerage)
+                    .buttonStyle(.borderedProminent)
+            }
         case .loading:
             ProgressView("Loading portfolio…")
         case .failed(let message):
@@ -69,13 +72,13 @@ struct DashboardContent: View {
         case .loaded(let snapshot):
             GeometryReader { proxy in
                 DashboardVisualContent(
-                    filterAccounts: snapshot.accounts,
                     portfolio: viewModel.displaySnapshot ?? snapshot,
                     allocationHoldings: snapshot.holdings,
                     sortedHoldings: viewModel.sortedHoldings,
-                    selectedProviderName: viewModel.selectedProviderName,
                     performanceMode: viewModel.performanceMode,
                     sortOption: viewModel.sortOption,
+                    minimumMarketValue: viewModel.minPriceThreshold,
+                    hiddenHoldingCount: viewModel.hiddenHoldingCount,
                     isPrivacyEnabled: isPrivacyEnabled,
                     layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
                     controls: controls
@@ -86,77 +89,142 @@ struct DashboardContent: View {
 
     private var controls: DashboardControls {
         DashboardControls(
-            selectProvider: { providerName in
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    viewModel.selectedProviderName = providerName
-                }
-            },
-            togglePrivacy: {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    isPrivacyEnabled.toggle()
-                }
-            },
             selectPerformanceMode: { viewModel.performanceMode = $0 },
             selectSortOption: { viewModel.sortOption = $0 },
+            setMinimumMarketValue: { viewModel.setMinimumMarketValue($0) },
             refresh: { await viewModel.refresh() }
         )
     }
 }
 
 /// The single visual source for both the live dashboard and its exported image.
-/// Export leaves out the controls and renders every row; the responsive layout
+/// The live dashboard is a system list; the export lays the same rows out in
+/// stacks, with no controls, and renders every row. The responsive layout
 /// mode always comes from the viewport that initiated the share.
 struct DashboardVisualContent: View {
-    let filterAccounts: [PortfolioAccount]
     let portfolio: PortfolioSnapshot
     let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
-    let selectedProviderName: String?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
+    let minimumMarketValue: Double
+    let hiddenHoldingCount: Int
     let isPrivacyEnabled: Bool
     let layoutMode: DashboardLayoutMode
     /// Nil when rendering the exported image.
     let controls: DashboardControls?
 
+    @State private var marketTime = Date()
+    @State private var isEditingMinimumValue = false
+
     private var holdingColorLookup: [String: Color] {
         BitternTheme.holdingAllocationColors(for: allocationHoldings)
     }
 
-    @ViewBuilder
+    /// When the next pre- or post-market session shown in a row ends, so the
+    /// row can stop showing it.
+    private var nextExtendedHoursBoundary: Date? {
+        sortedHoldings.flatMap { holding in
+            [
+                holding.activePreMarketChange(at: marketTime)?.sessionEnd,
+                holding.activePostMarketChange(at: marketTime)?.sessionEnd
+            ].compactMap { $0 }
+        }.min()
+    }
+
     var body: some View {
+        content
+            .onChange(of: portfolio.lastUpdated) { _, _ in
+                marketTime = Date()
+            }
+            .task(id: nextExtendedHoursBoundary) {
+                guard let boundary = nextExtendedHoursBoundary else { return }
+                do {
+                    try await Task.sleep(for: .seconds(max(boundary.timeIntervalSinceNow, 0)))
+                } catch {
+                    return
+                }
+                marketTime = Date()
+            }
+            .minimumMarketValueEditor(
+                isPresented: $isEditingMinimumValue,
+                value: minimumMarketValue,
+                currencyCode: portfolio.currencyCode,
+                save: { controls?.setMinimumMarketValue($0) }
+            )
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch (layoutMode, controls) {
         case (.stacked, let controls?):
-            ScrollView {
-                stackedSections
-                    .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity)
+            List {
+                Section {
+                    donut(fillsAvailableSpace: false)
+                        .padding(.vertical, 8)
+                        .listRowInsets(.horizontal, 0)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+
+                holdingsSection(controls: controls)
             }
+            .listStyle(.plain)
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+            .frame(maxWidth: .infinity)
             .softNavigationBarEdge()
             .refreshable { await controls.refresh() }
 
+        case (.split, let controls?):
+            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
+                donut(fillsAvailableSpace: true)
+                    .frame(
+                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                        maxHeight: .infinity
+                    )
+
+                List {
+                    holdingsSection(controls: controls)
+                }
+                .listStyle(.plain)
+                .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                .softNavigationBarEdge()
+                .refreshable { await controls.refresh() }
+            }
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+            .padding(.leading)
+            .frame(maxWidth: .infinity)
+
         case (.stacked, nil):
-            stackedSections
-                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal)
-                .frame(maxWidth: .infinity)
+            VStack(spacing: 24) {
+                donut(fillsAvailableSpace: false)
+                exportHoldings
+            }
+            .padding(.bottom, 14)
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+            .padding(.horizontal)
+            .frame(maxWidth: .infinity)
 
-        case (.split, let controls):
-            splitContent(refresh: controls?.refresh)
-                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal)
-                .frame(maxWidth: .infinity)
+        case (.split, nil):
+            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
+                donut(fillsAvailableSpace: false)
+                    .frame(
+                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                        alignment: .top
+                    )
+
+                exportHoldings
+                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+            }
+            .padding(.bottom, 14)
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+            .padding(.horizontal)
+            .frame(maxWidth: .infinity)
         }
-    }
-
-    private var accountFilter: some View {
-        AccountFilterBar(
-            providerNames: filterAccounts.providerNames,
-            selectedProviderName: selectedProviderName,
-            isPrivacyEnabled: isPrivacyEnabled,
-            controls: controls
-        )
     }
 
     private func donut(fillsAvailableSpace: Bool) -> some View {
@@ -170,68 +238,96 @@ struct DashboardVisualContent: View {
         )
     }
 
-    private var holdings: some View {
-        HoldingsSection(
-            sortedHoldings: sortedHoldings,
-            snapshot: portfolio,
-            holdingColorLookup: holdingColorLookup,
+    private func header(controls: DashboardControls?) -> HoldingsHeader {
+        HoldingsHeader(
+            lastUpdated: portfolio.lastUpdated,
             performanceMode: performanceMode,
             sortOption: sortOption,
-            isPrivacyEnabled: isPrivacyEnabled,
-            controls: controls
+            minimumMarketValue: minimumMarketValue,
+            hiddenHoldingCount: hiddenHoldingCount,
+            currencyCode: portfolio.currencyCode,
+            controls: controls,
+            editMinimumValue: { isEditingMinimumValue = true }
         )
     }
 
-    private var stackedSections: some View {
-        VStack(spacing: 24) {
-            accountFilter
-            donut(fillsAvailableSpace: false)
-            holdings
-        }
-        .padding(.bottom, 14)
-    }
+    /// The header is the section's first row rather than its header: a plain
+    /// list pins headers over the rows scrolling under them.
+    private func holdingsSection(controls: DashboardControls) -> some View {
+        Section {
+            header(controls: controls)
+                .listRowSeparator(.hidden)
+                .listRowInsets(.horizontal, 16)
 
-    /// The live split view scrolls its holdings beside a chart that fills the
-    /// column; the export lays both out at their natural height.
-    private func splitContent(refresh: (() async -> Void)?) -> some View {
-        VStack(spacing: 20) {
-            accountFilter
-
-            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                if let refresh {
-                    donut(fillsAvailableSpace: true)
-                        .frame(
-                            minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                            idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                            maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                            maxHeight: .infinity
-                        )
-
-                    ScrollView {
-                        splitHoldings
+            if sortedHoldings.isEmpty {
+                EmptyHoldingsView(hiddenNote: hiddenNote)
+                    .listRowSeparator(.hidden)
+            } else {
+                ForEach(sortedHoldings) { holding in
+                    NavigationLink(value: HoldingRoute(holdingID: holding.id)) {
+                        row(for: holding)
                     }
-                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
-                    .contentMargins(.horizontal, 8, for: .scrollContent)
-                    .softNavigationBarEdge()
-                    .refreshable { await refresh() }
-                } else {
-                    donut(fillsAvailableSpace: false)
-                        .frame(
-                            minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                            idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                            maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                            alignment: .top
-                        )
+                    .navigationLinkIndicatorVisibility(.hidden)
+                    .listRowInsets(.horizontal, 16)
+                }
 
-                    splitHoldings
-                        .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                if let hiddenNote {
+                    Button(hiddenNote) { isEditingMinimumValue = true }
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(.horizontal, 16)
                 }
             }
         }
     }
 
-    private var splitHoldings: some View {
-        holdings
-            .padding(.bottom, 14)
+    /// The export's version of the holdings section.
+    private var exportHoldings: some View {
+        VStack(spacing: 0) {
+            header(controls: nil)
+                .padding(.bottom, 8)
+
+            if sortedHoldings.isEmpty {
+                EmptyHoldingsView(hiddenNote: hiddenNote)
+                    .padding(.top, 24)
+            } else {
+                ForEach(sortedHoldings) { holding in
+                    row(for: holding)
+                        .padding(.vertical, 12)
+
+                    if holding.id != sortedHoldings.last?.id {
+                        Divider()
+                    }
+                }
+            }
+
+            if let hiddenNote, !sortedHoldings.isEmpty {
+                Text(hiddenNote)
+                    .font(.footnote)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 12)
+            }
+        }
+    }
+
+    private func row(for holding: PortfolioHolding) -> HoldingListRow {
+        HoldingListRow(
+            holding: holding,
+            allocation: portfolio.allocation(of: holding),
+            performanceMode: performanceMode,
+            isPrivacyEnabled: isPrivacyEnabled,
+            color: holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0),
+            marketTime: marketTime
+        )
+    }
+
+    /// Says how many holdings the minimum market value hides, if any.
+    private var hiddenNote: String? {
+        guard hiddenHoldingCount > 0 else { return nil }
+        let minimum = PortfolioFormat.price(minimumMarketValue, currencyCode: portfolio.currencyCode)
+        let holdings = hiddenHoldingCount == 1 ? "1 holding" : "\(hiddenHoldingCount) holdings"
+        return "\(holdings) under \(minimum) hidden"
     }
 }

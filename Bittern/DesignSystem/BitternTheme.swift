@@ -13,9 +13,16 @@ enum BitternTheme {
     static let secondaryInk = Color(uiColor: .secondaryLabel)
     static let softLine = Color(uiColor: .separator)
     static let accent = Color.accentColor
-    static let positivePerformance = Color(uiColor: .systemGreen)
-    static let negativePerformance = Color(uiColor: .systemRed)
+    /// Darker than `systemGreen` and `systemRed` in light mode so gains and
+    /// losses read at 4.5:1 on white; the system colors in dark mode.
+    static let positivePerformance = Color(.positivePerformance)
+    static let negativePerformance = Color(.negativePerformance)
     static let warning = Color(uiColor: .systemOrange)
+
+    /// Text uses the system's default design. Key figures (totals, prices,
+    /// changes and the allocation bubbles) keep the rounded design that
+    /// gives Bittern its character.
+    static let keyFigureDesign: Font.Design = .rounded
 
     static let allocationColors: [Color] = [
         mutedAllocationColor(.systemIndigo),
@@ -114,18 +121,6 @@ enum BitternTheme {
     }
 }
 
-struct PanelModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .background(BitternTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(BitternTheme.softLine.opacity(0.65), lineWidth: 1)
-            }
-    }
-}
-
 private struct ErrorToastModifier: ViewModifier {
     @Binding var message: String?
 
@@ -134,12 +129,11 @@ private struct ErrorToastModifier: ViewModifier {
             .overlay(alignment: .top) {
                 if let message {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline)
                         .foregroundStyle(BitternTheme.ink)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                        .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                         .allowsHitTesting(false)
@@ -147,6 +141,7 @@ private struct ErrorToastModifier: ViewModifier {
                             .move(edge: .top).combined(with: .opacity)
                         )
                         .task(id: message) {
+                            AccessibilityNotification.Announcement(message).post()
                             try? await Task.sleep(for: .seconds(5))
                             guard !Task.isCancelled else { return }
                             self.message = nil
@@ -157,11 +152,17 @@ private struct ErrorToastModifier: ViewModifier {
     }
 }
 
-extension View {
-    func bitternPanel() -> some View {
-        modifier(PanelModifier())
+extension Font {
+    /// A key figure (a total, price, change or allocation share) in the
+    /// key-figure design, with digits of even width. The design is part of
+    /// the font itself: `fontDesign(_:)` doesn't reach text that sets its
+    /// own font.
+    static func keyFigure(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
+        .system(style, design: BitternTheme.keyFigureDesign, weight: weight).monospacedDigit()
     }
+}
 
+extension View {
     func errorToast(message: Binding<String?>) -> some View {
         modifier(ErrorToastModifier(message: message))
     }
