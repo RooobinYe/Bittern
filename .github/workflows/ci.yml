@@ -38,11 +38,21 @@ jobs:
           sudo xcode-select -s "$xcode"
           xcodebuild -version
 
+      # The newest iOS runtime, since older ones can be below the deployment
+      # target and xcodebuild then finds no matching destination.
       - name: Pick an iPhone simulator
         run: |
+          runtime="$(xcrun simctl list runtimes available -j \
+            | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')"
+          echo "Runtime: $runtime"
           udid="$(xcrun simctl list devices available -j \
-            | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')"
-          test -n "$udid" && test "$udid" != "null"
+            | jq -r --arg runtime "$runtime" '[.devices[$runtime][]? | select(.name | startswith("iPhone"))] | first | .udid')"
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "No iPhone simulator for $runtime"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          xcrun simctl list devices available | grep "$udid"
           echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
 
       # Release is where the optimizer surfaces its own warnings; both
