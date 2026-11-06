@@ -148,8 +148,7 @@ struct PortfolioSnapshotPersistenceTests {
             allTimeGainPercent: 0,
             currencyCode: "USD",
             hasMixedCurrencies: false,
-            lastUpdated: Date(timeIntervalSince1970: 1_000),
-            isDemo: false
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
         )
 
         let data = try JSONEncoder().encode(stale)

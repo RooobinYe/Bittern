@@ -95,10 +95,8 @@ struct SettingsView: View {
             }
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar(.visible, for: .navigationBar)
     }
 
     private var formattedMinimumMarketValue: String {
@@ -156,10 +154,8 @@ private struct SnapTradeCredentialsView: View {
             }
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Credentials")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
     }
 }
 

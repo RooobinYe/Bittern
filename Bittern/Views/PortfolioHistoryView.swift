@@ -40,8 +40,6 @@ struct PortfolioHistoryView: View {
         }
         .background(BitternTheme.background.ignoresSafeArea())
         .contentMargins(.horizontal, 24, for: .scrollContent)
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .toolbar(.visible, for: .navigationBar)
         .errorToast(message: $historyModel.errorMessage)
         .refreshable {
             await historyModel.reload(
@@ -360,14 +358,13 @@ private extension Array where Element == PortfolioHistoryPoint {
 }
 
 #if DEBUG
-struct PortfolioHistoryView_Previews: PreviewProvider {
-    static var previews: some View {
-        NavigationStack {
-            PortfolioHistoryView(
-                credentialsStore: CredentialsStore(),
-                dashboardViewModel: DashboardViewModel(credentialsStore: CredentialsStore())
-            )
-        }
+#Preview {
+    let credentialsStore = PreviewSupport.credentialsStore()
+    NavigationStack {
+        PortfolioHistoryView(
+            credentialsStore: credentialsStore,
+            dashboardViewModel: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore)
+        )
     }
 }
 #endif

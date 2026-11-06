@@ -117,7 +117,6 @@ struct ContributionCalculatorView: View {
             resultSection
         }
         .fontDesign(.default)
-        .scrollEdgeEffectStyle(.soft, for: .top)
         .navigationTitle("Contributions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -287,7 +286,6 @@ struct ContributionCalculatorView: View {
 
     private func prunePlan() {
         guard let snapshot = viewModel.snapshot,
-              !snapshot.isDemo,
               !snapshot.holdings.isEmpty
         else {
             return

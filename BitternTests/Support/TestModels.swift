@@ -34,12 +34,10 @@ func makeHolding(
 func makeAccount(id: String = "a1", currencyCode: String = "USD") -> PortfolioAccount {
     PortfolioAccount(
         id: id,
-        connectionID: nil,
         name: "Account \(id)",
         institutionName: "Broker \(id)",
         providerLogoURL: nil,
         isConnectionDisabled: false,
-        totalBalance: nil,
         currencyCode: currencyCode
     )
 }

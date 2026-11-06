@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 import OSLog
 
 struct PortfolioAccountsView: View {
@@ -66,13 +67,11 @@ struct PortfolioAccountsView: View {
                 .padding(.bottom, 42)
             }
             .contentMargins(.horizontal, 24, for: .scrollContent)
-            .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable {
                 await refresh()
             }
         }
         .errorToast(message: presentedErrorMessage)
-        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(role: .destructive) {
@@ -394,9 +393,7 @@ private struct ProviderHoldingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "link")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(BitternTheme.secondaryInk)
+                ProviderLogo(name: group.name, url: group.logoURL)
 
                 Text(group.name)
                     .font(.title2.bold())
@@ -432,6 +429,40 @@ private struct ProviderHoldingsSection: View {
                     )
                 }
             }
+        }
+    }
+}
+
+/// The brokerage's logo from SnapTrade, or a generic link symbol while it
+/// loads or when SnapTrade has none.
+private struct ProviderLogo: View {
+    let name: String
+    let url: URL?
+
+    @ScaledMetric(relativeTo: .title2) private var size: CGFloat = 28
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+            } else {
+                Image(systemName: "link")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: url) {
+            image = nil
+            guard let url else { return }
+            // A missing logo only leaves the generic symbol; the client logs why.
+            image = try? await BrandfetchClient().image(for: name, at: url)
         }
     }
 }

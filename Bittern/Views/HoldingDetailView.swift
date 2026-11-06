@@ -18,12 +18,15 @@ struct HoldingDetailView: View {
     init(
         holding: PortfolioHolding,
         snapshot: PortfolioSnapshot,
-        allocationHoldings: [PortfolioHolding]
+        allocationHoldings: [PortfolioHolding],
+        yahooClient: YahooFinanceClient? = nil
     ) {
         self.holding = holding
         self.snapshot = snapshot
         self.allocationHoldings = allocationHoldings
-        _detailModel = StateObject(wrappedValue: HoldingDetailViewModel(holding: holding))
+        _detailModel = StateObject(
+            wrappedValue: HoldingDetailViewModel(holding: holding, yahooClient: yahooClient)
+        )
     }
 
     var body: some View {
@@ -70,14 +73,12 @@ struct HoldingDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentMargins(.horizontal, 24, for: .scrollContent)
-            .scrollEdgeEffectStyle(.soft, for: .top)
             .refreshable {
                 await Task {
                     await detailModel.refreshSelectedRange()
                 }.value
             }
         }
-        .toolbar(.visible, for: .navigationBar)
         .errorToast(message: $detailModel.errorMessage)
         .task {
             await detailModel.loadSelectedRangeIfNeeded()
@@ -776,12 +777,14 @@ private func preciseQuantity(_ value: Double) -> String {
 }
 
 #if DEBUG
-struct HoldingDetailView_Previews: PreviewProvider {
-    static var previews: some View {
+#Preview {
+    let snapshot = DemoPortfolio.snapshot
+    NavigationStack {
         HoldingDetailView(
-            holding: DemoPortfolio.snapshot.holdings[3],
-            snapshot: DemoPortfolio.snapshot,
-            allocationHoldings: DemoPortfolio.snapshot.holdings
+            holding: snapshot.holdings[3],
+            snapshot: snapshot,
+            allocationHoldings: snapshot.holdings,
+            yahooClient: YahooFinanceClient(session: PreviewSupport.offlineSession)
         )
     }
 }

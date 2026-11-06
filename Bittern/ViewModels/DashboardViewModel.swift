@@ -166,8 +166,7 @@ final class DashboardViewModel: ObservableObject {
         return PortfolioSnapshot.make(
             accounts: accounts,
             holdings: holdings,
-            lastUpdated: snapshot.lastUpdated,
-            isDemo: snapshot.isDemo
+            lastUpdated: snapshot.lastUpdated
         )
     }
 
@@ -184,8 +183,7 @@ final class DashboardViewModel: ObservableObject {
         return PortfolioSnapshot.make(
             accounts: base.accounts,
             holdings: holdings,
-            lastUpdated: base.lastUpdated,
-            isDemo: base.isDemo
+            lastUpdated: base.lastUpdated
         )
     }
 

@@ -222,8 +222,6 @@ struct YahooFinanceClient {
                 let extendedHoursQuote = extendedHoursQuotes[quote.symbol]
                 return YahooQuoteDTO(
                     symbol: quote.symbol,
-                    shortName: quote.shortName,
-                    longName: quote.longName,
                     currency: quote.currency,
                     regularMarketPrice: quote.regularMarketPrice,
                     regularMarketPreviousClose: quote.regularMarketPreviousClose,
@@ -258,119 +256,105 @@ struct YahooFinanceClient {
         currencyCode: String,
         range: HoldingChartRange
     ) async throws -> HoldingPriceSeries {
-        let candidates = candidateSymbols(for: symbol, instrumentKind: instrumentKind)
-        guard !candidates.isEmpty else {
+        guard let yahooSymbol = yahooSymbol(for: symbol, instrumentKind: instrumentKind) else {
             throw YahooFinanceError.emptySymbols
         }
 
         AppLog.marketData.debug(
-            "Price history requested symbol=\(symbol) instrumentKind=\(logKind(instrumentKind), privacy: .public) range=\(range.title, privacy: .public) candidates=\(AppLog.list(candidates))"
+            "Price history requested symbol=\(symbol) yahooSymbol=\(yahooSymbol) instrumentKind=\(logKind(instrumentKind), privacy: .public) range=\(range.title, privacy: .public)"
         )
 
-        var lastError: Error?
-        for candidate in candidates {
-            do {
-                let history = try await fetchHistoryOne(
-                    candidate: candidate,
-                    instrumentKind: instrumentKind,
-                    currencyCode: currencyCode,
-                    range: range
-                )
-                if !history.points.isEmpty {
-                    AppLog.marketData.debug(
-                        "Price history candidate=\(candidate) returned points=\(history.points.count, privacy: .public)"
-                    )
-                    return history
-                }
-                AppLog.marketData.warning(
-                    "Price history candidate=\(candidate) returned no points"
-                )
-            } catch {
-                lastError = error
-                AppLog.marketData.warning(
-                    "Price history candidate=\(candidate) failed: \(AppLog.describe(error))"
-                )
-            }
+        let history: HoldingPriceSeries
+        do {
+            history = try await fetchHistoryOne(
+                candidate: yahooSymbol,
+                instrumentKind: instrumentKind,
+                currencyCode: currencyCode,
+                range: range
+            )
+        } catch {
+            AppLog.marketData.error(
+                "Price history yahooSymbol=\(yahooSymbol) failed: \(AppLog.describe(error))"
+            )
+            throw error
         }
 
-        AppLog.marketData.error(
-            "Price history failed for every candidate symbol=\(symbol)"
+        guard !history.points.isEmpty else {
+            AppLog.marketData.error(
+                "Price history yahooSymbol=\(yahooSymbol) returned no points"
+            )
+            throw YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
+        }
+
+        AppLog.marketData.debug(
+            "Price history yahooSymbol=\(yahooSymbol) returned points=\(history.points.count, privacy: .public)"
         )
-        throw lastError ?? YahooFinanceError.httpStatus(-1, "Empty chart result for \(symbol)")
+        return history
     }
 
     // MARK: - Private
 
-    /// Try the symbol as-is (works for stocks), then with "-USD" appended
-    /// (required for crypto).  The returned DTO carries the ORIGINAL symbol
-    /// so callers can look up by the ticker they already have.
+    /// Fetches the regular-session quote. The returned DTO carries the
+    /// holding's own symbol, not the Yahoo one, so callers can look it up by
+    /// the ticker they already have.
     private func fetchQuote(
         for request: YahooQuoteRequest,
         at requestedAt: Date
     ) async -> YahooRegularQuoteResult? {
         let upper = normalizedSymbol(request.symbol)
-        let candidates = candidateSymbols(
+        guard let yahooSymbol = yahooSymbol(
             for: request.symbol,
             instrumentKind: request.instrumentKind
-        )
+        ) else {
+            return nil
+        }
 
         AppLog.marketData.debug(
-            "Quote symbol=\(upper) instrumentKind=\(logKind(request.instrumentKind), privacy: .public) candidates=\(AppLog.list(candidates)) started"
+            "Quote symbol=\(upper) yahooSymbol=\(yahooSymbol) instrumentKind=\(logKind(request.instrumentKind), privacy: .public) started"
         )
 
-        for candidate in candidates {
-            do {
-                let result = try await fetchOne(
-                    candidate: candidate,
-                    at: requestedAt
-                )
-                let quote = result.quote
-                AppLog.marketData.debug(
-                    "Quote symbol=\(upper) candidate=\(candidate) succeeded price=\(AppLog.optional(quote.regularMarketPrice)) previousClose=\(AppLog.optional(quote.regularMarketPreviousClose)) currency=\(quote.currency ?? "nil")"
-                )
-                // Always report back with the original ticker
-                return YahooRegularQuoteResult(
-                    quote: YahooQuoteDTO(
-                        symbol: upper,
-                        shortName: quote.shortName,
-                        longName: quote.longName,
-                        currency: quote.currency,
-                        regularMarketPrice: quote.regularMarketPrice,
-                        regularMarketPreviousClose: quote.regularMarketPreviousClose,
-                        preMarket: nil,
-                        postMarket: nil
-                    ),
-                    extendedHoursProbe: result.extendedHoursProbe
-                )
-            } catch {
-                AppLog.marketData.warning(
-                    "Quote symbol=\(upper) candidate=\(candidate) failed: \(AppLog.describe(error))"
-                )
-            }
+        do {
+            let result = try await fetchOne(
+                candidate: yahooSymbol,
+                at: requestedAt
+            )
+            let quote = result.quote
+            AppLog.marketData.debug(
+                "Quote symbol=\(upper) succeeded price=\(AppLog.optional(quote.regularMarketPrice)) previousClose=\(AppLog.optional(quote.regularMarketPreviousClose)) currency=\(quote.currency ?? "nil")"
+            )
+            return YahooRegularQuoteResult(
+                quote: YahooQuoteDTO(
+                    symbol: upper,
+                    currency: quote.currency,
+                    regularMarketPrice: quote.regularMarketPrice,
+                    regularMarketPreviousClose: quote.regularMarketPreviousClose,
+                    preMarket: nil,
+                    postMarket: nil
+                ),
+                extendedHoursProbe: result.extendedHoursProbe
+            )
+        } catch {
+            AppLog.marketData.warning(
+                "Quote symbol=\(upper) yahooSymbol=\(yahooSymbol) failed: \(AppLog.describe(error))"
+            )
+            return nil
         }
-
-        AppLog.marketData.warning(
-            "Quote symbol=\(upper) failed allCandidates=\(AppLog.list(candidates))"
-        )
-        return nil
     }
 
-    private func candidateSymbols(
+    /// The Yahoo ticker for a holding. Crypto needs a "-USD" pair suffix;
+    /// everything else is used as-is. The kind comes from SnapTrade, never from
+    /// the ticker's length: short ETF symbols such as IAUM and QQQM would
+    /// otherwise read as crypto.
+    private func yahooSymbol(
         for rawSymbol: String,
         instrumentKind: PortfolioInstrumentKind?
-    ) -> [String] {
+    ) -> String? {
         let upper = normalizedSymbol(rawSymbol)
-        guard !upper.isEmpty else { return [] }
-
-        // Do not infer asset type from ticker length: short ETF symbols such
-        // as IAUM and QQQM would be misclassified as crypto. SnapTrade's
-        // instrument kind is persisted on PortfolioHolding and is the source
-        // of truth here.
+        guard !upper.isEmpty else { return nil }
         guard instrumentKind == .crypto, !upper.contains("-") else {
-            return [upper]
+            return upper
         }
-
-        return ["\(upper)-USD"]
+        return "\(upper)-USD"
     }
 
     private func fetchOne(
@@ -426,8 +410,6 @@ struct YahooFinanceClient {
 
         let quote = YahooQuoteDTO(
             symbol: symbol,
-            shortName: meta.shortName,
-            longName: meta.longName,
             currency: meta.currency,
             regularMarketPrice: currentPrice,
             regularMarketPreviousClose: previousClose,
@@ -1358,8 +1340,6 @@ private struct YahooChartMetaDTO: Decodable {
     let regularMarketPrice: Double?
     let chartPreviousClose: Double?
     let previousClose: Double?
-    let shortName: String?
-    let longName: String?
     let exchangeTimezoneName: String?
     let dataGranularity: String?
     let range: String?
@@ -1415,30 +1395,17 @@ private struct YahooChartIndicatorsDTO: Decodable {
 
 private struct YahooChartQuoteDTO: Decodable {
     let close: [Double?]?
-    let low: [Double?]?
-    let open: [Double?]?
-    let high: [Double?]?
 }
 
 // MARK: - Quote results
 
 struct YahooQuoteDTO: Sendable {
     let symbol: String
-    let shortName: String?
-    let longName: String?
     let currency: String?
     let regularMarketPrice: Double?
     let regularMarketPreviousClose: Double?
     let preMarket: YahooExtendedHoursQuoteDTO?
     let postMarket: YahooExtendedHoursQuoteDTO?
-
-    var fullName: String? {
-        longName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    }
-
-    var displayName: String? {
-        fullName
-    }
 }
 
 struct YahooExtendedHoursQuoteDTO: Sendable {
@@ -1448,10 +1415,4 @@ struct YahooExtendedHoursQuoteDTO: Sendable {
     let observedAt: Date?
     let sessionStart: Date
     let sessionEnd: Date
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
 }

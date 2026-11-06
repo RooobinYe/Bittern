@@ -39,10 +39,6 @@ enum AppLog {
         subsystem: subsystem,
         category: "Images"
     )
-    nonisolated static let sharing = Logger(
-        subsystem: subsystem,
-        category: "Sharing"
-    )
 
     nonisolated static func describe(_ error: any Error) -> String {
         let nsError = error as NSError

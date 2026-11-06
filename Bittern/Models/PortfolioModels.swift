@@ -341,12 +341,10 @@ struct SnapTradeCredentials: Codable, Equatable {
 
 struct PortfolioAccount: Identifiable, Hashable, Codable, Sendable {
     let id: String
-    let connectionID: String?
     let name: String
     let institutionName: String
     let providerLogoURL: URL?
     let isConnectionDisabled: Bool
-    let totalBalance: Double?
     /// The balance's currency, which SnapTrade may omit. Holdings carry their
     /// own currency, so this never decides how a holding is valued.
     let currencyCode: String?
@@ -494,7 +492,6 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
     let hasMixedCurrencies: Bool
     /// When every holding last had a price; nil if that has never been true.
     let lastUpdated: Date?
-    let isDemo: Bool
 
     /// Totals are nil unless every holding contributes to them in one shared
     /// currency: Bittern never converts, so there is no honest sum otherwise
@@ -502,8 +499,7 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
     static func make(
         accounts: [PortfolioAccount],
         holdings: [PortfolioHolding],
-        lastUpdated: Date? = Date(),
-        isDemo: Bool = false
+        lastUpdated: Date? = Date()
     ) -> PortfolioSnapshot {
         let currencyCodes = Set(holdings.map(\.currencyCode))
         let hasMixedCurrencies = currencyCodes.count > 1
@@ -541,12 +537,9 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
             allTimeGainPercent: ratio(allTimeGainAmount, of: totalCostBasis),
             currencyCode: holdings.first?.currencyCode ?? "USD",
             hasMixedCurrencies: hasMixedCurrencies,
-            lastUpdated: lastUpdated,
-            isDemo: isDemo
+            lastUpdated: lastUpdated
         )
     }
-
-    static let empty = PortfolioSnapshot.make(accounts: [], holdings: [], isDemo: true)
 
     /// Symbols of holdings that have no usable price.
     var unpricedSymbols: [String] {
@@ -556,7 +549,7 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
     /// The same inputs with totals recomputed by today's rules. Used on data
     /// persisted by an earlier version.
     func recomputed() -> PortfolioSnapshot {
-        .make(accounts: accounts, holdings: holdings, lastUpdated: lastUpdated, isDemo: isDemo)
+        .make(accounts: accounts, holdings: holdings, lastUpdated: lastUpdated)
     }
 
     /// A partial refresh has no `lastUpdated` of its own, so it keeps showing
@@ -566,8 +559,7 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
         return .make(
             accounts: accounts,
             holdings: holdings,
-            lastUpdated: previous.lastUpdated,
-            isDemo: isDemo
+            lastUpdated: previous.lastUpdated
         )
     }
 }

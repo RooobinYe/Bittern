@@ -105,12 +105,10 @@ struct LivePortfolioRepository: PortfolioRepository {
             let dto = source.account
             return PortfolioAccount(
                 id: dto.id,
-                connectionID: source.connection?.id ?? dto.brokerageAuthorizationID,
                 name: dto.displayName,
                 institutionName: source.connection?.displayName ?? dto.displayInstitution,
                 providerLogoURL: source.connection?.logoURL,
                 isConnectionDisabled: source.connection?.disabled == true,
-                totalBalance: dto.balance?.total?.amount,
                 currencyCode: dto.balance?.total?.currency
             )
         }
@@ -224,7 +222,6 @@ struct LivePortfolioRepository: PortfolioRepository {
         return try result(
             accounts: accounts,
             holdings: holdings,
-            isDemo: false,
             dividendsFailed: didFailSomeDividends,
             mismatches: mismatches,
             didFailExtendedHours: quoteBatch.didFailExtendedHours
@@ -303,7 +300,6 @@ struct LivePortfolioRepository: PortfolioRepository {
         return try result(
             accounts: snapshot.accounts,
             holdings: updatedHoldings,
-            isDemo: snapshot.isDemo,
             dividendsFailed: false,
             mismatches: mismatches,
             didFailExtendedHours: quoteBatch.didFailExtendedHours
@@ -389,7 +385,6 @@ struct LivePortfolioRepository: PortfolioRepository {
     private func result(
         accounts: [PortfolioAccount],
         holdings: [PortfolioHolding],
-        isDemo: Bool,
         dividendsFailed: Bool,
         mismatches: [PortfolioCurrencyMismatch],
         didFailExtendedHours: Bool
@@ -400,8 +395,7 @@ struct LivePortfolioRepository: PortfolioRepository {
         let snapshot = PortfolioSnapshot.make(
             accounts: accounts,
             holdings: holdings,
-            lastUpdated: unpricedSymbols.isEmpty ? currentDate() : nil,
-            isDemo: isDemo
+            lastUpdated: unpricedSymbols.isEmpty ? currentDate() : nil
         )
         let partialFailure = PortfolioLoadPartialFailure(
             dividendsFailed: dividendsFailed,

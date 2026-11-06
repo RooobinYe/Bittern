@@ -19,8 +19,15 @@ struct ContentView: View {
         #if DEBUG
         DebugSnapTradeCredentialsInjector.injectIfConfigured(into: credentialsStore)
         #endif
+        self.init(
+            credentialsStore: credentialsStore,
+            viewModel: DashboardViewModel(credentialsStore: credentialsStore)
+        )
+    }
+
+    init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
         _credentialsStore = StateObject(wrappedValue: credentialsStore)
-        _viewModel = StateObject(wrappedValue: DashboardViewModel(credentialsStore: credentialsStore))
+        _viewModel = StateObject(wrappedValue: viewModel)
     }
 
     var body: some View {
@@ -51,9 +58,11 @@ struct ContentView: View {
 }
 
 #if DEBUG
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
+#Preview {
+    let credentialsStore = PreviewSupport.credentialsStore()
+    ContentView(
+        credentialsStore: credentialsStore,
+        viewModel: PreviewSupport.dashboardViewModel(credentialsStore: credentialsStore)
+    )
 }
 #endif
