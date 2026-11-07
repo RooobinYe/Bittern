@@ -71,6 +71,9 @@ struct ContentView: View {
                 }
             }
         }
+        // Scrolling down shrinks the bar to the current tab in the corner,
+        // so the holdings get the full height; scrolling up brings it back.
+        .tabBarMinimizeBehavior(.onScrollDown)
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
         }
