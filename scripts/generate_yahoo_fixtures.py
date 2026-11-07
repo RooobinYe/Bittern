@@ -117,12 +117,26 @@ def crypto():
     return chart(meta, timestamps, [68_000.0, 70_000.0, 70_100.0, 70_300.0])
 
 
+def year_to_date(previous_close):
+    """Daily closes since the year began. chartPreviousClose is the last
+    close of 2025, which the first bar (2 January) doesn't show."""
+    closes = [
+        (datetime(2026, 1, 2, 16, tzinfo=EST), 82.0),
+        (datetime(2026, 1, 5, 16, tzinfo=EST), 84.0),
+        (datetime(2026, 11, 6, 16, tzinfo=EST), FRI_CLOSE),
+    ]
+    meta = base_meta(FRI_CLOSE, previous_close, 6)
+    meta.update({"dataGranularity": "1d", "range": "ytd"})
+    return chart(meta, [int(d.timestamp()) for d, _ in closes], [c for _, c in closes])
+
+
 FILES = {
     "history-premarket": history(ts(6, 8), THU_CLOSE, PREVIOUS_CLOSE, 6),
     "history-regular": history(ts(6, 11), 107.0, THU_CLOSE, 6),
     "history-postmarket": history(ts(6, 17, 30), FRI_CLOSE, THU_CLOSE, 6),
     "history-closed": history(ts(6, 22), FRI_CLOSE, THU_CLOSE, 6),
     "history-crypto": crypto(),
+    "history-ytd": year_to_date(80.0),
     "quote-extended-hours": quote(FRI_CLOSE, THU_CLOSE, 6),
     "intraday-postmarket-trades": intraday(FRI_CLOSE, THU_CLOSE, 6, [(ts(6, 15, 59), 108.4), (ts(6, 16, 30), None), (ts(6, 17), 109.0)]),
     "intraday-postmarket-no-trades": intraday(FRI_CLOSE, THU_CLOSE, 6, [(ts(6, 15, 59), 108.4)]),

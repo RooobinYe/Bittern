@@ -107,7 +107,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
             ) {
                 selectedPoint = nil
             }
-            // Six ranges share one row.
+            // Up to eight ranges share one row, scrolling past that.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
     }
@@ -115,8 +115,11 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
 
 /// The ranges as plain labels spread across the row, the chosen one in a
 /// light gray capsule that fits its label, so it is the same size whether
-/// the row holds four ranges or six. The capsule is neutral: gain or loss
-/// is the line's to show, not the control's.
+/// the row holds four ranges or eight. The labels sit an equal distance
+/// apart, so a wide "MAX" doesn't crowd its neighbours the way equal
+/// columns would. When even that doesn't fit (large text), the row
+/// scrolls instead of truncating. The capsule is neutral: gain or loss is
+/// the line's to show, not the control's.
 private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
     let ranges: [RangeOption]
     let title: (RangeOption) -> String
@@ -127,37 +130,105 @@ private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
     @ScaledMetric(relativeTo: .subheadline) private var capsuleHeight: CGFloat = 32
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(ranges) { option in
-                let isSelected = selectedRange == option
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        selectedRange = option
-                        didSelect()
+        ViewThatFits(in: .horizontal) {
+            row
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    row
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    proxy.scrollTo(selectedRange.id, anchor: .center)
+                }
+                .onChange(of: selectedRange) { _, range in
+                    withAnimation {
+                        proxy.scrollTo(range.id, anchor: .center)
                     }
-                } label: {
+                }
+            }
+        }
+    }
+
+    private var row: some View {
+        RangeRowLayout {
+            ForEach(ranges) { option in
+                rangeButton(option)
+                    .id(option.id)
+            }
+        }
+    }
+
+    private func rangeButton(_ option: RangeOption) -> some View {
+        let isSelected = selectedRange == option
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedRange = option
+                didSelect()
+            }
+        } label: {
+            // The label is as wide as its semibold self either way, so
+            // choosing a range doesn't nudge the others along the row.
+            Text(title(option))
+                .font(.subheadline.weight(.semibold))
+                .hidden()
+                .overlay {
                     Text(title(option))
                         .font(.subheadline.weight(isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(minWidth: 52, minHeight: capsuleHeight)
-                        .background {
-                            if isSelected {
-                                Capsule()
-                                    .fill(Color(uiColor: .tertiarySystemFill))
-                                    .matchedGeometryEffect(id: "selection", in: selection)
-                            }
-                        }
-                        // Each range answers to its whole share of the row,
-                        // at least 44 pt tall, not just to its capsule.
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("\(title(option)) range")
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(minWidth: capsuleHeight, minHeight: capsuleHeight)
+                .background {
+                    if isSelected {
+                        Capsule()
+                            .fill(Color(uiColor: .tertiarySystemFill))
+                            .matchedGeometryEffect(id: "selection", in: selection)
+                    }
+                }
+                // Each range answers to its whole share of the row, at
+                // least 44 pt tall, not just to its capsule.
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("\(title(option)) range")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Places each range at its own width and shares the row's spare width out
+/// evenly among them, so the gaps between labels match. Without a width to
+/// fill, it asks for the labels' total, which is how `ViewThatFits` knows
+/// when to fall back to scrolling.
+private struct RangeRowLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let idealWidth = sizes.reduce(0) { $0 + $1.width }
+        let height = sizes.map(\.height).max() ?? 0
+
+        guard let width = proposal.width, width.isFinite else {
+            return CGSize(width: idealWidth, height: height)
+        }
+        return CGSize(width: max(width, idealWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+
+        let widths = subviews.map { $0.sizeThatFits(.unspecified).width }
+        let spare = max(0, bounds.width - widths.reduce(0, +)) / CGFloat(subviews.count)
+        var x = bounds.minX
+
+        for (subview, width) in zip(subviews, widths) {
+            subview.place(
+                at: CGPoint(x: x, y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: width + spare, height: bounds.height)
+            )
+            x += width + spare
         }
     }
 }

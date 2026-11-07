@@ -97,8 +97,10 @@ extension YahooFinanceClient {
             )
         }
 
-        var series = range == .oneDay
-            ? try oneDaySeries(
+        var series: HoldingPriceSeries
+        switch range {
+        case .oneDay:
+            series = try oneDaySeries(
                 meta: result.meta,
                 points: points,
                 requestRange: requestRange,
@@ -106,7 +108,15 @@ extension YahooFinanceClient {
                 instrumentKind: instrumentKind,
                 symbol: symbol
             )
-            : HoldingPriceSeries(points: points, timeDomain: nil)
+        case .yearToDate:
+            series = HoldingPriceSeries(
+                points: points,
+                timeDomain: nil,
+                baselinePrice: try closeBeforeYear(meta: result.meta, symbol: symbol)
+            )
+        case .fiveDays, .oneMonth, .threeMonths, .oneYear, .fiveYears, .max:
+            series = HoldingPriceSeries(points: points, timeDomain: nil)
+        }
 
         series.firstTradeDate = result.meta?.firstTradeDate.map {
             Date(timeIntervalSince1970: TimeInterval($0))
@@ -117,6 +127,19 @@ extension YahooFinanceClient {
             throw YahooFinanceError.notEnoughPoints(symbol: symbol)
         }
         return series
+    }
+
+    /// Last year's final close, which YTD is measured from. Yahoo gives it
+    /// as the close before the chart's first point, so it only means that
+    /// when the chart really is year-to-date.
+    private func closeBeforeYear(meta: YahooChartMetaDTO?, symbol: String) throws -> Double {
+        guard meta?.range == HoldingChartRange.yearToDate.yahooRange else {
+            throw YahooFinanceError.invalidChartMetadata("Unexpected range for \(symbol).")
+        }
+        guard let close = meta?.chartPreviousClose, close.isFinite, close > 0 else {
+            throw YahooFinanceError.invalidChartMetadata("Missing close before the year for \(symbol).")
+        }
+        return close
     }
 
     /// Checks that Yahoo answered the 1D question that was asked, then hands
@@ -244,8 +267,12 @@ private extension HoldingChartRange {
             "1d"
         case .fiveDays:
             "5d"
+        case .oneMonth:
+            "1mo"
         case .threeMonths:
             "3mo"
+        case .yearToDate:
+            "ytd"
         case .oneYear:
             "1y"
         case .fiveYears:
@@ -261,7 +288,9 @@ private extension HoldingChartRange {
             "5m"
         case .fiveDays:
             "15m"
-        case .threeMonths, .oneYear:
+        case .oneMonth:
+            "1h"
+        case .threeMonths, .yearToDate, .oneYear:
             "1d"
         case .fiveYears:
             "1wk"

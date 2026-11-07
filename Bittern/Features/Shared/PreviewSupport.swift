@@ -72,16 +72,26 @@ struct DemoPortfolioRepository: PortfolioRepository {
         let today = calendar.startOfDay(for: Date())
 
         guard range == .oneDay else {
+            let daysThisYear = calendar.dateComponents(
+                [.day],
+                from: calendar.dateInterval(of: .year, for: today)?.start ?? today,
+                to: today
+            ).day ?? 0
             let count = switch range {
             case .oneDay, .fiveDays: 5 * 78
+            case .oneMonth: 30 * 16
             case .threeMonths: 63
+            case .yearToDate: max(daysThisYear, 2)
             case .oneYear: 252
             case .fiveYears: 260
             case .max: 400
             }
             let step: TimeInterval = switch range {
             case .oneDay, .fiveDays: 5 * 60
-            case .threeMonths, .oneYear: 86_400
+            // Every 90 minutes around the clock: a month, with no gap
+            // long enough to read as a trading session's end.
+            case .oneMonth: 5_400
+            case .threeMonths, .yearToDate, .oneYear: 86_400
             case .fiveYears, .max: 7 * 86_400
             }
             let points = (0..<count).map { index in
@@ -91,7 +101,11 @@ struct DemoPortfolioRepository: PortfolioRepository {
                     price: price * (0.82 + 0.18 * progress + 0.04 * sin(Double(index) / 7))
                 )
             }
-            return HoldingPriceSeries(points: points, timeDomain: nil)
+            return HoldingPriceSeries(
+                points: points,
+                timeDomain: nil,
+                baselinePrice: range == .yearToDate ? price * 0.8 : nil
+            )
         }
 
         // 04:00 to 20:00, with regular trading from 09:30 to 16:00.
