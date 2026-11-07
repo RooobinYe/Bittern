@@ -41,6 +41,8 @@ struct YahooChartMetaDTO: Decodable {
     let tradingPeriods: YahooTradingPeriodsDTO?
     let hasPrePostMarketData: Bool?
     let currentTradingPeriod: YahooCurrentTradingPeriodsDTO?
+    /// Unix seconds of the first trade Yahoo has for the symbol.
+    let firstTradeDate: Int?
 }
 
 struct YahooTradingPeriodDTO: Decodable {

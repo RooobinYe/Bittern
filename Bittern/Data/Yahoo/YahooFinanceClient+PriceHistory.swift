@@ -97,7 +97,7 @@ extension YahooFinanceClient {
             )
         }
 
-        let series = range == .oneDay
+        var series = range == .oneDay
             ? try oneDaySeries(
                 meta: result.meta,
                 points: points,
@@ -107,6 +107,10 @@ extension YahooFinanceClient {
                 symbol: symbol
             )
             : HoldingPriceSeries(points: points, timeDomain: nil)
+
+        series.firstTradeDate = result.meta?.firstTradeDate.map {
+            Date(timeIntervalSince1970: TimeInterval($0))
+        }
 
         let minimumPointCount = range == .oneDay && instrumentKind == .crypto ? 1 : 2
         guard series.points.count >= minimumPointCount else {

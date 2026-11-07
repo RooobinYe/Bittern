@@ -17,6 +17,34 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
 
     var title: String { rawValue }
 
+    /// The ranges a holding has a full stretch of history for. 1D, 5D and
+    /// MAX always show; 3M, 1Y and 5Y only once the holding has traded that
+    /// long, so a chart never claims a span it can't fill. With no first
+    /// trade date every range shows.
+    static func available(
+        firstTradeDate: Date?,
+        at now: Date,
+        calendar: Calendar = .current
+    ) -> [HoldingChartRange] {
+        guard let firstTradeDate else { return allCases }
+
+        return allCases.filter { range in
+            let span: DateComponents
+            switch range {
+            case .oneDay, .fiveDays, .max:
+                return true
+            case .threeMonths:
+                span = DateComponents(month: -3)
+            case .oneYear:
+                span = DateComponents(year: -1)
+            case .fiveYears:
+                span = DateComponents(year: -5)
+            }
+            guard let start = calendar.date(byAdding: span, to: now) else { return true }
+            return firstTradeDate <= start
+        }
+    }
+
     var summaryLabel: String {
         switch self {
         case .oneDay:
@@ -145,6 +173,8 @@ struct HoldingPriceSeries {
     let points: [HoldingPricePoint]
     let timeDomain: PriceChartTimeDomain?
     let baselinePrice: Double?
+    /// When the holding first traded, if the source says.
+    var firstTradeDate: Date? = nil
 
     init(
         points: [HoldingPricePoint],

@@ -182,6 +182,35 @@ struct PerformanceChartTimeAxisTests {
         #expect(ticks.map { shanghai.component(.year, from: $0.date) } == [2000, 2010, 2020])
     }
 
+    @Test func aChartOfAnyLengthPicksAUnitThatFitsIt() {
+        let now = utc(2026, 11, 6, 14, 30)
+        let weeks = { (count: Double) in [now.addingTimeInterval(-count * 7 * 86_400), now] }
+
+        #expect(PerformanceChartAxisUnit.fitting(weeks(6)) == .days)
+        #expect(PerformanceChartAxisUnit.fitting(weeks(36)) == .months)
+        #expect(PerformanceChartAxisUnit.fitting(weeks(280)) == .years)
+    }
+
+    @Test func rangesLongerThanTheHoldingsHistoryAreLeftOut() {
+        let shanghai = calendar("Asia/Shanghai")
+        let now = utc(2026, 11, 7, 7)
+
+        let listedInJune = HoldingChartRange.available(
+            firstTradeDate: utc(2026, 6, 12, 13, 30),
+            at: now,
+            calendar: shanghai
+        )
+        let listedLongAgo = HoldingChartRange.available(
+            firstTradeDate: utc(2010, 1, 4, 14, 30),
+            at: now,
+            calendar: shanghai
+        )
+
+        #expect(listedInJune == [.oneDay, .fiveDays, .threeMonths, .max])
+        #expect(listedLongAgo == HoldingChartRange.allCases)
+        #expect(HoldingChartRange.available(firstTradeDate: nil, at: now) == HoldingChartRange.allCases)
+    }
+
     // MARK: - Spacing
 
     @Test func ticksTooCloseToTheEndOrToEachOtherAreLeftOut() {
