@@ -67,7 +67,7 @@ struct HoldingAssetHeader: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(holding.name)
                     .font(.title3)
-                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .foregroundStyle(BitternTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(priceText)
@@ -180,7 +180,6 @@ struct HoldingChartSection: View {
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
-    var cursorStyle: PerformanceChartCursorStyle = .dateCapsule
 
     private var basePrice: Double? {
         range.detailChangeBasePrice(
@@ -203,11 +202,15 @@ struct HoldingChartSection: View {
             points: series,
             value: { $0.price },
             xScale: xScale,
-            axisLabel: { range.axisLabel(for: $0.date) },
+            date: { $0.date },
+            axisUnit: range.axisUnit,
             selectionLabel: { range.selectionLabel(for: $0.date) },
             valueLabel: isPrivacyEnabled
                 ? nil
                 : { PortfolioFormat.price($0, currencyCode: currencyCode) },
+            wholeValueLabel: isPrivacyEnabled
+                ? nil
+                : { PortfolioFormat.wholeMoney($0, currencyCode: currencyCode) },
             baseValue: basePrice,
             baselineLabel: basePrice.map {
                 isPrivacyEnabled
@@ -223,7 +226,6 @@ struct HoldingChartSection: View {
             selectedRange: $range,
             selectedPoint: $selectedPoint,
             isLoading: isLoading,
-            cursorStyle: cursorStyle,
             background: Color(uiColor: .systemGroupedBackground)
         )
     }
@@ -238,17 +240,17 @@ struct HoldingChartSection: View {
 }
 
 extension HoldingChartRange {
-    /// A point's date on the horizontal axis.
-    func axisLabel(for date: Date) -> String {
+    /// The calendar unit the horizontal axis is labelled in.
+    var axisUnit: PerformanceChartAxisUnit {
         switch self {
         case .oneDay:
-            PortfolioFormat.time(date)
-        case .fiveDays, .threeMonths:
-            PortfolioFormat.day(date)
-        case .oneYear:
-            PortfolioFormat.monthWithYear(date)
+            .hours
+        case .fiveDays:
+            .days
+        case .threeMonths, .oneYear:
+            .months
         case .fiveYears, .max:
-            PortfolioFormat.year(date)
+            .years
         }
     }
 
@@ -263,47 +265,3 @@ extension HoldingChartRange {
         }
     }
 }
-
-#if DEBUG
-/// The cursor styles side by side, to pick one on the simulator.
-#Preview("Chart Cursors") {
-    CursorStylesPreview()
-}
-
-private struct CursorStylesPreview: View {
-    @State private var range = HoldingChartRange.threeMonths
-    @State private var selections: [PerformanceChartCursorStyle: HoldingPricePoint] = [:]
-
-    private let series: [HoldingPricePoint] = (0..<60).map { day in
-        HoldingPricePoint(
-            date: Date(timeIntervalSince1970: 1_780_000_000 + Double(day) * 86_400),
-            price: 180 + sin(Double(day) / 6) * 12 + Double(day) * 0.4
-        )
-    }
-
-    var body: some View {
-        List {
-            ForEach(PerformanceChartCursorStyle.allCases, id: \.self) { style in
-                Section(String(describing: style)) {
-                    HoldingChartSection(
-                        series: series,
-                        timeDomain: nil,
-                        previousClose: nil,
-                        oneDayBaselinePrice: nil,
-                        currencyCode: "USD",
-                        isPrivacyEnabled: false,
-                        range: $range,
-                        selectedPoint: Binding(
-                            get: { selections[style] ?? series[40] },
-                            set: { selections[style] = $0 }
-                        ),
-                        isLoading: false,
-                        cursorStyle: style
-                    )
-                    .listRowBackground(Color.clear)
-                }
-            }
-        }
-    }
-}
-#endif

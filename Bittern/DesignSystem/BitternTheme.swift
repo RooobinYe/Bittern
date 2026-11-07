@@ -12,17 +12,16 @@ enum BitternTheme {
     static let ink = Color(uiColor: .label)
     static let secondaryInk = Color(uiColor: .secondaryLabel)
     static let softLine = Color(uiColor: .separator)
+    /// A chart line that is neither gain nor loss. Opaque, unlike
+    /// `secondaryInk`: where two runs of a line meet, their round ends
+    /// overlap, and a see-through color shows a darker dot there.
+    static let neutralLine = Color(uiColor: .systemGray)
     static let accent = Color.accentColor
     /// Darker than `systemGreen` and `systemRed` in light mode so gains and
     /// losses read at 4.5:1 on white; the system colors in dark mode.
     static let positivePerformance = Color(.positivePerformance)
     static let negativePerformance = Color(.negativePerformance)
     static let warning = Color(uiColor: .systemOrange)
-
-    /// Text uses the system's default design. Key figures (totals, prices,
-    /// changes and the allocation bubbles) keep the rounded design that
-    /// gives Bittern its character.
-    static let keyFigureDesign: Font.Design = .rounded
 
     static let allocationColors: [Color] = [
         mutedAllocationColor(.systemIndigo),
@@ -153,12 +152,11 @@ private struct ErrorToastModifier: ViewModifier {
 }
 
 extension Font {
-    /// A key figure (a total, price, change or allocation share) in the
-    /// key-figure design, with digits of even width. The design is part of
-    /// the font itself: `fontDesign(_:)` doesn't reach text that sets its
-    /// own font.
+    /// A key figure (a total, price, change or allocation share) in SF Pro,
+    /// like the rest of the app, with digits of even width so figures don't
+    /// jump as they change.
     static func keyFigure(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
-        .system(style, design: BitternTheme.keyFigureDesign, weight: weight).monospacedDigit()
+        .system(style, weight: weight).monospacedDigit()
     }
 }
 

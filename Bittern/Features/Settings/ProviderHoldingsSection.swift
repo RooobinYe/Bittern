@@ -82,27 +82,28 @@ private struct ProviderHoldingRow: View {
             )
             .accessibilityHidden(true)
 
+            // Laid out like the portfolio's rows: the quantity beside the
+            // symbol, so the name below has the whole width.
             VStack(alignment: .leading, spacing: 2) {
-                Text(holding.symbol)
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    HoldingSymbolAndQuantity(
+                        symbol: holding.symbol,
+                        quantity: quantityText,
+                        symbolFont: .body
+                    )
+
+                    Spacer(minLength: 8)
+
+                    Text(marketValueText)
+                        .font(.keyFigure(.body))
+                        .foregroundStyle(BitternTheme.ink)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
+                }
 
                 Text(holding.name)
                     .font(.subheadline)
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 12)
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(marketValueText)
-                    .font(.keyFigure(.body))
-                    .foregroundStyle(BitternTheme.ink)
-                    .lineLimit(1)
-
-                Text(quantityText)
-                    .font(.subheadline.monospacedDigit())
                     .foregroundStyle(BitternTheme.secondaryInk)
                     .lineLimit(1)
             }
@@ -110,11 +111,11 @@ private struct ProviderHoldingRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var quantityText: String {
-        let quantity = isPrivacyEnabled
-            ? "••••"
-            : PortfolioFormat.quantity(holding.quantity, unit: holding.quantityUnit)
-        return "\(quantity) \(holding.quantityUnit.rawValue)"
+    /// Nil while values are hidden, as in the portfolio's rows.
+    private var quantityText: String? {
+        isPrivacyEnabled
+            ? nil
+            : PortfolioFormat.quantityWithUnit(holding.quantity, unit: holding.quantityUnit)
     }
 
     private var marketValueText: String {

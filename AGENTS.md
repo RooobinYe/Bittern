@@ -17,4 +17,3 @@
 - 测试替换了 Keychain 和缓存文件，不要在测试里用默认的 `CredentialsStore` 或 `PortfolioCache`
 - 仓库是公开的，凭据只放在不入库的 `Bittern Local` scheme 里
 - 截图或演示用 Debug 构建并设环境变量 `BITTERN_DEMO=1` 启动：显示示例组合，不读 Keychain、缓存和网络（`simctl launch` 时写成 `SIMCTL_CHILD_BITTERN_DEMO=1`）
-- iOS 27 beta 上 `.fontDesign(_:)` 不作用于自带 `.font(...)` 的文字，关键数字用 `Font.keyFigure(_:)` 把圆体写进字体本身
