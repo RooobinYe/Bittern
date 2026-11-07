@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Dark icons: a near-black tile like the system's dark icons, with each
+       band's top edge as a line in that band's color. Same edges as bands.svg. -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#141218"/>
+  <rect x="0" y="451.9" width="1024" height="14" fill="#008CBB"/>
+  <rect x="0" y="734.9" width="1024" height="14" fill="#00CA8D"/>
+  <rect x="0" y="909.9" width="1024" height="14" fill="#EFE345"/>
+</svg>
