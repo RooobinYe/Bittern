@@ -1,7 +1,7 @@
 # 命令
 
 - 编译：`xcodebuild -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
-- 测试：`xcodebuild test -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO`
+- 测试：`xcodebuild test -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' CODE_SIGNING_ALLOWED=NO`
 
 # 约定
 
