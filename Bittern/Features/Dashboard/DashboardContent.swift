@@ -39,7 +39,6 @@ struct DashboardControls {
     // asks of its setter.
     let selectPerformanceMode: @MainActor (PerformanceMode) -> Void
     let selectSortOption: @MainActor (HoldingSortOption) -> Void
-    let setMinimumMarketValue: (Double) -> Void
     let refresh: () async -> Void
 }
 
@@ -92,7 +91,6 @@ struct DashboardContent: View {
         DashboardControls(
             selectPerformanceMode: { viewModel.performanceMode = $0 },
             selectSortOption: { viewModel.sortOption = $0 },
-            setMinimumMarketValue: { viewModel.setMinimumMarketValue($0) },
             refresh: { await viewModel.refresh() }
         )
     }
@@ -116,7 +114,6 @@ struct DashboardVisualContent: View {
 
     @State private var marketTime = Date()
     @State private var lensMotion = AllocationLensMotion()
-    @State private var isEditingMinimumValue = false
 
     /// The bands' colors, so a holding without a logo matches its band.
     private var holdingColorLookup: [String: Color] {
@@ -150,12 +147,6 @@ struct DashboardVisualContent: View {
                 }
                 marketTime = Date()
             }
-            .minimumMarketValueEditor(
-                isPresented: $isEditingMinimumValue,
-                value: minimumMarketValue,
-                currencyCode: portfolio.currencyCode,
-                save: { controls?.setMinimumMarketValue($0) }
-            )
     }
 
     @ViewBuilder
@@ -247,11 +238,7 @@ struct DashboardVisualContent: View {
             lastUpdated: portfolio.lastUpdated,
             performanceMode: performanceMode,
             sortOption: sortOption,
-            minimumMarketValue: minimumMarketValue,
-            hiddenHoldingCount: hiddenHoldingCount,
-            currencyCode: portfolio.currencyCode,
-            controls: controls,
-            editMinimumValue: { isEditingMinimumValue = true }
+            controls: controls
         )
     }
 
@@ -273,14 +260,11 @@ struct DashboardVisualContent: View {
                     }
                     .navigationLinkIndicatorVisibility(.hidden)
                     .listRowInsets(.horizontal, 16)
-                }
-
-                if let hiddenNote {
-                    Button(hiddenNote) { isEditingMinimumValue = true }
-                        .font(.footnote)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(.horizontal, 16)
+                    // A line under the last row divides it from nothing.
+                    .listRowSeparator(
+                        holding.id == sortedHoldings.last?.id ? .hidden : .automatic,
+                        edges: .bottom
+                    )
                 }
             }
         }
@@ -305,14 +289,6 @@ struct DashboardVisualContent: View {
                     }
                 }
             }
-
-            if let hiddenNote, !sortedHoldings.isEmpty {
-                Text(hiddenNote)
-                    .font(.footnote)
-                    .foregroundStyle(BitternTheme.secondaryInk)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 12)
-            }
         }
     }
 
@@ -327,7 +303,9 @@ struct DashboardVisualContent: View {
         )
     }
 
-    /// Says how many holdings the minimum market value hides, if any.
+    /// Why the list is empty when the minimum market value hides every
+    /// holding. With some left, the page says nothing about the hidden ones:
+    /// holdings that small aren't worth a line, and Settings shows the count.
     private var hiddenNote: String? {
         guard hiddenHoldingCount > 0 else { return nil }
         let minimum = PortfolioFormat.price(minimumMarketValue, currencyCode: portfolio.currencyCode)

@@ -20,7 +20,7 @@ Bittern 接下来的修改计划，按建议顺序排列。
 - [x] Portfolio 的工具栏只用右侧：隐私开关、Share、`gearshape`，左侧留空；Settings 改成 sheet 打开
 - [x] 账户筛选改用 `toolbarTitleMenu`，点标题切换账户（标题菜单只挂在 inline 标题上，Portfolio 因此改用 inline 标题；只有一个券商时不显示菜单）
 - [x] 删除 App 内的 Appearance 设置（HIG 建议跟随系统）
-- [x] Minimum Market Value 挪到 Holdings 的菜单，并提示已隐藏几个持仓
+- [x] Minimum Market Value 挪到 Holdings 的菜单，并提示已隐藏几个持仓（阶段 4.2 又移回 Settings，见下）
 - [x] 合并 Portfolio Accounts 和 Credentials 的凭据部分，用一个 Form
 - [x] 凭据默认显示为遮盖，点眼睛图标直接显示，不做 Face ID（个人使用，只防截图和录屏）
 - [x] 清除凭据前加确认（userSecret 只生成一次，删掉后 App 内无法找回）
@@ -69,7 +69,11 @@ Bittern 接下来的修改计划，按建议顺序排列。
 
 ## 阶段 4.2：细化 UI/UX 细节
 
-具体条目在另一个 session 里和用户讨论后补充。
+条目和用户逐项讨论后补充。
+
+- [x] 删掉 Settings 里透镜液态玻璃的 Debug 开关
+- [x] 删掉 Holdings 列表底部的 “3 holdings under US$1.00 hidden”：低于门槛的持仓只有几美分，不值得在首页占一行、吸引注意力；只在全部持仓都被隐藏、列表为空时说明原因
+- [x] Minimum Value 从 Holdings 菜单移到 Settings 最上面，显示当前门槛和隐藏了几个：它设一次就很少改，而且作用于整个 App，放在 Holdings 菜单里像只影响这个列表
 
 ## 阶段 5：新机型适配
 
