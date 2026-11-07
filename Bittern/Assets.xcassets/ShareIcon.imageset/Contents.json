@@ -1,34 +1,12 @@
 {
   "images" : [
     {
-      "filename" : "ShareIcon-Default@2x.png",
+      "filename" : "ShareIcon@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "ShareIcon-Dark@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
-    },
-    {
-      "filename" : "ShareIcon-Default@3x.png",
-      "idiom" : "universal",
-      "scale" : "3x"
-    },
-    {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "ShareIcon-Dark@3x.png",
+      "filename" : "ShareIcon@3x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }

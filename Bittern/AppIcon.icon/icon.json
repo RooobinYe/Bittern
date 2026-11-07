@@ -1,7 +1,4 @@
 {
-  "fill": {
-    "solid": "srgb:0.25490,0.23529,0.60784,1.00000"
-  },
   "groups": [
     {
       "layers": [
@@ -60,7 +57,6 @@
         },
         {
           "glass": false,
-          "image-name": "bands.svg",
           "name": "bands",
           "position": {
             "scale": 1,
@@ -73,6 +69,15 @@
             {
               "appearance": "tinted",
               "value": true
+            }
+          ],
+          "image-name-specializations": [
+            {
+              "value": "bands.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "bands-dark.svg"
             }
           ]
         }
@@ -90,5 +95,18 @@
   ],
   "supported-platforms": {
     "squares": "shared"
-  }
+  },
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.25490,0.23529,0.60784,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.07843,0.07059,0.09412,1.00000"
+      }
+    }
+  ]
 }
