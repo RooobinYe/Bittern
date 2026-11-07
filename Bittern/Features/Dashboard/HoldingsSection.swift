@@ -6,17 +6,13 @@
 import SwiftUI
 
 /// The holdings title, when prices were updated, and the menu that picks
-/// the return, the order and the minimum market value.
+/// the return and the order.
 struct HoldingsHeader: View {
     let lastUpdated: Date?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
-    let minimumMarketValue: Double
-    let hiddenHoldingCount: Int
-    let currencyCode: String
     /// Nil shows the menu's label without the menu, as in the exported image.
     let controls: DashboardControls?
-    let editMinimumValue: () -> Void
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -78,13 +74,6 @@ struct HoldingsHeader: View {
                     }
                 }
                 .pickerStyle(.inline)
-
-                Section {
-                    Button(action: editMinimumValue) {
-                        Label("Minimum Value", systemImage: "line.3.horizontal.decrease")
-                        Text(minimumValueSubtitle)
-                    }
-                }
             } label: {
                 label
             }
@@ -93,11 +82,6 @@ struct HoldingsHeader: View {
         } else {
             label
         }
-    }
-
-    private var minimumValueSubtitle: String {
-        let minimum = PortfolioFormat.price(minimumMarketValue, currencyCode: currencyCode)
-        return "\(minimum)\(PortfolioFormat.separator)\(hiddenHoldingCount) hidden"
     }
 
     private var sortTitle: String {
@@ -145,58 +129,6 @@ struct EmptyHoldingsView: View {
                 Text(hiddenNote)
             }
         }
-    }
-}
-
-private struct MinimumMarketValueEditor: ViewModifier {
-    @Binding var isPresented: Bool
-    let value: Double
-    let currencyCode: String
-    let save: (Double) -> Void
-
-    @State private var draft: Double?
-
-    func body(content: Content) -> some View {
-        content
-            .alert("Minimum Value (\(currencyCode))", isPresented: $isPresented) {
-                TextField(
-                    "0.00",
-                    value: $draft,
-                    format: .number.precision(.fractionLength(0...2))
-                )
-                .keyboardType(.decimalPad)
-
-                Button("Cancel", role: .cancel) {}
-
-                Button("Save") {
-                    save(draft ?? 0)
-                }
-            } message: {
-                Text("Holdings worth less than this are hidden throughout the app. Enter 0 to show every holding.")
-            }
-            .onChange(of: isPresented) { _, isPresented in
-                if isPresented {
-                    draft = value
-                }
-            }
-    }
-}
-
-extension View {
-    func minimumMarketValueEditor(
-        isPresented: Binding<Bool>,
-        value: Double,
-        currencyCode: String,
-        save: @escaping (Double) -> Void
-    ) -> some View {
-        modifier(
-            MinimumMarketValueEditor(
-                isPresented: isPresented,
-                value: value,
-                currencyCode: currencyCode,
-                save: save
-            )
-        )
     }
 }
 
