@@ -176,7 +176,8 @@ private struct DonutPortfolioChart: View {
             Menu {
                 Picker("Return", selection: Binding(
                     get: { performanceMode },
-                    set: selectPerformanceMode
+                    // A closure, not the function value: see HoldingsSection.
+                    set: { selectPerformanceMode($0) }
                 )) {
                     ForEach(PerformanceMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.systemImage)

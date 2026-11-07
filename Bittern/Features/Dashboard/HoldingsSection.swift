@@ -51,10 +51,15 @@ struct HoldingsHeader: View {
     private var optionsMenu: some View {
         let label = HoldingsOptionsLabel(title: sortTitle)
         if let controls {
+            // Closures rather than the function values themselves: Swift 6.2
+            // crashes converting a main-actor function value to the setter's
+            // `@isolated(any)` type.
+            let selectPerformanceMode = controls.selectPerformanceMode
+            let selectSortOption = controls.selectSortOption
             Menu {
                 Picker("Return", selection: Binding(
                     get: { performanceMode },
-                    set: controls.selectPerformanceMode
+                    set: { selectPerformanceMode($0) }
                 )) {
                     ForEach(PerformanceMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.systemImage)
@@ -65,7 +70,7 @@ struct HoldingsHeader: View {
 
                 Picker("Sort By", selection: Binding(
                     get: { sortOption },
-                    set: controls.selectSortOption
+                    set: { selectSortOption($0) }
                 )) {
                     ForEach(HoldingSortOption.allCases) { option in
                         Label(option.title, systemImage: option.systemImage)
