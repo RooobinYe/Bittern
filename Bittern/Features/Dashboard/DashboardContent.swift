@@ -35,8 +35,10 @@ enum DashboardLayoutMode: Sendable {
 /// controls, so its containers show the same labels without wrapping them in
 /// buttons and menus.
 struct DashboardControls {
-    let selectPerformanceMode: (PerformanceMode) -> Void
-    let selectSortOption: (HoldingSortOption) -> Void
+    // Main-actor function types are Sendable, which `Binding(get:set:)`
+    // asks of its setter.
+    let selectPerformanceMode: @MainActor (PerformanceMode) -> Void
+    let selectSortOption: @MainActor (HoldingSortOption) -> Void
     let setMinimumMarketValue: (Double) -> Void
     let refresh: () async -> Void
 }

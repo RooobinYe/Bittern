@@ -12,7 +12,7 @@ struct PortfolioDonutSection: View {
     let isPrivacyEnabled: Bool
     let fillsAvailableSpace: Bool
     /// Nil shows the mode without a menu, as in the exported image.
-    let selectPerformanceMode: ((PerformanceMode) -> Void)?
+    let selectPerformanceMode: (@MainActor (PerformanceMode) -> Void)?
 
     @ViewBuilder
     var body: some View {
@@ -55,7 +55,7 @@ private struct DonutPortfolioChart: View {
     let holdingColorLookup: [String: Color]
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
-    let selectPerformanceMode: ((PerformanceMode) -> Void)?
+    let selectPerformanceMode: (@MainActor (PerformanceMode) -> Void)?
 
     private var performanceAmount: Double? {
         snapshot.performanceAmount(for: performanceMode)
