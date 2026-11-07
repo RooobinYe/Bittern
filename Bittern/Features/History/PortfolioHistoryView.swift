@@ -67,7 +67,9 @@ struct PortfolioHistoryView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
         }
-        .background(BitternTheme.background.ignoresSafeArea())
+        // The grouped background of a holding's page, so the two chart
+        // screens look alike.
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .contentMargins(.horizontal, 20, for: .scrollContent)
         .softNavigationBarEdge()
         .errorToast(message: $model.errorMessage)
@@ -216,7 +218,7 @@ private struct PortfolioHistoryChartSection: View {
             value: { $0.totalValue },
             xScale: .indexed,
             date: { $0.date },
-            axisUnit: range.axisUnit,
+            axisUnit: range.axisUnit(for: series.map(\.date)),
             selectionLabel: { PortfolioFormat.dayWithYear($0.date) },
             valueLabel: isPrivacyEnabled
                 ? nil
@@ -233,19 +235,22 @@ private struct PortfolioHistoryChartSection: View {
             rangeTitle: { $0.title },
             selectedRange: $range,
             selectedPoint: $selectedPoint,
-            isLoading: isLoading
+            isLoading: isLoading,
+            background: Color(uiColor: .systemGroupedBackground)
         )
     }
 }
 
 extension PortfolioHistoryRange {
-    /// The calendar unit the horizontal axis is labelled in.
-    var axisUnit: PerformanceChartAxisUnit {
+    /// The calendar unit the horizontal axis is labelled in. The longer
+    /// ranges follow what the account's history actually spans, which can
+    /// be less than the range when the account is new or it is January.
+    func axisUnit(for dates: [Date]) -> PerformanceChartAxisUnit {
         switch self {
         case .fiveDays:
             .days
         case .threeMonths, .oneYear, .yearToDate:
-            .months
+            .fitting(dates)
         }
     }
 }

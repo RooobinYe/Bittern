@@ -177,6 +177,9 @@ struct HoldingChartSection: View {
     let oneDayBaselinePrice: Double?
     let currencyCode: String
     let isPrivacyEnabled: Bool
+    /// The ranges to offer, leaving out those the holding hasn't traded
+    /// long enough for.
+    let ranges: [HoldingChartRange]
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
@@ -203,7 +206,9 @@ struct HoldingChartSection: View {
             value: { $0.price },
             xScale: xScale,
             date: { $0.date },
-            axisUnit: range.axisUnit,
+            axisUnit: range == .max
+                ? .fitting(series.map(\.date))
+                : range.axisUnit,
             selectionLabel: { range.selectionLabel(for: $0.date) },
             valueLabel: isPrivacyEnabled
                 ? nil
@@ -221,7 +226,7 @@ struct HoldingChartSection: View {
             lineStyle: { point in
                 point.session.isExtendedHours ? .neutral : .primary
             },
-            ranges: HoldingChartRange.allCases,
+            ranges: ranges,
             rangeTitle: { $0.title },
             selectedRange: $range,
             selectedPoint: $selectedPoint,

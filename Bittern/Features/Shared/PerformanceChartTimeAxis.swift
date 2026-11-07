@@ -22,6 +22,17 @@ nonisolated enum PerformanceChartAxisUnit: Equatable, Sendable {
     case months
     /// Year starts, every 1, 2, 5, 10 or more years.
     case years
+
+    /// The unit for a chart whose length depends on its data, such as MAX:
+    /// days under two months, months under two years, years beyond.
+    static func fitting(_ dates: [Date]) -> PerformanceChartAxisUnit {
+        guard let first = dates.first, let last = dates.last else { return .days }
+        let span = last.timeIntervalSince(first)
+        let day: TimeInterval = 86_400
+        if span < 60 * day { return .days }
+        if span < 730 * day { return .months }
+        return .years
+    }
 }
 
 /// One labelled place on the time axis.
@@ -51,8 +62,9 @@ nonisolated enum PerformanceChartTimeAxis {
     /// end would push its label past the plot.
     static let trailingMargin = 0.15
 
-    /// The closest two ticks may be, as a share of the axis.
-    static let minimumSpacing = 0.12
+    /// The closest two ticks may be, as a share of the axis: room for a
+    /// label such as "Nov 13" on the narrowest chart, five at most.
+    static let minimumSpacing = 0.18
 
     // MARK: - Time scale
 

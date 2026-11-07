@@ -103,8 +103,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
             RangeSelector(
                 ranges: ranges,
                 title: rangeTitle,
-                selectedRange: $selectedRange,
-                selectedColor: lineColor
+                selectedRange: $selectedRange
             ) {
                 selectedPoint = nil
             }
@@ -114,12 +113,18 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     }
 }
 
+/// The ranges as plain labels spread across the row, the chosen one in a
+/// light gray capsule that fits its label, so it is the same size whether
+/// the row holds four ranges or six. The capsule is neutral: gain or loss
+/// is the line's to show, not the control's.
 private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
     let ranges: [RangeOption]
     let title: (RangeOption) -> String
     @Binding var selectedRange: RangeOption
-    let selectedColor: Color
     let didSelect: () -> Void
+
+    @Namespace private var selection
+    @ScaledMetric(relativeTo: .subheadline) private var capsuleHeight: CGFloat = 32
 
     var body: some View {
         HStack(spacing: 0) {
@@ -133,15 +138,20 @@ private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
                 } label: {
                     Text(title(option))
                         .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? selectedColor : BitternTheme.secondaryInk)
+                        .foregroundStyle(isSelected ? BitternTheme.ink : BitternTheme.secondaryInk)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .padding(.horizontal, 12)
+                        .frame(minWidth: 52, minHeight: capsuleHeight)
                         .background {
                             if isSelected {
                                 Capsule()
-                                    .fill(selectedColor.opacity(0.15))
+                                    .fill(Color(uiColor: .tertiarySystemFill))
+                                    .matchedGeometryEffect(id: "selection", in: selection)
                             }
                         }
+                        // Each range answers to its whole share of the row,
+                        // at least 44 pt tall, not just to its capsule.
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)

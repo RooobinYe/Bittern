@@ -28,6 +28,15 @@ final class HoldingDetailModel {
         seriesByRange[selectedRange]
     }
 
+    /// The ranges worth offering: every range until a loaded series says
+    /// when the holding first traded.
+    var availableRanges: [HoldingChartRange] {
+        HoldingChartRange.available(
+            firstTradeDate: seriesByRange.values.compactMap(\.firstTradeDate).min(),
+            at: Date()
+        )
+    }
+
     /// Loads `range` unless it already has a series. A reload replaces it.
     /// The caller's task decides the lifetime: SwiftUI cancels a `.task(id:)`
     /// when the range changes, and a cancelled load changes nothing.

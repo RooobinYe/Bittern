@@ -71,6 +71,7 @@ struct HoldingDetailView: View {
                     oneDayBaselinePrice: model.visibleSeries?.baselinePrice,
                     currencyCode: holding.currencyCode,
                     isPrivacyEnabled: isPrivacyEnabled,
+                    ranges: model.availableRanges,
                     range: $model.selectedRange,
                     selectedPoint: $model.selectedPoint,
                     isLoading: model.isLoading
