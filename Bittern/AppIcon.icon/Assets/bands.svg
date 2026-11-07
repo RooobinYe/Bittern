@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Four bands, largest first, each φ times the next: the allocation card's ramp. -->
+  <rect x="0" y="0" width="1024" height="458.9" fill="#413C9B"/>
+  <rect x="0" y="457.9" width="1024" height="284" fill="#008CBB"/>
+  <rect x="0" y="740.9" width="1024" height="176" fill="#00CA8D"/>
+  <rect x="0" y="915.9" width="1024" height="108.1" fill="#EFE345"/>
+</svg>

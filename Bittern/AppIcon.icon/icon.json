@@ -1,0 +1,94 @@
+{
+  "fill": {
+    "solid": "srgb:0.25490,0.23529,0.60784,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "srgb:0.00000,0.00000,0.00000,0.10000"
+          },
+          "glass": true,
+          "image-name": "lens.svg",
+          "name": "lens",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "name": "Lens",
+      "refractivity": true,
+      "refractivity-depth": 0.3,
+      "refractivity-strength": 0.3,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "glass": false,
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "tinted",
+              "value": false
+            }
+          ],
+          "image-name": "bands-mono.svg",
+          "name": "bands-mono",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "glass": false,
+          "image-name": "bands.svg",
+          "name": "bands",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          },
+          "hidden-specializations": [
+            {
+              "appearance": "tinted",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "name": "Bands",
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
