@@ -31,26 +31,21 @@ enum PerformanceChartXScale<Point> {
     }
 }
 
-/// How the chart marks the point being inspected.
-enum PerformanceChartCursorStyle: CaseIterable {
-    /// A thin line up from the point to a glass capsule with the date.
-    case dateCapsule
-    /// The same, with the value beside the date.
-    case dateAndValueCapsule
-    /// A line through the whole plot height, with the date capsule on top.
-    case fullHeightLine
-}
-
 struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & Equatable>: View {
     let points: [Point]
     let value: (Point) -> Double
     let xScale: PerformanceChartXScale<Point>
-    /// A short label for a point on the horizontal axis, such as a time or day.
-    let axisLabel: (Point) -> String
+    /// When a point was observed, for the time axis.
+    let date: (Point) -> Date
+    /// The calendar unit the time axis is labelled in.
+    let axisUnit: PerformanceChartAxisUnit
     /// The date of a point, for the cursor and VoiceOver.
     let selectionLabel: (Point) -> String
     /// A value as text, or nil while values are hidden.
     let valueLabel: ((Double) -> String)?
+    /// A whole value as text, for the value axis when every one of its
+    /// values is whole. Nil uses `valueLabel`.
+    var wholeValueLabel: ((Double) -> String)? = nil
     let baseValue: Double?
     let baselineLabel: String?
     let primaryLineValue: Double?
@@ -60,7 +55,6 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     @Binding var selectedRange: RangeOption
     @Binding var selectedPoint: Point?
     let isLoading: Bool
-    var cursorStyle: PerformanceChartCursorStyle = .dateCapsule
     /// Behind the chart, so the cursor's dot can be ringed in it.
     var background: Color = BitternTheme.background
 
@@ -68,7 +62,7 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
 
     private var lineColor: Color {
         guard let baseValue, let primaryLineValue else {
-            return BitternTheme.secondaryInk
+            return BitternTheme.neutralLine
         }
 
         return BitternTheme.performanceColor(primaryLineValue - baseValue)
@@ -86,14 +80,15 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
                         points: points,
                         value: value,
                         xScale: xScale,
-                        axisLabel: axisLabel,
+                        date: date,
+                        axisUnit: axisUnit,
                         selectionLabel: selectionLabel,
                         valueLabel: valueLabel,
+                        wholeValueLabel: wholeValueLabel,
                         baseValue: baseValue,
                         baselineLabel: baselineLabel,
                         lineColor: lineColor,
                         lineStyle: lineStyle,
-                        cursorStyle: cursorStyle,
                         background: background,
                         selectedPoint: $selectedPoint
                     )
@@ -161,14 +156,15 @@ private struct PerformanceLineChart<Point: Hashable>: View {
     let points: [Point]
     let value: (Point) -> Double
     let xScale: PerformanceChartXScale<Point>
-    let axisLabel: (Point) -> String
+    let date: (Point) -> Date
+    let axisUnit: PerformanceChartAxisUnit
     let selectionLabel: (Point) -> String
     let valueLabel: ((Double) -> String)?
+    let wholeValueLabel: ((Double) -> String)?
     let baseValue: Double?
     let baselineLabel: String?
     let lineColor: Color
     let lineStyle: (Point) -> PerformanceChartLineStyle
-    let cursorStyle: PerformanceChartCursorStyle
     let background: Color
     @Binding var selectedPoint: Point?
 
@@ -186,19 +182,18 @@ private struct PerformanceLineChart<Point: Hashable>: View {
             isPlotted: geometry.positions.map { $0 != nil },
             selectedIndex: selectedIndex
         )
+        let timeTicks = timeTicks(in: geometry)
+        // The baseline's own label takes the place of values close to it.
+        let valueTicks = geometry.valueTicks(avoiding: baselineLabel == nil ? nil : baseValue)
+        let axisValueLabel = valueTicks.allSatisfy { $0 == $0.rounded() }
+            ? (wholeValueLabel ?? valueLabel)
+            : valueLabel
 
         Chart {
             if let baseValue {
                 RuleMark(y: .value("Baseline", baseValue))
                     .foregroundStyle(BitternTheme.softLine)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    .annotation(position: .top, alignment: .leading, spacing: 2) {
-                        if let baselineLabel {
-                            Text(baselineLabel)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                     .accessibilityHidden(true)
             }
 
@@ -210,7 +205,13 @@ private struct PerformanceLineChart<Point: Hashable>: View {
                             y: .value("Value", geometry.values[index]),
                             series: .value("Run", runIndex)
                         )
-                        .foregroundStyle(color(for: run.style).opacity(run.isDimmed ? 0.2 : 1))
+                        // Dimmed by mixing into the background rather than
+                        // by opacity, so overlapping run ends don't darken.
+                        .foregroundStyle(
+                            run.isDimmed
+                                ? color(for: run.style).mix(with: background, by: 0.8)
+                                : color(for: run.style)
+                        )
                         .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                         .accessibilityLabel(selectionLabel(points[index]))
                         .accessibilityValue(valueLabel?(geometry.values[index]) ?? "Hidden")
@@ -221,22 +222,34 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         .chartXScale(domain: geometry.xDomain)
         .chartYScale(domain: geometry.yDomain)
         .chartXAxis {
-            AxisMarks(values: geometry.axisTickIndices.compactMap { geometry.positions[$0] }) { mark in
-                AxisValueLabel {
+            // Each label starts at its boundary and reads as "from here".
+            AxisMarks(values: timeTicks.map(\.position)) { mark in
+                AxisTick(length: 4, stroke: StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(BitternTheme.softLine)
+                AxisValueLabel(anchor: .topLeading) {
                     if let position = mark.as(Double.self),
-                       let index = geometry.nearestIndex(to: position) {
-                        Text(axisLabel(points[index]))
+                       let tick = timeTicks.first(where: { $0.position == position }) {
+                        Text(timeLabel(for: tick))
                     }
                 }
             }
         }
         .chartYAxis {
-            if let valueLabel {
-                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { mark in
+            if let axisValueLabel {
+                AxisMarks(position: .trailing, values: valueTicks) { mark in
                     AxisValueLabel {
                         if let value = mark.as(Double.self) {
-                            Text(valueLabel(value))
+                            Text(axisValueLabel(value))
                         }
+                    }
+                }
+            }
+            // The baseline is labelled on the value axis, outside the plot,
+            // so the line never runs through its label.
+            if let baseValue, let baselineLabel {
+                AxisMarks(position: .trailing, values: [baseValue]) { _ in
+                    AxisValueLabel {
+                        BaselineCapsule(text: baselineLabel)
                     }
                 }
             }
@@ -289,15 +302,14 @@ private struct PerformanceLineChart<Point: Hashable>: View {
             let color = color(for: lineStyle(points[markerIndex]))
 
             if selectedIndex != nil {
-                let lineBottom = cursorStyle == .fullHeightLine ? plotFrame.maxY : point.y
+                // A thin line up from the point to a glass capsule with the
+                // date. The header above the chart shows the value.
                 Rectangle()
                     .fill(color.opacity(0.6))
-                    .frame(width: 1, height: max(lineBottom - plotFrame.minY, 0))
-                    .position(x: point.x, y: (plotFrame.minY + lineBottom) / 2)
+                    .frame(width: 1, height: max(point.y - plotFrame.minY, 0))
+                    .position(x: point.x, y: (plotFrame.minY + point.y) / 2)
 
-                CursorCapsule(
-                    text: capsuleText(for: markerIndex, geometry: geometry)
-                )
+                CursorCapsule(text: selectionLabel(points[markerIndex]))
                 .fixedSize()
                 .position(
                     x: min(max(point.x, plotFrame.minX + 60), plotFrame.maxX - 60),
@@ -315,20 +327,58 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         }
     }
 
-    private func capsuleText(for index: Int, geometry: PerformanceChartGeometry) -> String {
-        let date = selectionLabel(points[index])
-        guard cursorStyle == .dateAndValueCapsule,
-              let valueLabel
-        else {
-            return date
-        }
-        return "\(date)\(PortfolioFormat.separator)\(valueLabel(geometry.values[index]))"
-    }
-
     private func announcement(for point: Point) -> String {
         let date = selectionLabel(point)
         guard let valueLabel else { return date }
         return "\(date), \(valueLabel(value(point)))"
+    }
+
+    // MARK: - Time axis
+
+    private func timeTicks(in geometry: PerformanceChartGeometry) -> [PerformanceChartTimeTick] {
+        let calendar = Calendar.autoupdatingCurrent
+        let ticks: [PerformanceChartTimeTick]
+
+        switch xScale {
+        case .unavailable:
+            return []
+        case .indexed:
+            ticks = PerformanceChartTimeAxis.indexedTicks(
+                dates: points.map(date),
+                unit: axisUnit,
+                calendar: calendar
+            )
+        case .time(let domain, _):
+            ticks = PerformanceChartTimeAxis.hourBoundaries(
+                from: domain.start,
+                to: domain.end,
+                // The plotted stretch, which is shorter than the domain
+                // while a round-the-clock day is still under way.
+                visibleDuration: geometry.xDomain.upperBound - geometry.xDomain.lowerBound,
+                calendar: calendar
+            )
+            .compactMap { boundary in
+                // A boundary in a no-trade gap has no place on the axis.
+                domain.elapsedTime(for: boundary).map {
+                    PerformanceChartTimeTick(position: $0, date: boundary, kind: .time)
+                }
+            }
+        }
+
+        return PerformanceChartTimeAxis.spaced(ticks, in: geometry.xDomain)
+    }
+
+    private func timeLabel(for tick: PerformanceChartTimeTick) -> String {
+        switch tick.kind {
+        case .time:
+            PortfolioFormat.time(tick.date)
+        case .day:
+            PortfolioFormat.day(tick.date)
+        case .month:
+            PortfolioFormat.month(tick.date)
+        case .year:
+            PortfolioFormat.year(tick.date)
+        }
     }
 
     // MARK: - Scales
@@ -349,8 +399,24 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         case .primary:
             lineColor
         case .neutral:
-            BitternTheme.secondaryInk
+            BitternTheme.neutralLine
         }
+    }
+}
+
+/// The baseline's value on the value axis, set apart from the axis's own
+/// values.
+private struct BaselineCapsule: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.medium).monospacedDigit())
+            .foregroundStyle(BitternTheme.secondaryInk)
+            .lineLimit(1)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color(uiColor: .tertiarySystemFill), in: .capsule)
     }
 }
 
@@ -405,14 +471,45 @@ nonisolated struct PerformanceChartGeometry {
             .min { abs(positions[$0]! - position) < abs(positions[$1]! - position) }
     }
 
-    /// Four labelled points, inset from the edges so no label is clipped.
-    var axisTickIndices: [Int] {
-        let span = xDomain.upperBound - xDomain.lowerBound
-        let indices = [0.125, 0.375, 0.625, 0.875].compactMap { fraction in
-            nearestIndex(to: xDomain.lowerBound + span * fraction)
+    /// Round values for the value axis, such as 40.4, 40.6 and 40.8: the
+    /// widest round step that still gives three of them. Values at the very
+    /// edge, whose labels the chart would clip, are left out, as are values
+    /// within a tenth of the axis of `baseValue`, whose own label sits there.
+    func valueTicks(avoiding baseValue: Double?) -> [Double] {
+        let span = yDomain.upperBound - yDomain.lowerBound
+        guard span > 0 else { return [] }
+
+        // 1, 2, 2.5 and 5 times a power of ten, widest first, from the
+        // power of ten at or above the whole range.
+        let magnitude = pow(10, ceil(log10(span)))
+        let steps = [1, 0.5, 0.25, 0.2, 0.1, 0.05, 0.025, 0.02, 0.01].map { $0 * magnitude }
+
+        var ticks: [Double] = []
+        for step in steps {
+            ticks = values(every: step, span: span)
+            if ticks.count >= 3 { break }
         }
-        var seen = Set<Int>()
-        return indices.filter { seen.insert($0).inserted }
+
+        return ticks.filter { value in
+            guard let baseValue else { return true }
+            return abs(value - baseValue) >= span * 0.1
+        }
+    }
+
+    private func values(every step: Double, span: Double) -> [Double] {
+        let first = Int((yDomain.lowerBound / step).rounded(.up))
+        let last = Int((yDomain.upperBound / step).rounded(.down))
+        guard first <= last else { return [] }
+
+        // Rounded to the step's own precision so 0.1 + 0.2 style errors don't
+        // leak into the labels.
+        let precision = pow(10, max(0, -floor(log10(step))) + 3)
+        return (first...last)
+            .map { (Double($0) * step * precision).rounded() / precision }
+            .filter { value in
+                value - yDomain.lowerBound >= span * 0.04
+                    && yDomain.upperBound - value >= span * 0.04
+            }
     }
 }
 

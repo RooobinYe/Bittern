@@ -248,11 +248,14 @@ private struct TitledField<Field: View>: View {
     }
 }
 
-/// A secret entered as dots, with an eye button that shows it.
+/// A secret entered as dots, with an eye button that shows it. While it
+/// isn't being edited it shows the same fixed-length dots as a saved secret,
+/// so neither gives away the secret's length.
 private struct RevealableSecretField: View {
     let title: String
     @Binding var text: String
     @State private var isRevealed = false
+    @FocusState private var isEditing: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -262,9 +265,22 @@ private struct RevealableSecretField: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } else {
+                    let isMasked = !isEditing && !text.isEmpty
+                    // The field stays under the dots with its own dots made
+                    // clear, so a tap still starts editing. Hiding it with
+                    // opacity would stop it from taking taps.
                     SecureField("Required", text: $text)
+                        .foregroundStyle(isMasked ? Color.clear : BitternTheme.ink)
+                        .overlay(alignment: .leading) {
+                            if isMasked {
+                                MaskedSecretText()
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                 }
             }
+            .focused($isEditing)
             .textContentType(.none)
             .accessibilityLabel(title)
 
@@ -296,12 +312,11 @@ private struct CredentialValueRow: View {
                     Text(PortfolioFormat.missing)
                         .foregroundStyle(BitternTheme.secondaryInk)
                 } else if isShowingValue {
+                    // The same font as the Client ID field above it.
                     Text(value)
-                        .font(.body.monospaced())
                         .textSelection(.enabled)
                 } else {
-                    Text(String(repeating: "•", count: 12))
-                        .font(.body.monospaced())
+                    MaskedSecretText()
                         .accessibilityLabel("Hidden")
                 }
             }
@@ -312,6 +327,14 @@ private struct CredentialValueRow: View {
                 RevealButton(title: title, isRevealed: $isRevealed)
             }
         }
+    }
+}
+
+/// A hidden secret: always the same number of dots, whatever its length.
+private struct MaskedSecretText: View {
+    var body: some View {
+        Text(String(repeating: "•", count: 12))
+            .lineLimit(1)
     }
 }
 

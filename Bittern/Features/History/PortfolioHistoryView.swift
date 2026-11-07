@@ -215,7 +215,8 @@ private struct PortfolioHistoryChartSection: View {
             points: series,
             value: { $0.totalValue },
             xScale: .indexed,
-            axisLabel: { range.axisLabel(for: $0.date) },
+            date: { $0.date },
+            axisUnit: range.axisUnit,
             selectionLabel: { PortfolioFormat.dayWithYear($0.date) },
             valueLabel: isPrivacyEnabled
                 ? nil
@@ -238,13 +239,13 @@ private struct PortfolioHistoryChartSection: View {
 }
 
 extension PortfolioHistoryRange {
-    /// A point's date on the horizontal axis.
-    func axisLabel(for date: Date) -> String {
+    /// The calendar unit the horizontal axis is labelled in.
+    var axisUnit: PerformanceChartAxisUnit {
         switch self {
-        case .fiveDays, .threeMonths, .yearToDate:
-            PortfolioFormat.day(date)
-        case .oneYear:
-            PortfolioFormat.monthWithYear(date)
+        case .fiveDays:
+            .days
+        case .threeMonths, .oneYear, .yearToDate:
+            .months
         }
     }
 }

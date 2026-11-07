@@ -114,6 +114,22 @@ enum PortfolioFormat {
         }
     }
 
+    /// A quantity with its unit: "1 share", "0.1 shares", "84 shares". The
+    /// unit is singular only when the number reads as exactly 1.
+    static func quantityWithUnit(
+        _ value: Double,
+        unit: HoldingQuantityUnit,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let number = quantity(value, unit: unit, locale: locale)
+        let isOne = number == quantity(1, unit: unit, locale: locale)
+        let unitName = switch unit {
+        case .shares: isOne ? "share" : "shares"
+        case .tokens: isOne ? "token" : "tokens"
+        }
+        return "\(number) \(unitName)"
+    }
+
     /// Every digit the broker reported, without grouping.
     static func preciseQuantity(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
         value.formatted(
@@ -163,6 +179,11 @@ enum PortfolioFormat {
     /// A time of day, such as "14:30" or "2:30 PM".
     static func time(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
         date.formatted(.dateTime.hour().minute().locale(locale))
+    }
+
+    /// A month, such as "Nov".
+    static func month(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(.dateTime.month(.abbreviated).locale(locale))
     }
 
     /// A month with its year, such as "Nov 2026".

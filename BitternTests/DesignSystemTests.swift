@@ -193,17 +193,34 @@ struct PerformanceChartGeometryTests {
         #expect(geometry.yDomain.upperBound > 110)
     }
 
-    @Test func axisTicksAreDistinctAndInsideTheEdges() {
+    @Test func valueTicksAreRoundAndInsideTheRange() {
         let geometry = PerformanceChartGeometry(
-            values: Array(repeating: 1, count: 100),
-            positions: (0..<100).map(Double.init),
+            values: [40.21, 40.63],
+            positions: [0, 1],
             baseValue: nil
         )
-        let ticks = geometry.axisTickIndices
+        let ticks = geometry.valueTicks(avoiding: nil)
 
-        #expect(ticks.count == 4)
-        #expect(Set(ticks).count == ticks.count)
-        #expect(ticks.allSatisfy { $0 > 0 && $0 < 99 })
+        #expect((2...4).contains(ticks.count))
+        #expect(ticks.allSatisfy { geometry.yDomain.contains($0) })
+        // Evenly spaced on round cents.
+        let steps = zip(ticks, ticks.dropFirst()).map { $1 - $0 }
+        #expect(steps.allSatisfy { abs($0 - steps[0]) < 1e-9 })
+        #expect(ticks.allSatisfy { abs(($0 * 100).rounded() - $0 * 100) < 1e-6 })
+    }
+
+    @Test func valueTicksMakeRoomForTheBaselinesLabel() {
+        let geometry = PerformanceChartGeometry(
+            values: [17.9, 52.4],
+            positions: [0, 1],
+            baseValue: 17.88
+        )
+        let span = geometry.yDomain.upperBound - geometry.yDomain.lowerBound
+        let ticks = geometry.valueTicks(avoiding: 17.88)
+
+        #expect(!ticks.isEmpty)
+        #expect(ticks.allSatisfy { abs($0 - 17.88) >= span * 0.1 })
+        #expect(ticks.allSatisfy { $0 == $0.rounded() })
     }
 }
 
@@ -237,6 +254,16 @@ struct PortfolioFormatTests {
         #expect(PortfolioFormat.shares(1.5, locale: us) == "1.50")
         #expect(PortfolioFormat.tokens(0.070001, locale: us) == "0.07")
         #expect(PortfolioFormat.preciseQuantity(1234.000000123, locale: us) == "1234.000000123")
+    }
+
+    @Test func aUnitIsSingularOnlyForExactlyOne() {
+        #expect(PortfolioFormat.quantityWithUnit(1, unit: .shares, locale: us) == "1 share")
+        #expect(PortfolioFormat.quantityWithUnit(84, unit: .shares, locale: us) == "84 shares")
+        #expect(PortfolioFormat.quantityWithUnit(0.1, unit: .shares, locale: us) == "0.10 shares")
+        #expect(PortfolioFormat.quantityWithUnit(1.000001, unit: .shares, locale: us) == "1.00 shares")
+        #expect(PortfolioFormat.quantityWithUnit(0, unit: .shares, locale: us) == "0 shares")
+        #expect(PortfolioFormat.quantityWithUnit(1, unit: .tokens, locale: us) == "1 token")
+        #expect(PortfolioFormat.quantityWithUnit(0.07, unit: .tokens, locale: us) == "0.07 tokens")
     }
 
     @Test func timesFollowTheRegionsClock() {

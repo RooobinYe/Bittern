@@ -109,11 +109,11 @@ struct HoldingListRow: View {
 
                 VStack(spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(holding.symbol)
-                            .font(.headline)
-                            .foregroundStyle(BitternTheme.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        HoldingSymbolAndQuantity(
+                            symbol: holding.symbol,
+                            quantity: quantityText,
+                            symbolFont: .headline
+                        )
 
                         Spacer(minLength: 8)
 
@@ -139,11 +139,10 @@ struct HoldingListRow: View {
 
     private var secondaryMetrics: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(quantityAndAllocationText)
+            Text(allocationText)
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
-                .truncationMode(.tail)
 
             Spacer(minLength: 8)
 
@@ -182,12 +181,19 @@ struct HoldingListRow: View {
         )
     }
 
-    private var quantityAndAllocationText: String {
-        let allocationText = allocation.map { PortfolioFormat.percent($0) } ?? PortfolioFormat.missing
-        guard !isPrivacyEnabled else { return allocationText }
+    private var allocationText: String {
+        allocation.map { PortfolioFormat.percent($0) } ?? PortfolioFormat.missing
+    }
 
-        let quantity = PortfolioFormat.quantity(holding.quantity, unit: holding.quantityUnit)
-        return "\(allocationText)\(PortfolioFormat.separator)\(quantity) \(holding.quantityUnit.rawValue)"
+    /// Nil while values are hidden.
+    private var quantityText: String? {
+        guard !isPrivacyEnabled else { return nil }
+        return PortfolioFormat.quantityWithUnit(holding.quantity, unit: holding.quantityUnit)
+    }
+
+    private var quantityAndAllocationText: String {
+        guard let quantityText else { return allocationText }
+        return "\(allocationText)\(PortfolioFormat.separator)\(quantityText)"
     }
 
     private var performanceText: String {
@@ -212,5 +218,51 @@ struct HoldingListRow: View {
         return isPrivacyEnabled
             ? PortfolioFormat.hiddenMoney(currencyCode: holding.currencyCode)
             : PortfolioFormat.wholeMoney(marketValue, currencyCode: holding.currencyCode)
+    }
+}
+
+/// A holding's symbol with its quantity beside it, as rows show them.
+///
+/// The quantity sits on the symbol's line, where the row has the most room:
+/// only the market value shares it, and the quantity is the one figure with
+/// no upper length. A quantity too long even there goes under the symbol
+/// rather than being cut off.
+struct HoldingSymbolAndQuantity: View {
+    let symbol: String
+    /// Nil while values are hidden.
+    let quantity: String?
+    let symbolFont: Font
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                symbolText
+                quantityText
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                symbolText
+                quantityText
+            }
+        }
+    }
+
+    private var symbolText: some View {
+        Text(symbol)
+            .font(symbolFont)
+            .foregroundStyle(BitternTheme.ink)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    @ViewBuilder
+    private var quantityText: some View {
+        if let quantity {
+            Text(quantity)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(BitternTheme.secondaryInk)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
     }
 }
