@@ -415,18 +415,22 @@ private struct PerformanceLineChart<Point: Hashable>: View {
 }
 
 /// The baseline's value on the value axis, set apart from the axis's own
-/// values.
+/// values. The capsule reaches out past the label column by its padding,
+/// so its text lines up with the values above and below it.
 private struct BaselineCapsule: View {
     let text: String
+
+    private static let horizontalPadding: CGFloat = 5
 
     var body: some View {
         Text(text)
             .font(.caption2.weight(.medium).monospacedDigit())
             .foregroundStyle(BitternTheme.secondaryInk)
             .lineLimit(1)
-            .padding(.horizontal, 5)
+            .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, 1)
             .background(Color(uiColor: .tertiarySystemFill), in: .capsule)
+            .offset(x: -Self.horizontalPadding)
     }
 }
 

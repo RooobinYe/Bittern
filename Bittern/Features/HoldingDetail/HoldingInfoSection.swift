@@ -177,9 +177,11 @@ private struct HoldingReturnMetricCell: View {
 
     var body: some View {
         VStack(alignment: alignment, spacing: 2) {
+            // Titled like the rows above it; the figures keep their gain or
+            // loss color.
             Text(metric.title)
-                .font(.subheadline)
-                .foregroundStyle(BitternTheme.secondaryInk)
+                .font(.body)
+                .foregroundStyle(BitternTheme.ink)
                 .lineLimit(1)
 
             Text(amountText)
