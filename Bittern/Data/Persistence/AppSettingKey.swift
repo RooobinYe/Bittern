@@ -12,7 +12,4 @@ enum AppSettingKey {
     static let performanceMode = "performanceMode"
     static let sortOption = "sortOption"
     static let contributionPlan = "contributionPlan"
-    /// Debug builds only, to tell whether the lens's Liquid Glass is what
-    /// glows brighter than white near the bottom of the card.
-    static let debugLensGlassEnabled = "debugLensGlassEnabled"
 }

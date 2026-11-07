@@ -234,12 +234,6 @@ private struct AllocationLensCard: View {
 private struct AllocationLensGlass: View {
     let radius: CGFloat
 
-    #if DEBUG
-    @AppStorage(AppSettingKey.debugLensGlassEnabled) private var isGlassEnabled = true
-    #else
-    private let isGlassEnabled = true
-    #endif
-
     var body: some View {
         ZStack {
             Circle()
@@ -248,11 +242,9 @@ private struct AllocationLensGlass: View {
                 .blur(radius: 8)
                 .offset(y: 3)
 
-            if isGlassEnabled {
-                Color.clear
-                    .frame(width: radius * 2, height: radius * 2)
-                    .glassEffect(.clear, in: .circle)
-            }
+            Color.clear
+                .frame(width: radius * 2, height: radius * 2)
+                .glassEffect(.clear, in: .circle)
 
             AllocationLensRim()
                 .frame(width: radius * 2, height: radius * 2)
