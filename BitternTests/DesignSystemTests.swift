@@ -3,76 +3,42 @@ import Testing
 @testable import Bittern
 
 @Suite
-struct BubbleRingArrangementTests {
-    private let radius = 140.0
-
-    /// The gap, in radians, from each placement to the next around the ring.
-    private func gaps(_ angles: [Double]) -> [Double] {
-        let sorted = angles.sorted()
-        return sorted.indices.map { index in
-            index + 1 < sorted.count
-                ? sorted[index + 1] - sorted[index]
-                : sorted[0] + 2 * .pi - sorted[index]
-        }
+struct AllocationBandColorTests {
+    @Test func oneColorPerBand() {
+        #expect(BitternTheme.allocationBandColors(count: 0).isEmpty)
+        #expect(BitternTheme.allocationBandColors(count: 1).count == 1)
+        #expect(BitternTheme.allocationBandColors(count: 7).count == 7)
     }
 
-    @Test func bubblesWithRoomStayAtTheirSlices() {
-        let preferred = [0.0, 2.0, 4.0]
-        let placements = BubbleRingArrangement.placements(
-            preferredAngles: preferred,
-            widths: [70, 70, 70],
-            radius: radius
+    @Test func holdingsWearTheirBandsColors() {
+        let large = makeHolding(symbol: "LRG", quantity: 60, currentPrice: 100)
+        let medium = makeHolding(symbol: "MED", quantity: 30, currentPrice: 100)
+        // Each under 5% of the total, so they share the small-holdings band.
+        let small = makeHolding(symbol: "SML", quantity: 4, currentPrice: 100)
+        let smaller = makeHolding(symbol: "SMR", quantity: 3, currentPrice: 100)
+        let unpriced = makeHolding(symbol: "UNP", currentPrice: nil)
+        let holdings = [small, unpriced, large, smaller, medium]
+
+        let colors = BitternTheme.holdingAllocationColors(for: holdings)
+        let bands = BitternTheme.allocationBandColors(count: 3)
+
+        #expect(colors[large.id] == bands[0])
+        #expect(colors[medium.id] == bands[1])
+        #expect(colors[small.id] == bands[2])
+        #expect(colors[smaller.id] == bands[2])
+        #expect(colors[unpriced.id] == nil)
+        #expect(
+            BitternTheme.holdingAllocationColor(for: unpriced, in: holdings)
+                == BitternTheme.unallocatedHoldingColor
         )
-
-        #expect(placements.map(\.angle) == preferred)
-        #expect(placements.allSatisfy { !$0.isOuter })
     }
+}
 
-    @Test func crowdedNeighboursSpreadToTheirMinimumSeparation() {
-        let preferred = [1.0, 1.05, 1.1, 4.0]
-        let widths = [70.0, 70, 70, 70]
-        let placements = BubbleRingArrangement.placements(
-            preferredAngles: preferred,
-            widths: widths,
-            radius: radius
-        )
-        let minimum = BubbleRingArrangement.minimumSeparation(70, 70, radius: radius, padding: 4)
-
-        #expect(gaps(placements.map(\.angle)).allSatisfy { $0 >= minimum - 1e-6 })
-        // The cluster spreads around its own middle rather than drifting.
-        #expect(abs(placements[1].angle - 1.05) < 1e-6)
-        #expect(placements.allSatisfy { !$0.isOuter })
-    }
-
-    @Test func spreadingKeepsTheOrderAroundTheRing() {
-        let preferred = [0.30, 0.32, 0.34, 0.36, 0.38]
-        let placements = BubbleRingArrangement.placements(
-            preferredAngles: preferred,
-            widths: Array(repeating: 60, count: preferred.count),
-            radius: radius
-        )
-        let angles = placements.map(\.angle)
-
-        #expect(angles == angles.sorted())
-    }
-
-    @Test func tooManyForOneRingAlternateWithAnOuterRing() {
-        let count = 16
-        let preferred = (0..<count).map { Double($0) / Double(count) * 2 * .pi }
-        let placements = BubbleRingArrangement.placements(
-            preferredAngles: preferred,
-            widths: Array(repeating: 70, count: count),
-            radius: radius
-        )
-
-        #expect(placements.filter(\.isOuter).count == count / 2)
-        for index in 0..<count {
-            #expect(placements[index].isOuter == (index % 2 == 1))
-        }
-    }
-
-    @Test func noBubblesNoPlacements() {
-        #expect(BubbleRingArrangement.placements(preferredAngles: [], widths: [], radius: radius).isEmpty)
+@Suite
+struct PerformanceModeTests {
+    @Test func nextSwitchesBetweenTheTwoModes() {
+        #expect(PerformanceMode.today.next == .allTime)
+        #expect(PerformanceMode.allTime.next == .today)
     }
 }
 

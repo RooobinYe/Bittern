@@ -82,7 +82,7 @@ enum PortfolioFormat {
     }
 
     /// A change in whole currency units with its percentage, such as
-    /// "+$1,234 (+1.20%)", short enough for the donut's centre.
+    /// "+$1,234 (+1.20%)", short enough for the allocation lens.
     static func change(
         _ amount: Double,
         percent: Double,

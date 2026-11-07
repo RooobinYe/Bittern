@@ -21,8 +21,7 @@ struct HoldingDetailDestination: View {
            let holding = snapshot.holdings.first(where: { $0.id == route.holdingID }) {
             HoldingDetailView(
                 holding: holding,
-                portfolio: viewModel.displaySnapshot ?? snapshot,
-                allocationHoldings: snapshot.holdings
+                portfolio: viewModel.displaySnapshot ?? snapshot
             )
         } else {
             ContentUnavailableView(
@@ -38,7 +37,6 @@ struct HoldingDetailView: View {
     let holding: PortfolioHolding
     /// The portfolio the holding's allocation is a share of.
     let portfolio: PortfolioSnapshot
-    let allocationHoldings: [PortfolioHolding]
 
     @State private var model = HoldingDetailModel()
     @Environment(\.portfolioRepository) private var repository
@@ -56,7 +54,7 @@ struct HoldingDetailView: View {
                     isPrivacyEnabled: isPrivacyEnabled,
                     avatarColor: BitternTheme.holdingAllocationColor(
                         for: holding,
-                        in: allocationHoldings
+                        in: portfolio.holdings
                     )
                 )
                 .listRowBackground(Color.clear)
@@ -120,8 +118,7 @@ struct HoldingDetailView: View {
     NavigationStack {
         HoldingDetailView(
             holding: snapshot.holdings[3],
-            portfolio: snapshot,
-            allocationHoldings: snapshot.holdings
+            portfolio: snapshot
         )
     }
 }

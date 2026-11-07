@@ -6,9 +6,9 @@
 import Foundation
 
 /// How a portfolio's value divides between its holdings, as drawn by the
-/// allocation donut.
+/// allocation card.
 enum PortfolioAllocation {
-    /// A share of the donut: one holding, or every small holding together.
+    /// A share of the card: one holding, or every small holding together.
     struct Slice: Identifiable, Equatable {
         enum Kind: Equatable {
             case holding(PortfolioHolding)
@@ -46,7 +46,7 @@ enum PortfolioAllocation {
             }
     }
 
-    /// The donut's slices, largest first. Holdings below `minimumShare` of the
+    /// The card's slices, largest first. Holdings below `minimumShare` of the
     /// total are combined into one trailing "other" slice.
     ///
     /// Callers pass holdings whose total is known: an unpriced holding has no

@@ -21,7 +21,7 @@ struct ProviderHoldingsSection: View {
                 ForEach(group.holdings) { holding in
                     ProviderHoldingRow(
                         holding: holding,
-                        color: holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0),
+                        color: holdingColorLookup[holding.id] ?? BitternTheme.unallocatedHoldingColor,
                         isPrivacyEnabled: isPrivacyEnabled
                     )
                 }

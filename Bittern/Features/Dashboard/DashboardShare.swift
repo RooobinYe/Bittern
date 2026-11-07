@@ -30,7 +30,6 @@ struct DashboardShareSnapshot: Sendable {
     /// The dashboard's title: "Portfolio", or the provider it shows.
     let title: String
     let portfolio: PortfolioSnapshot
-    let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
@@ -129,7 +128,6 @@ private struct PortfolioShareScreenshotContent: View {
 
             DashboardVisualContent(
                 portfolio: snapshot.portfolio,
-                allocationHoldings: snapshot.allocationHoldings,
                 sortedHoldings: snapshot.sortedHoldings,
                 performanceMode: snapshot.performanceMode,
                 sortOption: snapshot.sortOption,

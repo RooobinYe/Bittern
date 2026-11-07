@@ -23,56 +23,37 @@ enum BitternTheme {
     static let negativePerformance = Color(.negativePerformance)
     static let warning = Color(uiColor: .systemOrange)
 
-    static let allocationColors: [Color] = [
-        mutedAllocationColor(.systemIndigo),
-        mutedAllocationColor(.systemOrange),
-        mutedAllocationColor(.systemGreen),
-        mutedAllocationColor(.systemTeal),
-        mutedAllocationColor(.systemBlue),
-        mutedAllocationColor(.systemRed),
-        mutedAllocationColor(.systemPurple),
-        mutedAllocationColor(.systemMint),
-        mutedAllocationColor(.systemPink),
-        mutedAllocationColor(.systemBrown),
-        mutedAllocationColor(.systemCyan),
-        mutedAllocationColor(.systemYellow)
-    ]
+    /// A holding the allocation leaves out, having no value to share.
+    static let unallocatedHoldingColor = Color(uiColor: .systemGray3)
 
-    private static let allocationNeutral = Color(uiColor: .systemGray)
-    private static let allocationMuteFraction = 0.48
-
-    private static func mutedAllocationColor(_ color: UIColor) -> Color {
-        Color(uiColor: color).mix(
-            with: allocationNeutral,
-            by: allocationMuteFraction,
-            in: .perceptual
-        )
-    }
-
-    static func allocationColor(at index: Int) -> Color {
-        allocationColors[index % allocationColors.count]
-    }
-
+    /// Each holding's color: its band's in the allocation card of
+    /// `holdings`, so a holding without a logo wears its band's color.
+    /// Holdings in the small-holdings band share its color. Holdings the card
+    /// leaves out are missing; callers show `unallocatedHoldingColor`.
+    ///
+    /// Colors follow rank, so pass the holdings whose allocation the screen
+    /// is about: a holding's color changes when it overtakes another.
     static func holdingAllocationColors(
         for holdings: [PortfolioHolding]
     ) -> [String: Color] {
-        var usedIndices: Set<Int> = []
+        let slices = PortfolioAllocation.slices(of: holdings)
         var colorsByHoldingID: [String: Color] = [:]
+        var otherColor: Color?
 
-        for holding in holdings.sorted(by: { $0.id < $1.id }) {
-            guard colorsByHoldingID[holding.id] == nil else { continue }
-
-            var index = allocationColorIndex(forStableKey: holding.id)
-            if usedIndices.count < allocationColors.count {
-                while usedIndices.contains(index) {
-                    index = (index + 1) % allocationColors.count
-                }
-                usedIndices.insert(index)
+        for (slice, color) in zip(slices, allocationBandColors(count: slices.count)) {
+            switch slice.kind {
+            case .holding(let holding):
+                colorsByHoldingID[holding.id] = color
+            case .other:
+                otherColor = color
             }
-
-            colorsByHoldingID[holding.id] = allocationColor(at: index)
         }
 
+        if let otherColor {
+            for holding in PortfolioAllocation.ordered(holdings) where colorsByHoldingID[holding.id] == nil {
+                colorsByHoldingID[holding.id] = otherColor
+            }
+        }
         return colorsByHoldingID
     }
 
@@ -80,26 +61,37 @@ enum BitternTheme {
         for holding: PortfolioHolding,
         in holdings: [PortfolioHolding]
     ) -> Color {
-        holdingAllocationColors(for: holdings)[holding.id]
-            ?? allocationColor(forStableKey: holding.id)
+        holdingAllocationColors(for: holdings)[holding.id] ?? unallocatedHoldingColor
     }
 
-    static let otherAllocationColor = allocationColor(forStableKey: "OTHER")
-
-    private static func allocationColor(forStableKey key: String) -> Color {
-        allocationColor(at: allocationColorIndex(forStableKey: key))
+    /// The allocation card's bands, largest first: one smooth run from deep
+    /// indigo through teal and green to a light yellow, so the stack reads as
+    /// one palette. A band's color follows its rank, not its holding.
+    static func allocationBandColors(count: Int) -> [Color] {
+        guard count > 1 else { return count == 1 ? [allocationBandColor(at: 0)] : [] }
+        return (0..<count).map { allocationBandColor(at: Double($0) / Double(count - 1)) }
     }
 
-    private static func allocationColorIndex(forStableKey key: String) -> Int {
-        // Swift's Hashable seed changes between launches, so use a
-        // deterministic hash to keep each holding attached to one color.
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in key.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
+    /// The color `fraction` of the way along the band ramp, in OKLCH.
+    private static func allocationBandColor(at fraction: Double) -> Color {
+        let t = min(max(fraction, 0), 1)
+        let lightness = 0.42 + (0.90 - 0.42) * t
+        let chroma = 0.15 + (0.17 - 0.15) * t
+        let hue = (280 - (280 - 105) * t) * .pi / 180
 
-        return Int(hash % UInt64(allocationColors.count))
+        let a = chroma * cos(hue)
+        let b = chroma * sin(hue)
+        let l = pow(lightness + 0.396_337_777_4 * a + 0.215_803_757_3 * b, 3)
+        let m = pow(lightness - 0.105_561_345_8 * a - 0.063_854_172_8 * b, 3)
+        let s = pow(lightness - 0.089_484_177_5 * a - 1.291_485_548_0 * b, 3)
+        // Linear sRGB, clipped to the gamut; Color applies the sRGB curve.
+        func clip(_ value: Double) -> Double { min(max(value, 0), 1) }
+        return Color(
+            .sRGBLinear,
+            red: clip(4.076_741_662_1 * l - 3.307_711_591_3 * m + 0.230_969_929_2 * s),
+            green: clip(-1.268_438_004_6 * l + 2.609_757_401_1 * m - 0.341_319_396_5 * s),
+            blue: clip(-0.004_196_086_3 * l - 0.703_418_614_7 * m + 1.707_614_701_0 * s)
+        )
     }
 
     static func performanceColor(_ value: Double) -> Color {

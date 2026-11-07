@@ -49,7 +49,7 @@ struct HoldingSymbolIcon: View {
     private var fallback: some View {
         Text(label)
             .font(fallbackFont)
-            .foregroundStyle(fallbackForeground)
+            .foregroundStyle(color.contrastingForeground(in: environment))
             .lineLimit(1)
             // Four letters on a disc sized for the symbol's logo: shrinking
             // them is the only way they stay inside the circle.
@@ -58,8 +58,13 @@ struct HoldingSymbolIcon: View {
             .frame(width: size, height: size)
     }
 
-    private var fallbackForeground: Color {
-        let resolved = color.resolve(in: environment)
+}
+
+extension Color {
+    /// Black or white, whichever reads better on this color as it looks in
+    /// `environment`.
+    func contrastingForeground(in environment: EnvironmentValues) -> Color {
+        let resolved = resolve(in: environment)
         let luminance = ContrastingForeground.relativeLuminance(
             linearRed: Double(resolved.linearRed),
             linearGreen: Double(resolved.linearGreen),

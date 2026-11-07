@@ -75,7 +75,6 @@ struct DashboardContent: View {
             GeometryReader { proxy in
                 DashboardVisualContent(
                     portfolio: viewModel.displaySnapshot ?? snapshot,
-                    allocationHoldings: snapshot.holdings,
                     sortedHoldings: viewModel.sortedHoldings,
                     performanceMode: viewModel.performanceMode,
                     sortOption: viewModel.sortOption,
@@ -105,7 +104,6 @@ struct DashboardContent: View {
 /// mode always comes from the viewport that initiated the share.
 struct DashboardVisualContent: View {
     let portfolio: PortfolioSnapshot
-    let allocationHoldings: [PortfolioHolding]
     let sortedHoldings: [PortfolioHolding]
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
@@ -117,10 +115,12 @@ struct DashboardVisualContent: View {
     let controls: DashboardControls?
 
     @State private var marketTime = Date()
+    @State private var lensMotion = AllocationLensMotion()
     @State private var isEditingMinimumValue = false
 
+    /// The bands' colors, so a holding without a logo matches its band.
     private var holdingColorLookup: [String: Color] {
-        BitternTheme.holdingAllocationColors(for: allocationHoldings)
+        BitternTheme.holdingAllocationColors(for: portfolio.holdings)
     }
 
     /// When the next pre- or post-market session shown in a row ends, so the
@@ -136,6 +136,8 @@ struct DashboardVisualContent: View {
 
     var body: some View {
         content
+            // Above the list, so the lifted lens can go anywhere on the page.
+            .overlay { LiftedAllocationLens(motion: lensMotion) }
             .onChange(of: portfolio.lastUpdated) { _, _ in
                 marketTime = Date()
             }
@@ -162,7 +164,7 @@ struct DashboardVisualContent: View {
         case (.stacked, let controls?):
             List {
                 Section {
-                    donut(fillsAvailableSpace: false)
+                    allocation(fillsAvailableSpace: false)
                         .padding(.vertical, 8)
                         .listRowInsets(.horizontal, 0)
                         .listRowSeparator(.hidden)
@@ -179,7 +181,7 @@ struct DashboardVisualContent: View {
 
         case (.split, let controls?):
             HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                donut(fillsAvailableSpace: true)
+                allocation(fillsAvailableSpace: true)
                     .frame(
                         minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
                         idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
@@ -201,7 +203,7 @@ struct DashboardVisualContent: View {
 
         case (.stacked, nil):
             VStack(spacing: 24) {
-                donut(fillsAvailableSpace: false)
+                allocation(fillsAvailableSpace: false)
                 exportHoldings
             }
             .padding(.bottom, 14)
@@ -211,7 +213,7 @@ struct DashboardVisualContent: View {
 
         case (.split, nil):
             HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                donut(fillsAvailableSpace: false)
+                allocation(fillsAvailableSpace: false)
                     .frame(
                         minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
                         idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
@@ -229,14 +231,14 @@ struct DashboardVisualContent: View {
         }
     }
 
-    private func donut(fillsAvailableSpace: Bool) -> some View {
-        PortfolioDonutSection(
+    private func allocation(fillsAvailableSpace: Bool) -> some View {
+        PortfolioAllocationSection(
             snapshot: portfolio,
-            holdingColorLookup: holdingColorLookup,
             performanceMode: performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             fillsAvailableSpace: fillsAvailableSpace,
-            selectPerformanceMode: controls?.selectPerformanceMode
+            selectPerformanceMode: controls?.selectPerformanceMode,
+            lensMotion: controls == nil ? nil : lensMotion
         )
     }
 
@@ -320,7 +322,7 @@ struct DashboardVisualContent: View {
             allocation: portfolio.allocation(of: holding),
             performanceMode: performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
-            color: holdingColorLookup[holding.id] ?? BitternTheme.allocationColor(at: 0),
+            color: holdingColorLookup[holding.id] ?? BitternTheme.unallocatedHoldingColor,
             marketTime: marketTime
         )
     }
