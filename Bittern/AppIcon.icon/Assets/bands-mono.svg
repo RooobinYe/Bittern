@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Clear and tinted icons only: the band edges as white lines, since the
+       solid bands would turn the whole tile white there. Same edges as bands.svg. -->
+  <rect x="0" y="451.9" width="1024" height="12" fill="#FFFFFF"/>
+  <rect x="0" y="734.9" width="1024" height="12" fill="#FFFFFF"/>
+  <rect x="0" y="909.9" width="1024" height="12" fill="#FFFFFF"/>
+</svg>

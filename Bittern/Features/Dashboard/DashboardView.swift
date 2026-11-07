@@ -59,7 +59,10 @@ struct DashboardView: View {
                     if let portfolioShareItem {
                         ShareLink(
                             item: portfolioShareItem,
-                            preview: SharePreview("Bittern Portfolio")
+                            // The share sheet shows a blank placeholder unless the
+                            // item brings its own icon; the app icon can't be loaded
+                            // by name, so ShareIcon is exported from AppIcon.icon.
+                            preview: SharePreview("Bittern Portfolio", icon: Image(.shareIcon))
                         ) {
                             Label("Share Portfolio", systemImage: "square.and.arrow.up")
                         }
