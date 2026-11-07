@@ -10,7 +10,8 @@ struct HoldingAssetHeader: View {
     let series: [HoldingPricePoint]
     let range: HoldingChartRange
     let selectedPoint: HoldingPricePoint?
-    let oneDayBaselinePrice: Double?
+    /// The close 1D or YTD is measured from, when the series carries one.
+    let seriesBaselinePrice: Double?
     let isPrivacyEnabled: Bool
     let avatarColor: Color
 
@@ -37,7 +38,8 @@ struct HoldingAssetHeader: View {
 
     private var basePrice: Double? {
         range.detailChangeBasePrice(
-            previousClose: oneDayBaselinePrice ?? holding.previousClose,
+            previousClose: holding.previousClose,
+            seriesBaseline: seriesBaselinePrice,
             seriesFirstPrice: series.first?.price
         )
     }
@@ -174,7 +176,8 @@ struct HoldingChartSection: View {
     let series: [HoldingPricePoint]
     let timeDomain: PriceChartTimeDomain?
     let previousClose: Double?
-    let oneDayBaselinePrice: Double?
+    /// The close 1D or YTD is measured from, when the series carries one.
+    let seriesBaselinePrice: Double?
     let currencyCode: String
     let isPrivacyEnabled: Bool
     /// The ranges to offer, leaving out those the holding hasn't traded
@@ -186,7 +189,8 @@ struct HoldingChartSection: View {
 
     private var basePrice: Double? {
         range.detailChangeBasePrice(
-            previousClose: oneDayBaselinePrice ?? previousClose,
+            previousClose: previousClose,
+            seriesBaseline: seriesBaselinePrice,
             seriesFirstPrice: series.first?.price
         )
     }
@@ -206,9 +210,7 @@ struct HoldingChartSection: View {
             value: { $0.price },
             xScale: xScale,
             date: { $0.date },
-            axisUnit: range == .max
-                ? .fitting(series.map(\.date))
-                : range.axisUnit,
+            axisUnit: range.axisUnit(for: series.map(\.date)),
             selectionLabel: { range.selectionLabel(for: $0.date) },
             valueLabel: isPrivacyEnabled
                 ? nil
@@ -245,17 +247,21 @@ struct HoldingChartSection: View {
 }
 
 extension HoldingChartRange {
-    /// The calendar unit the horizontal axis is labelled in.
-    var axisUnit: PerformanceChartAxisUnit {
+    /// The calendar unit the horizontal axis is labelled in. MAX and YTD
+    /// span however much history there is, so their unit fits the dates:
+    /// YTD reads in days through January and in months after.
+    func axisUnit(for dates: [Date]) -> PerformanceChartAxisUnit {
         switch self {
         case .oneDay:
             .hours
-        case .fiveDays:
+        case .fiveDays, .oneMonth:
             .days
         case .threeMonths, .oneYear:
             .months
-        case .fiveYears, .max:
+        case .fiveYears:
             .years
+        case .yearToDate, .max:
+            .fitting(dates)
         }
     }
 
@@ -263,9 +269,9 @@ extension HoldingChartRange {
     /// within a day.
     func selectionLabel(for date: Date) -> String {
         switch self {
-        case .oneDay, .fiveDays:
+        case .oneDay, .fiveDays, .oneMonth:
             PortfolioFormat.dayAndTime(date)
-        case .threeMonths, .oneYear, .fiveYears, .max:
+        case .threeMonths, .yearToDate, .oneYear, .fiveYears, .max:
             PortfolioFormat.dayWithYear(date)
         }
     }

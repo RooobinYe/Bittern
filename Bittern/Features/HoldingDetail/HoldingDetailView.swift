@@ -50,7 +50,7 @@ struct HoldingDetailView: View {
                     series: model.visibleSeries?.points ?? [],
                     range: model.selectedRange,
                     selectedPoint: model.selectedPoint,
-                    oneDayBaselinePrice: model.visibleSeries?.baselinePrice,
+                    seriesBaselinePrice: model.visibleSeries?.baselinePrice,
                     isPrivacyEnabled: isPrivacyEnabled,
                     avatarColor: BitternTheme.holdingAllocationColor(
                         for: holding,
@@ -66,7 +66,7 @@ struct HoldingDetailView: View {
                     series: model.visibleSeries?.points ?? [],
                     timeDomain: model.visibleSeries?.timeDomain,
                     previousClose: holding.previousClose,
-                    oneDayBaselinePrice: model.visibleSeries?.baselinePrice,
+                    seriesBaselinePrice: model.visibleSeries?.baselinePrice,
                     currencyCode: holding.currencyCode,
                     isPrivacyEnabled: isPrivacyEnabled,
                     ranges: model.availableRanges,

@@ -206,9 +206,47 @@ struct PerformanceChartTimeAxisTests {
             calendar: shanghai
         )
 
-        #expect(listedInJune == [.oneDay, .fiveDays, .threeMonths, .max])
+        // Listed this year, so YTD would only repeat MAX.
+        #expect(listedInJune == [.oneDay, .fiveDays, .oneMonth, .threeMonths, .max])
         #expect(listedLongAgo == HoldingChartRange.allCases)
         #expect(HoldingChartRange.available(firstTradeDate: nil, at: now) == HoldingChartRange.allCases)
+    }
+
+    @Test func yearToDateWaitsUntilTheYearIsAWeekOld() {
+        let shanghai = calendar("Asia/Shanghai")
+        let listedLongAgo = utc(2010, 1, 4, 14, 30)
+        let available = { (now: Date, firstTradeDate: Date?) in
+            HoldingChartRange.available(firstTradeDate: firstTradeDate, at: now, calendar: shanghai)
+                .contains(.yearToDate)
+        }
+
+        // 4 and 9 January 2027, 15:00 in Shanghai.
+        #expect(!available(utc(2027, 1, 4, 7), listedLongAgo))
+        #expect(!available(utc(2027, 1, 4, 7), nil))
+        #expect(available(utc(2027, 1, 9, 7), listedLongAgo))
+        #expect(available(utc(2027, 1, 9, 7), nil))
+    }
+
+    @Test func eachRangeMeasuresItsChangeFromItsOwnStart() {
+        let base = { (range: HoldingChartRange, baseline: Double?) in
+            range.detailChangeBasePrice(previousClose: 99, seriesBaseline: baseline, seriesFirstPrice: 82)
+        }
+
+        #expect(base(.oneDay, 98) == 98)
+        #expect(base(.oneDay, nil) == 99)
+        #expect(base(.yearToDate, 80) == 80)
+        // YTD from any other close would disagree with the published figure.
+        #expect(base(.yearToDate, nil) == nil)
+        #expect(base(.oneMonth, nil) == 82)
+    }
+
+    @Test func yearToDateLabelsDaysInJanuaryAndMonthsAfter() {
+        let january = [utc(2027, 1, 4, 21), utc(2027, 1, 22, 21)]
+        let november = [utc(2026, 1, 2, 21), utc(2026, 11, 6, 21)]
+
+        #expect(HoldingChartRange.yearToDate.axisUnit(for: january) == .days)
+        #expect(HoldingChartRange.yearToDate.axisUnit(for: november) == .months)
+        #expect(HoldingChartRange.oneMonth.axisUnit(for: november) == .days)
     }
 
     // MARK: - Spacing

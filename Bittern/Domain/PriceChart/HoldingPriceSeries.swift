@@ -8,7 +8,9 @@ import Foundation
 enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
     case oneDay = "1D"
     case fiveDays = "5D"
+    case oneMonth = "1M"
     case threeMonths = "3M"
+    case yearToDate = "YTD"
     case oneYear = "1Y"
     case fiveYears = "5Y"
     case max = "MAX"
@@ -17,30 +19,43 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
 
     var title: String { rawValue }
 
+    /// How long into the year YTD waits before it shows: a week holds a few
+    /// closes, so YTD is a chart of its own rather than a sparse 5D.
+    static let yearToDateMinimumAge = DateComponents(day: 7)
+
     /// The ranges a holding has a full stretch of history for. 1D, 5D and
-    /// MAX always show; 3M, 1Y and 5Y only once the holding has traded that
-    /// long, so a chart never claims a span it can't fill. With no first
-    /// trade date every range shows.
+    /// MAX always show; 1M, 3M, 1Y and 5Y only once the holding has traded
+    /// that long, and YTD only when it traded before this year began (or
+    /// YTD would just be MAX) and the year is a week old. With no first
+    /// trade date only the week rule applies.
     static func available(
         firstTradeDate: Date?,
         at now: Date,
         calendar: Calendar = .current
     ) -> [HoldingChartRange] {
-        guard let firstTradeDate else { return allCases }
-
-        return allCases.filter { range in
-            let span: DateComponents
+        allCases.filter { range in
+            let start: Date?
             switch range {
             case .oneDay, .fiveDays, .max:
                 return true
+            case .oneMonth:
+                start = calendar.date(byAdding: .month, value: -1, to: now)
             case .threeMonths:
-                span = DateComponents(month: -3)
+                start = calendar.date(byAdding: .month, value: -3, to: now)
+            case .yearToDate:
+                guard let yearStart = calendar.dateInterval(of: .year, for: now)?.start,
+                      let shownFrom = calendar.date(byAdding: yearToDateMinimumAge, to: yearStart),
+                      shownFrom <= now
+                else {
+                    return false
+                }
+                start = yearStart
             case .oneYear:
-                span = DateComponents(year: -1)
+                start = calendar.date(byAdding: .year, value: -1, to: now)
             case .fiveYears:
-                span = DateComponents(year: -5)
+                start = calendar.date(byAdding: .year, value: -5, to: now)
             }
-            guard let start = calendar.date(byAdding: span, to: now) else { return true }
+            guard let firstTradeDate, let start else { return true }
             return firstTradeDate <= start
         }
     }
@@ -51,8 +66,12 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
             "Today"
         case .fiveDays:
             "Last week"
+        case .oneMonth:
+            "1 month"
         case .threeMonths:
             "3 months"
+        case .yearToDate:
+            "Year to date"
         case .oneYear:
             "1 year"
         case .fiveYears:
@@ -62,11 +81,22 @@ enum HoldingChartRange: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    func detailChangeBasePrice(previousClose: Double?, seriesFirstPrice: Double?) -> Double? {
+    /// The price a range's change is measured from. 1D starts from the
+    /// close before its trading day and YTD from the close before the
+    /// year, both carried by the series; YTD has no fallback, so a missing
+    /// close shows no change rather than one measured from the wrong day.
+    /// Every other range starts from its own first point.
+    func detailChangeBasePrice(
+        previousClose: Double?,
+        seriesBaseline: Double?,
+        seriesFirstPrice: Double?
+    ) -> Double? {
         switch self {
         case .oneDay:
-            return previousClose
-        case .fiveDays, .threeMonths, .oneYear, .fiveYears, .max:
+            return seriesBaseline ?? previousClose
+        case .yearToDate:
+            return seriesBaseline
+        case .fiveDays, .oneMonth, .threeMonths, .oneYear, .fiveYears, .max:
             return seriesFirstPrice
         }
     }
@@ -172,6 +202,8 @@ struct PriceChartTimeDomain: Hashable {
 struct HoldingPriceSeries {
     let points: [HoldingPricePoint]
     let timeDomain: PriceChartTimeDomain?
+    /// The close the change is measured from, where it isn't the first
+    /// point: the previous session's for 1D, last year's final one for YTD.
     let baselinePrice: Double?
     /// When the holding first traded, if the source says.
     var firstTradeDate: Date? = nil
