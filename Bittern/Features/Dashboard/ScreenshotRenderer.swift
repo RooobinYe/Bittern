@@ -22,7 +22,7 @@ import UIKit
 /// 1. **Measure** — `UIHostingController.sizeThatFits` runs a layout-only
 ///    pass to determine the natural height of the content at the given width.
 ///    This is lightweight (no rendering, no window insertion) and correctly
-///    handles `GeometryReader`-based views like the donut chart.
+///    handles `GeometryReader`-based views like the allocation card.
 /// 2. **Render** — `ImageRenderer` draws the view tree into a `UIImage` at
 ///    the measured size and desired scale. This runs entirely off-screen
 ///    without touching `drawHierarchy`, `layer.render(in:)`, or any

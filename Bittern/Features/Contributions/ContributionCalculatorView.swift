@@ -101,15 +101,15 @@ struct ContributionCalculatorView: View {
                     description: Text("Holdings above your minimum value appear here.")
                 )
             } else {
-                // Colored like everywhere else: by every holding, not only
-                // the ones above the minimum value.
-                let colors = BitternTheme.holdingAllocationColors(for: viewModel.snapshot?.holdings ?? session.holdings)
+                // Colored like the Portfolio page's bands when it shows
+                // every account.
+                let colors = BitternTheme.holdingAllocationColors(for: session.holdings)
 
                 ForEach(session.holdings) { holding in
                     ContributionHoldingRow(
                         holding: holding,
                         accountDisplayName: providerName(for: holding),
-                        color: colors[holding.id] ?? BitternTheme.allocationColor(at: 0),
+                        color: colors[holding.id] ?? BitternTheme.unallocatedHoldingColor,
                         isPrivacyEnabled: isPrivacyEnabled,
                         isElectable: ContributionSession.isElectable(holding),
                         isElected: session.isElected(holding),

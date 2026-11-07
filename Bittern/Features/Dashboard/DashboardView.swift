@@ -108,11 +108,7 @@ struct DashboardView: View {
 
     /// What the dashboard shows now, frozen for rendering into an image.
     private func shareSnapshot(includingSmallHoldings: Bool = false) -> DashboardShareSnapshot? {
-        guard let snapshot = viewModel.snapshot,
-              let visible = viewModel.visibleSnapshot
-        else {
-            return nil
-        }
+        guard let visible = viewModel.visibleSnapshot else { return nil }
         let portfolio = includingSmallHoldings
             ? visible
             : visible.filtered(minimumMarketValue: viewModel.minPriceThreshold)
@@ -120,7 +116,6 @@ struct DashboardView: View {
         return DashboardShareSnapshot(
             title: viewModel.selectedProviderName ?? "Portfolio",
             portfolio: portfolio,
-            allocationHoldings: snapshot.holdings,
             sortedHoldings: viewModel.sortOption.sorted(portfolio.holdings, by: viewModel.performanceMode),
             performanceMode: viewModel.performanceMode,
             sortOption: viewModel.sortOption,

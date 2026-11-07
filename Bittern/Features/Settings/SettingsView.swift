@@ -18,6 +18,9 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.portfolioRepository) private var repository
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
+    #if DEBUG
+    @AppStorage(AppSettingKey.debugLensGlassEnabled) private var isLensGlassEnabled = true
+    #endif
 
     init(credentialsStore: CredentialsStore, viewModel: DashboardViewModel) {
         self.credentialsStore = credentialsStore
@@ -32,6 +35,10 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                #if DEBUG
+                designPreviewSection
+                #endif
+
                 apiKeySection
                 connectSection
 
@@ -77,6 +84,21 @@ struct SettingsView: View {
     }
 
     // MARK: - Sections
+
+    #if DEBUG
+    /// Turns the Portfolio page's lens glass off, to tell whether it is what
+    /// glows brighter than white. Goes once that is known.
+    private var designPreviewSection: some View {
+        Section {
+            Toggle("Lens Liquid Glass", isOn: $isLensGlassEnabled)
+        } header: {
+            Text("Design Preview")
+        } footer: {
+            Text("Off leaves only the lens's rim and shadow. Debug builds only.")
+        }
+    }
+    #endif
+
 
     private var apiKeySection: some View {
         Section {
@@ -147,7 +169,7 @@ struct SettingsView: View {
             holdings: viewModel.thresholdFilteredHoldings
         )
         let holdingColorLookup = BitternTheme.holdingAllocationColors(
-            for: viewModel.snapshot?.holdings ?? []
+            for: viewModel.thresholdFilteredHoldings
         )
 
         if providerGroups.isEmpty {
