@@ -9,18 +9,12 @@
 import Foundation
 
 enum LivePriceRefresh {
-    /// How often the prices of holdings in an active session are fetched
-    /// while the app is in the foreground. Every tick asks Yahoo's chart
-    /// endpoint once per symbol in session, twice in pre- and post-market.
-    ///
-    /// Measured on 2026-11-08 from one address: 10 symbols every second
-    /// (about 10 requests a second) for 4 minutes, and about 9,800 requests
-    /// over 35 minutes, drew no throttling. 2 seconds keeps a portfolio of a
-    /// dozen holdings in extended hours, at two requests each, near that
-    /// tested rate. Yahoo's CDN caches each quote for 10 seconds, so a price
-    /// changes about that often however short the interval; a shorter one
-    /// only shows the change sooner.
-    static let interval: Duration = .seconds(2)
+    /// How often the prices of holdings in an active session are read
+    /// while the app is in the foreground. TradingView pushes every trade to
+    /// an open quote session as it happens, so a tick reads prices already
+    /// on the device and costs no request; the interval only sets how soon
+    /// a change shows.
+    static let interval: Duration = .seconds(1)
 
     /// When no holding is in session: how long to wait before checking
     /// prices and sessions again, unless a known session opens sooner.

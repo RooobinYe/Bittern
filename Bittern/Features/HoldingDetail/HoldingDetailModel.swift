@@ -114,7 +114,7 @@ final class HoldingDetailModel {
             if range == selectedRange {
                 selectedPoint = nil
             }
-            var series = LiveChartTail.barInProgressLast(loaded, barLength: range.barLength)
+            var series = loaded
             if let observation = holding.liveObservation(for: range, at: now),
                case .updated(let following) = LiveChartTail.applying(
                    observation,

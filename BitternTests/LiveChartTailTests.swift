@@ -97,42 +97,6 @@ struct LiveChartTailTests {
         #expect(LiveChartTail.applying(observation(310, 101), to: series, barLength: .seconds(300)) == .unchanged)
     }
 
-    @Test func yahoosTrailingTradeBecomesTheCloseOfItsBar() throws {
-        // 18:00 starts the bar; 18:01:53 is the latest trade inside it.
-        let loaded = HoldingPriceSeries(
-            points: [point(0, 100), point(300, 101), point(413, 102)],
-            timeDomain: nil
-        )
-
-        var series = LiveChartTail.barInProgressLast(loaded, barLength: .seconds(300))
-        #expect(series.points == [point(0, 100), point(300, 102)])
-
-        // The next bar starts on Yahoo's boundary, not five minutes after
-        // the trade.
-        series = try #require(updated(
-            LiveChartTail.applying(observation(605, 103), to: series, barLength: .seconds(300))
-        ))
-        #expect(series.points.last == point(600, 103))
-    }
-
-    @Test func aSeriesThatEndsOnABarIsLeftAlone() {
-        let loaded = HoldingPriceSeries(points: [point(0, 100), point(300, 101)], timeDomain: nil)
-
-        #expect(LiveChartTail.barInProgressLast(loaded, barLength: .seconds(300)) == loaded)
-    }
-
-    @Test func theContinuationEndsWhereItsBarStarts() {
-        let loaded = HoldingPriceSeries(
-            points: [point(0, 100), point(300, 101, .postMarket), point(413, 102, .postMarket)],
-            timeDomain: PriceChartTimeDomain(segments: [PriceChartTimeSegment(start: at(0), end: at(413))])
-        )
-
-        let series = LiveChartTail.barInProgressLast(loaded, barLength: .seconds(300))
-
-        #expect(series.points.last == point(300, 102, .postMarket))
-        #expect(series.timeDomain?.end == at(300))
-    }
-
     // MARK: - 1D on a time axis
 
     @Test func aSessionInProgressGrowsInsideItsScheduledBounds() throws {
@@ -390,8 +354,9 @@ struct RefreshFailureTests {
     @Test func timeoutsBusyServersAndThrottlingAreRetried() {
         #expect(RefreshFailure(URLError(.timedOut)) == .transient)
         #expect(RefreshFailure(SnapTradeError.httpStatus(503, "")) == .transient)
-        #expect(RefreshFailure(YahooFinanceError.httpStatus(429, "")) == .transient)
-        #expect(RefreshFailure(YahooFinanceError.noMarketData) == .transient)
+        #expect(RefreshFailure(TradingViewError.timedOut("quotes")) == .transient)
+        #expect(RefreshFailure(TradingViewError.connectionStalled) == .transient)
+        #expect(RefreshFailure(TradingViewError.noMarketData) == .transient)
     }
 
     @Test func refusedCredentialsNeedTheUser() {

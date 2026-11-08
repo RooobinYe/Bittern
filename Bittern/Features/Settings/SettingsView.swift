@@ -2,8 +2,9 @@
 //  SettingsView.swift
 //  Bittern
 //
-//  The minimum market value, the SnapTrade connection, its saved
-//  credentials and the accounts it brings in, as one form in a sheet.
+//  The minimum market value, the market data server, the SnapTrade
+//  connection, its saved credentials and the accounts it brings in, as one
+//  form in a sheet.
 //
 
 import SwiftUI
@@ -33,6 +34,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 MinimumMarketValueSection(viewModel: viewModel)
+                MarketDataServerSection()
 
                 apiKeySection
                 connectSection

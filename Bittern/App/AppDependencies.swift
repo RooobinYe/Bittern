@@ -38,7 +38,7 @@ struct AppDependencies {
                 makeSnapTradeClient: { credentials in
                     SnapTradeClient(credentials: credentials, session: session, currentDate: currentDate)
                 },
-                yahoo: YahooFinanceClient(session: session, currentDate: currentDate),
+                marketData: TradingViewClient(session: session, currentDate: currentDate),
                 brandfetch: brandfetch,
                 currentDate: currentDate
             ),

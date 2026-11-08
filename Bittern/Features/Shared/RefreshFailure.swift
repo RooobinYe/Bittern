@@ -72,8 +72,8 @@ enum RefreshFailure: Equatable {
             self = Self.classify(urlError)
         case let snapTradeError as SnapTradeError:
             self = Self.classify(snapTradeError)
-        case let yahooError as YahooFinanceError:
-            self = Self.classify(yahooError)
+        case let marketDataError as TradingViewError:
+            self = Self.classify(marketDataError)
         default:
             self = .permanent
         }
@@ -108,15 +108,15 @@ enum RefreshFailure: Equatable {
         return isTransient(status: status) ? .transient : .permanent
     }
 
-    private static func classify(_ error: YahooFinanceError) -> RefreshFailure {
+    private static func classify(_ error: TradingViewError) -> RefreshFailure {
         switch error {
-        case .httpStatus(let status, _):
-            isTransient(status: status) ? .transient : .permanent
-        // Every quote failed: each is swallowed per symbol, and they fail
-        // together when the network or the server does.
-        case .noMarketData, .emptyResult, .providerError, .decodingFailed, .invalidResponse:
+        // A dropped or silent socket, or every quote failing at once: the
+        // network or TradingView is having a moment.
+        case .connectionClosed, .connectionStalled, .timedOut, .noMarketData,
+             .providerError, .malformedFrame:
             .transient
-        case .invalidURL, .emptySymbols, .notEnoughPoints, .invalidChartMetadata, .currencyMismatch:
+        case .emptySymbols, .invalidSymbol, .notEnoughPoints, .invalidChartData,
+             .currencyMismatch:
             .permanent
         }
     }

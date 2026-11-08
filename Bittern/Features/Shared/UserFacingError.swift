@@ -19,7 +19,7 @@ enum UserFacingError {
         }
 
         guard !(error is SnapTradeError),
-              !(error is YahooFinanceError),
+              !(error is TradingViewError),
               !(error is DecodingError),
               !(error is EncodingError)
         else {
