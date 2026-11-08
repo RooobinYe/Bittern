@@ -28,10 +28,14 @@ struct YahooFinanceClient {
     /// One chart request for one ticker: builds the URL, sends it, decodes the
     /// response and turns Yahoo's in-band error or a missing result into a
     /// thrown error. Every endpoint the app uses goes through here.
+    /// - Parameter cachePolicy: Yahoo marks chart responses cacheable for
+    ///   10 seconds. Quotes skip the local copy, or a live refresh more
+    ///   often than that would read the same response again.
     func chart(
         for symbol: String,
         query: [URLQueryItem],
         timeout: TimeInterval? = nil,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         operation: String
     ) async throws -> YahooChartResultDTO {
         var components = URLComponents(
@@ -44,7 +48,7 @@ struct YahooFinanceClient {
             throw YahooFinanceError.invalidURL
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: cachePolicy)
         if let timeout {
             request.timeoutInterval = timeout
         }

@@ -35,9 +35,32 @@ struct HoldingExtendedHoursChange: Hashable, Codable, Sendable {
     let observedAt: Date?
     let sessionStart: Date
     let sessionEnd: Date
+    /// The quote itself, which the 1D chart's continuation follows. Nil in
+    /// data cached before it was kept.
+    var price: Double? = nil
 
     func isActive(at date: Date) -> Bool {
         sessionStart <= date && date < sessionEnd
+    }
+}
+
+/// The trading day an exchange published with a holding's quote: from the
+/// start of pre-market to the end of post-market, with the regular session
+/// inside. Assets without extended hours have all three on the regular
+/// session's bounds.
+struct HoldingMarketSession: Hashable, Codable, Sendable {
+    let start: Date
+    let regularStart: Date
+    let regularEnd: Date
+    let end: Date
+
+    /// Pre-market, regular session or post-market is under way.
+    func isActive(at date: Date) -> Bool {
+        start <= date && date < end
+    }
+
+    func isRegular(at date: Date) -> Bool {
+        regularStart <= date && date < regularEnd
     }
 }
 
@@ -58,6 +81,11 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     let postMarketChange: HoldingExtendedHoursChange?
     let currencyCode: String
     let dividendsReceived: Double?
+    /// The exchange's trading day around the last quote. Nil until a quote
+    /// brought one, as in data cached before it was kept.
+    var marketSession: HoldingMarketSession? = nil
+    /// When `currentPrice` traded, as the quote reports it.
+    var regularPriceTime: Date? = nil
 
     var quantityUnit: HoldingQuantityUnit {
         instrumentKind == .crypto ? .tokens : .shares
@@ -79,6 +107,13 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
             return nil
         }
         return postMarketChange
+    }
+
+    /// Whether the price can move now: crypto always trades; anything else
+    /// only from the start of pre-market to the end of post-market. Without
+    /// a known trading day it is treated as closed until a quote says more.
+    func isInActiveSession(at date: Date) -> Bool {
+        instrumentKind == .crypto || marketSession?.isActive(at: date) == true
     }
 
     var marketValue: Double? {
@@ -151,7 +186,9 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         currentPrice: Double?,
         previousClose: Double?,
         preMarketChange: HoldingExtendedHoursChange?,
-        postMarketChange: HoldingExtendedHoursChange?
+        postMarketChange: HoldingExtendedHoursChange?,
+        marketSession: HoldingMarketSession?,
+        regularPriceTime: Date?
     ) -> PortfolioHolding {
         PortfolioHolding(
             id: id,
@@ -169,7 +206,22 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
             preMarketChange: preMarketChange,
             postMarketChange: postMarketChange,
             currencyCode: currencyCode,
-            dividendsReceived: dividendsReceived
+            dividendsReceived: dividendsReceived,
+            marketSession: marketSession,
+            regularPriceTime: regularPriceTime
+        )
+    }
+
+    /// The same position with the price fields of `priced`, a fresher copy
+    /// of it.
+    func repriced(from priced: PortfolioHolding) -> PortfolioHolding {
+        repriced(
+            currentPrice: priced.currentPrice,
+            previousClose: priced.previousClose,
+            preMarketChange: priced.preMarketChange,
+            postMarketChange: priced.postMarketChange,
+            marketSession: priced.marketSession,
+            regularPriceTime: priced.regularPriceTime
         )
     }
 }

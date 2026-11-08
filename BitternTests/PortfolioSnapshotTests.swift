@@ -176,3 +176,69 @@ struct PortfolioSnapshotPersistenceTests {
         #expect(partial.unpricedSymbols == ["AAPL"])
     }
 }
+
+@Suite
+struct LivePricingTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func session(opensIn seconds: TimeInterval) -> HoldingMarketSession {
+        HoldingMarketSession(
+            start: now.addingTimeInterval(seconds),
+            regularStart: now.addingTimeInterval(seconds + 19_800),
+            regularEnd: now.addingTimeInterval(seconds + 43_200),
+            end: now.addingTimeInterval(seconds + 57_600)
+        )
+    }
+
+    @Test func cryptoAlwaysTradesAndStocksOnlyWithinTheirTradingDay() {
+        let snapshot = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [
+                makeHolding(symbol: "BTC", instrumentKind: .crypto),
+                makeHolding(symbol: "OPEN", marketSession: session(opensIn: -60)),
+                makeHolding(symbol: "LATER", marketSession: session(opensIn: 600)),
+                makeHolding(symbol: "UNKNOWN")
+            ]
+        )
+
+        #expect(snapshot.activeHoldings(at: now).map(\.symbol) == ["BTC", "OPEN"])
+        #expect(snapshot.nextSessionStart(after: now) == now.addingTimeInterval(600))
+    }
+
+    @Test func partOfThePortfolioTakesNewPricesAndTheRestKeepsTheirs() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let snapshot = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [makeHolding(symbol: "BTC", instrumentKind: .crypto), makeHolding(symbol: "AAPL")],
+            lastUpdated: earlier
+        )
+        let btc = snapshot.holdings[0].repriced(
+            currentPrice: 120,
+            previousClose: 105,
+            preMarketChange: nil,
+            postMarketChange: nil,
+            marketSession: nil,
+            regularPriceTime: now
+        )
+
+        let merged = snapshot.merging(prices: [btc], pricedAt: now)
+
+        #expect(merged.holdings.map(\.currentPrice) == [120, 110])
+        #expect(merged.holdings.map(\.symbol) == ["BTC", "AAPL"])
+        #expect(merged.totalMarketValue == 2_300)
+        #expect(merged.lastUpdated == now)
+
+        // A missing price makes it incomplete: it keeps the last complete time.
+        let unpriced = btc.repriced(
+            currentPrice: nil,
+            previousClose: nil,
+            preMarketChange: nil,
+            postMarketChange: nil,
+            marketSession: nil,
+            regularPriceTime: nil
+        )
+        let incomplete = snapshot.merging(prices: [unpriced], pricedAt: nil)
+        #expect(incomplete.lastUpdated == earlier)
+        #expect(incomplete.totalMarketValue == nil)
+    }
+}
