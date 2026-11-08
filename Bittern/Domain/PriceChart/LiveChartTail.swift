@@ -61,7 +61,8 @@ enum ChartBarLength: Equatable {
 }
 
 extension HoldingChartRange {
-    /// The bar each point of the range stands for, as Yahoo aggregates it.
+    /// The bar each point of the range stands for, as the provider
+    /// aggregates it.
     var barLength: ChartBarLength {
         switch self {
         case .oneDay:
@@ -90,47 +91,6 @@ enum LiveChartTail {
         /// as a session that began after it loaded. Only a fresh load can
         /// place it.
         case needsReload
-    }
-
-    /// `series` with its last point as the bar in progress. Yahoo ends a
-    /// series with the latest trade at its own time, after the point that
-    /// starts its bar (18:00, then 18:01:53 for a 5-minute bar). That trade
-    /// is the bar's close so far, so it becomes the close of the point at the
-    /// bar's start, and new bars then start on Yahoo's own boundaries. A
-    /// segment of the time axis that ended at the trade ends at the bar's
-    /// start instead.
-    static func barInProgressLast(
-        _ series: HoldingPriceSeries,
-        barLength: ChartBarLength
-    ) -> HoldingPriceSeries {
-        let points = series.points
-        guard points.count >= 2 else { return series }
-        let live = points[points.count - 1]
-        let barStart = points[points.count - 2]
-        guard live.session == barStart.session,
-              live.date > barStart.date,
-              live.date < barLength.end(ofBarStartingAt: barStart.date)
-        else {
-            return series
-        }
-
-        var merged = Array(points.dropLast())
-        merged[merged.count - 1] = HoldingPricePoint(
-            date: barStart.date,
-            price: live.price,
-            session: barStart.session
-        )
-        var timeDomain = series.timeDomain
-        if let domain = timeDomain, let lastSegment = domain.segments.last, lastSegment.end == live.date {
-            var segments = domain.segments
-            segments[segments.count - 1] = PriceChartTimeSegment(
-                start: lastSegment.start,
-                end: barStart.date,
-                spacingBefore: lastSegment.spacingBefore
-            )
-            timeDomain = PriceChartTimeDomain(segments: segments)
-        }
-        return series.replacingPoints(merged, timeDomain: timeDomain)
     }
 
     /// `series` with its last bar following `observation`: the last point
@@ -215,9 +175,9 @@ extension PortfolioHolding {
     /// The price a chart of `range` follows now. 1D follows an active pre- or
     /// post-market trade on its Extended-Hours Continuation; every other
     /// range, and 1D otherwise, follows the regular price. A regular trade
-    /// at or after the close belongs to the session's last bar, as Yahoo
-    /// aggregates it, except on 1D, whose completed session ends on a point
-    /// at the close.
+    /// at or after the close belongs to the session's last bar, as the
+    /// provider aggregates it, except on 1D, whose completed session ends on
+    /// a point at the close.
     func liveObservation(for range: HoldingChartRange, at now: Date) -> LivePriceObservation? {
         if range == .oneDay {
             for (change, session) in [

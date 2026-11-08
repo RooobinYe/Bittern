@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Bittern
 
-/// The 1D layout on its own, with no provider in between. The Yahoo fixture
-/// tests cover the same rules end to end.
+/// The 1D layout on its own, with no provider in between. The TradingView
+/// price history tests cover the same rules end to end.
 @Suite
 struct OneDaySeriesTests {
     private let eastern = TimeZone(secondsFromGMT: -18_000)!

@@ -6,7 +6,8 @@
 import Foundation
 import OSLog
 
-/// The portfolio from SnapTrade, priced by Yahoo, with logos from Brandfetch.
+/// The portfolio from SnapTrade, priced by TradingView, with logos from
+/// Brandfetch.
 /// Every client comes from outside, so tests and the app decide what it talks
 /// to.
 struct LivePortfolioRepository: PortfolioRepository {
@@ -15,18 +16,18 @@ struct LivePortfolioRepository: PortfolioRepository {
     typealias SnapTradeClientFactory = (SnapTradeCredentials) -> SnapTradeClient
 
     let makeSnapTradeClient: SnapTradeClientFactory
-    let yahoo: YahooFinanceClient
+    let marketData: TradingViewClient
     let brandfetch: BrandfetchClient
     let currentDate: @Sendable () -> Date
 
     init(
         makeSnapTradeClient: @escaping SnapTradeClientFactory,
-        yahoo: YahooFinanceClient,
+        marketData: TradingViewClient,
         brandfetch: BrandfetchClient,
         currentDate: @escaping @Sendable () -> Date
     ) {
         self.makeSnapTradeClient = makeSnapTradeClient
-        self.yahoo = yahoo
+        self.marketData = marketData
         self.brandfetch = brandfetch
         self.currentDate = currentDate
     }
@@ -43,14 +44,14 @@ struct LivePortfolioRepository: PortfolioRepository {
         )
 
         let quoteRequests = positions.map {
-            YahooQuoteRequest(symbol: $0.symbol, instrumentKind: $0.instrumentKind)
+            MarketQuoteRequest(symbol: $0.symbol, instrumentKind: $0.instrumentKind)
         }
         AppLog.portfolio.debug(
             "Loading quotes assets=\(quoteRequests.count, privacy: .public)"
         )
         let quoteBatch = quoteRequests.isEmpty
-            ? YahooQuoteBatch.empty
-            : try await yahoo.quotes(for: quoteRequests)
+            ? MarketQuoteBatch.empty
+            : try await marketData.quotes(for: quoteRequests)
         let quotes = quoteBatch.quotes
         AppLog.portfolio.debug("Loaded quotes=\(quotes.count, privacy: .public)")
 
@@ -112,16 +113,16 @@ struct LivePortfolioRepository: PortfolioRepository {
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult {
         let quoteRequests = snapshot.holdings.map {
-            YahooQuoteRequest(symbol: $0.symbol, instrumentKind: $0.instrumentKind)
+            MarketQuoteRequest(symbol: $0.symbol, instrumentKind: $0.instrumentKind)
         }
         let symbols = Array(Set(quoteRequests.map { normalized($0.symbol) })).sorted()
         AppLog.portfolio.debug(
             "Price refresh started holdings=\(snapshot.holdings.count, privacy: .public) uniqueSymbols=\(symbols.count, privacy: .public) symbols=\(symbols.joined(separator: ",")) taskCancelled=\(Task.isCancelled, privacy: .public)"
         )
 
-        let quoteBatch: YahooQuoteBatch
+        let quoteBatch: MarketQuoteBatch
         do {
-            quoteBatch = try await yahoo.quotes(for: quoteRequests)
+            quoteBatch = try await marketData.quotes(for: quoteRequests)
         } catch {
             AppLog.portfolio.warning(
                 "Price refresh quote request failed: \(AppLog.describe(error))"
@@ -172,12 +173,24 @@ struct LivePortfolioRepository: PortfolioRepository {
         for holding: PortfolioHolding,
         range: HoldingChartRange
     ) async throws -> HoldingPriceSeries {
-        try await yahoo.priceHistory(
+        try await marketData.priceHistory(
             for: holding.symbol,
             instrumentKind: holding.instrumentKind,
             currencyCode: holding.currencyCode,
             range: range
         )
+    }
+
+    var marketDataServer: TradingViewServer {
+        marketData.server
+    }
+
+    func checkMarketDataServer(_ server: TradingViewServer) async throws -> TradingViewServerCheck {
+        try await marketData.check(server)
+    }
+
+    func useMarketDataServer(_ server: TradingViewServer) async {
+        await marketData.use(server)
     }
 
     /// A snapshot and its partial failures. Only a snapshot where every
@@ -204,10 +217,10 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     /// The price fields of a holding, or none of them when the quote is absent
-    /// or in another currency. The comparison is exact on purpose: Yahoo quotes
-    /// London shares in pence as "GBp", which isn't "GBP".
+    /// or in another currency. The comparison is exact on purpose: London
+    /// shares can be quoted in pence as "GBp", which isn't "GBP".
     private func pricedValues(
-        quote: YahooQuoteDTO?,
+        quote: MarketQuote?,
         symbol: String,
         currencyCode: String,
         quantity: Double,
@@ -237,7 +250,7 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     private func extendedHoursChange(
-        quote: YahooExtendedHoursQuoteDTO?,
+        quote: ExtendedHoursQuote?,
         quantity: Double
     ) -> HoldingExtendedHoursChange? {
         guard let quote, quantity != 0, quote.regularClose > 0 else { return nil }

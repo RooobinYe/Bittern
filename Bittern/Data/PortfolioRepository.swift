@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// Everything the features need from SnapTrade, Yahoo and Brandfetch. Views
+/// Everything the features need from SnapTrade, TradingView and Brandfetch. Views
 /// and models talk to this instead of creating clients.
 protocol PortfolioRepository {
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult
@@ -18,6 +18,26 @@ protocol PortfolioRepository {
     /// complete credentials.
     func registerUser(apiKey: SnapTradeCredentials) async throws -> SnapTradeCredentials
     func connectionPortalURL(credentials: SnapTradeCredentials, darkMode: Bool) async throws -> URL
+
+    /// The server market data comes through.
+    var marketDataServer: TradingViewServer { get }
+    /// Tests `server` on a connection of its own, leaving the one in use
+    /// alone.
+    func checkMarketDataServer(_ server: TradingViewServer) async throws -> TradingViewServerCheck
+    /// Sends market data through `server` from now on.
+    func useMarketDataServer(_ server: TradingViewServer) async
+}
+
+/// Repositories without live market data, such as previews and the demo,
+/// stay on TradingView and can't test a server.
+extension PortfolioRepository {
+    var marketDataServer: TradingViewServer { .tradingView }
+
+    func checkMarketDataServer(_ server: TradingViewServer) async throws -> TradingViewServerCheck {
+        throw URLError(.notConnectedToInternet)
+    }
+
+    func useMarketDataServer(_ server: TradingViewServer) async {}
 }
 
 struct PortfolioCurrencyMismatch: Equatable, Sendable {
@@ -30,7 +50,7 @@ struct PortfolioCurrencyMismatch: Equatable, Sendable {
 /// its snapshot; only a load with nothing usable throws.
 struct PortfolioLoadPartialFailure: Equatable, Sendable {
     var dividendsFailed = false
-    /// Holdings Yahoo returned no usable price for.
+    /// Holdings the market data provider returned no usable price for.
     var missingQuoteSymbols: [String] = []
     /// Holdings whose price can't be used because it's in another currency.
     var currencyMismatches: [PortfolioCurrencyMismatch] = []

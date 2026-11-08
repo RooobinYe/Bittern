@@ -27,35 +27,22 @@ extension NetworkTests {
             return #"{"instrument":{"kind":"\#(kind)"\#(symbolJSON)},"units":\#(unitsJSON),"cost_basis":\#(costJSON),"currency":\#(currencyJSON)}"#
         }
 
-        private func quote(price: Double = 110, currency: String = "USD") -> Data {
-            Data(
-                #"""
-                {"chart":{"result":[{"meta":{"currency":"\#(currency)","regularMarketPrice":\#(price),"chartPreviousClose":105,"hasPrePostMarketData":false}}],"error":null}}
-                """#.utf8
-            )
+        private func quote(price: Double = 110, currency: String = "USD") -> [String: JSONValue] {
+            FakeMarket.stockQuote(price: price, previousClose: 105, currency: currency)
         }
 
         /// One account at one broker, holding `positions`. `quotes` maps a
-        /// symbol to its Yahoo response; a missing symbol gets a 404. With
-        /// `failsExtendedHours`, every extended-hours request gets a 500.
+        /// TradingView symbol to its quote fields; TradingView rejects any
+        /// other symbol.
         private func repository(
             positions: [String],
-            quotes: [String: Data],
+            quotes: [String: [String: JSONValue]],
             activities: String = #"{"data":[],"pagination":{"total":0}}"#,
-            failsExtendedHours: Bool = false,
             at date: Date? = nil
         ) -> LivePortfolioRepository {
             let positionsJSON = #"{"results":[\#(positions.joined(separator: ","))],"data_freshness":{"as_of":"2026-11-06T15:00:00Z"}}"#
             let session = StubURLProtocol.session { request in
                 let path = request.url?.path ?? ""
-                if failsExtendedHours, request.queryValue("interval") == "1m" {
-                    return (500, Data())
-                }
-                if path.hasPrefix("/v8/finance/chart/") {
-                    let symbol = String(path.dropFirst("/v8/finance/chart/".count))
-                    guard let data = quotes[symbol] else { return (404, Data()) }
-                    return (200, data)
-                }
                 switch path {
                 case "/api/v1/authorizations":
                     return (200, Data(#"[{"id":"c1","brokerage":{"display_name":"Broker"}}]"#.utf8))
@@ -70,7 +57,11 @@ extension NetworkTests {
                 }
             }
             let date = date ?? now
-            return makeLiveRepository(session: session, currentDate: { date })
+            return makeLiveRepository(
+                session: session,
+                marketData: FakeTradingViewServer(quotes: quotes),
+                currentDate: { date }
+            )
         }
 
         @Test func buildsHoldingsFromThePublishedShapes() async throws {
@@ -127,8 +118,8 @@ extension NetworkTests {
             #expect(result.snapshot.totalMarketValue == 1_100)
         }
 
-        /// Yahoo quotes London shares in pence. Treating 7,250 pence as £7,250
-        /// would overstate the holding a hundredfold.
+        /// London shares can be quoted in pence. Treating 7,250 pence as
+        /// £7,250 would overstate the holding a hundredfold.
         @Test func quoteInAnotherCurrencyIsNotUsed() async throws {
             let repository = repository(
                 positions: [position(symbol: "VOD", currency: "GBP")],
@@ -199,10 +190,11 @@ extension NetworkTests {
         /// Losing the extended-hours quote is a partial failure, reported in
         /// the result next to the regular prices it leaves intact.
         @Test func extendedHoursFailureIsReportedWithRegularPrices() async throws {
+            var fields = quote(price: 108.5)
+            fields["subsessions"] = .null
             let repository = repository(
                 positions: [position()],
-                quotes: ["AAPL": try Fixture.data("yahoo-quote-extended-hours")],
-                failsExtendedHours: true,
+                quotes: ["AAPL": fields],
                 at: marketTime(day: 6, hour: 17, minute: 30)
             )
 
@@ -228,24 +220,6 @@ extension NetworkTests {
             #expect(result.snapshot.totalMarketValue == nil)
             // Mixed isn't a failed price, so the update time still advances.
             #expect(result.snapshot.lastUpdated == now)
-        }
-    }
-
-    @Suite struct YahooConcurrencyTests {
-        @Test func limitsConcurrentQuoteRequests() async throws {
-            let body = Data(
-                #"{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":1,"hasPrePostMarketData":false}}],"error":null}}"#.utf8
-            )
-            let session = StubURLProtocol.session(responseDelay: 0.02) { _ in (200, body) }
-            let requests = (0..<30).map {
-                YahooQuoteRequest(symbol: "S\($0)", instrumentKind: .stock)
-            }
-
-            let batch = try await YahooFinanceClient(session: session).quotes(for: requests)
-
-            #expect(batch.quotes.count == 30)
-            #expect(StubURLProtocol.peakInFlight <= YahooFinanceClient.maximumConcurrentRequests)
-            #expect(StubURLProtocol.peakInFlight > 1)
         }
     }
 }
