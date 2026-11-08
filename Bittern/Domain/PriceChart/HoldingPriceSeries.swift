@@ -199,7 +199,7 @@ struct PriceChartTimeDomain: Hashable {
     }
 }
 
-struct HoldingPriceSeries {
+struct HoldingPriceSeries: Equatable {
     let points: [HoldingPricePoint]
     let timeDomain: PriceChartTimeDomain?
     /// The close the change is measured from, where it isn't the first

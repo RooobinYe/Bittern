@@ -14,6 +14,26 @@ nonisolated enum PerformanceChartLineStyle: Equatable {
     case neutral
 }
 
+/// The dot at the latest point while nothing is selected.
+nonisolated enum PerformanceChartEndMarker: Equatable {
+    /// A filled dot.
+    case plain
+    /// A filled dot with a ring spreading from it: the price is moving
+    /// now. Plain under Reduce Motion.
+    case live
+    /// A hollow gray dot: the line isn't current.
+    case stale
+}
+
+/// What the chart area shows while it has no line to draw.
+enum PerformanceChartPlaceholder {
+    case none
+    /// One block over the plot and both axes, for a range on its way.
+    case loading
+    /// A range that couldn't load for want of a network.
+    case unavailableOffline
+}
+
 enum PerformanceChartXScale<Point> {
     case unavailable
     case indexed
@@ -57,11 +77,20 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     let isLoading: Bool
     /// Behind the chart, so the cursor's dot can be ringed in it.
     var background: Color = BitternTheme.background
+    /// The values the value axis covers, when it should hold still: it
+    /// then widens only when a value leaves it. Nil fits the points.
+    var valueBounds: ClosedRange<Double>? = nil
+    var endMarker = PerformanceChartEndMarker.plain
+    /// A gray line, for data that isn't current.
+    var isStale = false
+    /// What shows in place of the line. `.none` keeps the spinner while
+    /// `isLoading`.
+    var placeholder = PerformanceChartPlaceholder.none
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 280
 
     private var lineColor: Color {
-        guard let baseValue, let primaryLineValue else {
+        guard !isStale, let baseValue, let primaryLineValue else {
             return BitternTheme.neutralLine
         }
 
@@ -71,27 +100,15 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     var body: some View {
         VStack(spacing: 16) {
             Group {
-                if isLoading {
-                    ProgressView()
-                } else if points.count < 2 || !xScale.isValid {
-                    ContentUnavailableView("No Chart Data", systemImage: "chart.xyaxis.line")
-                } else {
-                    PerformanceLineChart(
-                        points: points,
-                        value: value,
-                        xScale: xScale,
-                        date: date,
-                        axisUnit: axisUnit,
-                        selectionLabel: selectionLabel,
-                        valueLabel: valueLabel,
-                        wholeValueLabel: wholeValueLabel,
-                        baseValue: baseValue,
-                        baselineLabel: baselineLabel,
-                        lineColor: lineColor,
-                        lineStyle: lineStyle,
-                        background: background,
-                        selectedPoint: $selectedPoint
-                    )
+                switch placeholder {
+                case .loading:
+                    SkeletonBlock(cornerRadius: 16)
+                        .accessibilityElement()
+                        .accessibilityLabel("Loading chart")
+                case .unavailableOffline:
+                    OfflineChartPlaceholder()
+                case .none:
+                    chartOrState
                 }
             }
             .frame(height: min(chartHeight, 420))
@@ -110,6 +127,57 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
             // Up to eight ranges share one row, scrolling past that.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
+    }
+
+    @ViewBuilder
+    private var chartOrState: some View {
+        if isLoading {
+            ProgressView()
+        } else if points.count < 2 || !xScale.isValid {
+            ContentUnavailableView("No Chart Data", systemImage: "chart.xyaxis.line")
+        } else {
+            PerformanceLineChart(
+                points: points,
+                value: value,
+                xScale: xScale,
+                date: date,
+                axisUnit: axisUnit,
+                selectionLabel: selectionLabel,
+                valueLabel: valueLabel,
+                wholeValueLabel: wholeValueLabel,
+                baseValue: baseValue,
+                baselineLabel: baselineLabel,
+                lineColor: lineColor,
+                lineStyle: lineStyle,
+                background: background,
+                valueBounds: valueBounds,
+                endMarker: endMarker,
+                selectedPoint: $selectedPoint
+            )
+        }
+    }
+}
+
+/// A range that has never loaded and can't while there is no network.
+private struct OfflineChartPlaceholder: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "wifi.slash")
+                .font(.title2)
+                .foregroundStyle(BitternTheme.secondaryInk)
+                .accessibilityHidden(true)
+            Text("Chart unavailable offline")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(BitternTheme.ink)
+            Text("It loads when you’re back online.")
+                .font(.footnote)
+                .foregroundStyle(BitternTheme.secondaryInk)
+        }
+        .multilineTextAlignment(.center)
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(BitternTheme.skeleton, in: .rect(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -247,6 +315,8 @@ private struct PerformanceLineChart<Point: Hashable>: View {
     let lineColor: Color
     let lineStyle: (Point) -> PerformanceChartLineStyle
     let background: Color
+    let valueBounds: ClosedRange<Double>?
+    let endMarker: PerformanceChartEndMarker
     @Binding var selectedPoint: Point?
 
     @State private var rawSelection: Double?
@@ -255,7 +325,8 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         let geometry = PerformanceChartGeometry(
             values: points.map(value),
             positions: points.indices.map(position(at:)),
-            baseValue: baseValue
+            baseValue: baseValue,
+            valueBounds: valueBounds
         )
         let selectedIndex = selectedPoint.flatMap { points.firstIndex(of: $0) }
         let runs = PerformanceChartRuns.runs(
@@ -398,13 +469,28 @@ private struct PerformanceLineChart<Point: Hashable>: View {
                 )
             }
 
-            Circle()
-                .fill(color)
-                .frame(width: 9, height: 9)
-                .overlay {
-                    Circle().stroke(background, lineWidth: 2.5)
+            let marker = selectedIndex == nil ? endMarker : .plain
+            ZStack {
+                if marker == .live {
+                    PulsingRing(color: color)
                 }
-                .position(point)
+                if marker == .stale {
+                    Circle()
+                        .fill(background)
+                        .frame(width: 9, height: 9)
+                        .overlay {
+                            Circle().stroke(BitternTheme.neutralLine, lineWidth: 2)
+                        }
+                } else {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 9, height: 9)
+                        .overlay {
+                            Circle().stroke(background, lineWidth: 2.5)
+                        }
+                }
+            }
+            .position(point)
         }
     }
 
@@ -485,6 +571,36 @@ private struct PerformanceLineChart<Point: Hashable>: View {
     }
 }
 
+/// A ring spreading from the latest point and fading, every 1.6 seconds,
+/// while its price moves. Drawn from the clock rather than animated, so the
+/// dot it surrounds moves to a new price without an animation. Nothing
+/// under Reduce Motion.
+private struct PulsingRing: View {
+    let color: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let period: TimeInterval = 1.6
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                let phase = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: Self.period) / Self.period
+                // Eased out, as the ring slows while it spreads.
+                let progress = 1 - pow(1 - phase, 3)
+                Circle()
+                    .fill(color)
+                    .frame(width: 9, height: 9)
+                    .scaleEffect(1 + 1.8 * progress)
+                    .opacity(0.55 * (1 - progress))
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 /// The baseline's value on the value axis, set apart from the axis's own
 /// values. The capsule reaches out past the label column by its padding,
 /// so its text lines up with the values above and below it.
@@ -528,22 +644,47 @@ nonisolated struct PerformanceChartGeometry {
     let xDomain: ClosedRange<Double>
     let yDomain: ClosedRange<Double>
 
-    init(values: [Double], positions: [Double?], baseValue: Double?) {
+    /// - Parameter valueBounds: The values the value axis must cover, when
+    ///   it should hold still rather than fit `values`.
+    init(
+        values: [Double],
+        positions: [Double?],
+        baseValue: Double?,
+        valueBounds: ClosedRange<Double>? = nil
+    ) {
         self.values = values
         self.positions = positions
 
         let plotted = positions.compactMap { $0 }
         xDomain = (plotted.min() ?? 0)...max(plotted.max() ?? 1, (plotted.min() ?? 0) + 1)
 
-        var range = values
+        var range = valueBounds.map { [$0.lowerBound, $0.upperBound] } ?? values
         if let baseValue {
             range.append(baseValue)
         }
-        let low = range.min() ?? 0
-        let high = range.max() ?? 1
+        yDomain = Self.valueDomain(low: range.min() ?? 0, high: range.max() ?? 1)
+    }
+
+    /// The value axis for values from `low` to `high`, with headroom above
+    /// the line for the cursor's capsule.
+    static func valueDomain(low: Double, high: Double) -> ClosedRange<Double> {
         let span = high > low ? high - low : max(abs(high) * 0.01, 0.01)
-        // Headroom above the line for the cursor's capsule.
-        yDomain = max(0, low - span * 0.08)...(high + span * 0.2)
+        return max(0, low - span * 0.08)...(high + span * 0.2)
+    }
+
+    /// `bounds` once `value` is plotted against them: the same while the
+    /// value axis they give already covers it, so the axis holds still,
+    /// and widened to take it only when it leaves the axis.
+    static func valueBounds(
+        _ bounds: ClosedRange<Double>,
+        including value: Double
+    ) -> ClosedRange<Double> {
+        guard value.isFinite,
+              !valueDomain(low: bounds.lowerBound, high: bounds.upperBound).contains(value)
+        else {
+            return bounds
+        }
+        return min(bounds.lowerBound, value)...max(bounds.upperBound, value)
     }
 
     var lastPlottedIndex: Int? {
