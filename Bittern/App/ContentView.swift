@@ -16,7 +16,6 @@ struct ContentView: View {
 
     @State private var credentialsStore: CredentialsStore
     @State private var viewModel: DashboardViewModel
-    @State private var wasInBackground = false
     @State private var selectedTab = AppTab.portfolio
     @State private var isShowingSettings = false
     private let repository: any PortfolioRepository
@@ -30,7 +29,9 @@ struct ContentView: View {
                 credentialsStore: dependencies.credentialsStore,
                 repository: dependencies.repository,
                 loadCachedSnapshot: dependencies.loadCachedSnapshot,
-                saveCachedSnapshot: dependencies.saveCachedSnapshot
+                saveCachedSnapshot: dependencies.saveCachedSnapshot,
+                deleteCachedSnapshot: dependencies.deleteCachedSnapshot,
+                networkMonitor: dependencies.networkMonitor
             ),
             repository: dependencies.repository,
             logoSource: dependencies.logoSource
@@ -85,12 +86,9 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:
-                wasInBackground = true
-            case .active where wasInBackground:
-                wasInBackground = false
-                Task {
-                    await viewModel.refresh()
-                }
+                viewModel.sceneDidEnterBackground()
+            case .active:
+                viewModel.sceneDidBecomeActive()
             default:
                 break
             }

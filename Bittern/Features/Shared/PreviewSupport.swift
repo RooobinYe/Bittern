@@ -40,7 +40,9 @@ enum PreviewSupport {
             defaults: UserDefaults(suiteName: "BitternPreview") ?? .standard,
             initialSnapshot: snapshot,
             loadCachedSnapshot: { nil },
-            saveCachedSnapshot: { _ in }
+            saveCachedSnapshot: { _ in },
+            deleteCachedSnapshot: {},
+            networkMonitor: FixedNetworkMonitor(isOnline: true)
         )
     }
 }
@@ -54,19 +56,58 @@ private final class PreviewCredentialsStorage: CredentialsStorage {
 }
 
 /// The demo portfolio with made-up price and balance history. Refreshing
-/// leaves the data as it is; connecting a brokerage is offline.
+/// leaves the data as it is; connecting a brokerage is offline. The
+/// scenario decides which of the dashboard's states it brings about.
 struct DemoPortfolioRepository: PortfolioRepository {
+    var scenario = DemoScenario.live
     private let offline = UnavailablePortfolioRepository()
 
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult {
-        PortfolioLoadResult(snapshot: DemoPortfolio.snapshot, partialFailure: PortfolioLoadPartialFailure())
+        switch scenario {
+        case .loading, .loadingWithoutCache:
+            try await waitForever()
+        case .offline, .offlineWithoutCache:
+            throw URLError(.notConnectedToInternet)
+        case .credentialsRejected:
+            throw SnapTradeError.httpStatus(401, "{\"code\":\"1083\"}")
+        case .attention:
+            return PortfolioLoadResult(
+                snapshot: DemoPortfolio.snapshotWithDisabledConnection,
+                partialFailure: PortfolioLoadPartialFailure()
+            )
+        case .live:
+            break
+        }
+        return PortfolioLoadResult(snapshot: DemoPortfolio.snapshot, partialFailure: PortfolioLoadPartialFailure())
     }
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult {
-        PortfolioLoadResult(snapshot: snapshot, partialFailure: PortfolioLoadPartialFailure())
+        switch scenario {
+        case .loading, .loadingWithoutCache:
+            try await waitForever()
+        case .offline, .offlineWithoutCache:
+            throw URLError(.notConnectedToInternet)
+        case .live, .attention, .credentialsRejected:
+            break
+        }
+        return PortfolioLoadResult(snapshot: snapshot, partialFailure: PortfolioLoadPartialFailure())
     }
 
     func priceHistory(for holding: PortfolioHolding, range: HoldingChartRange) async throws -> HoldingPriceSeries {
+        // 1D loads, so the other ranges can show their loading and
+        // offline states next to it.
+        if range != .oneDay {
+            switch scenario {
+            case .loading, .loadingWithoutCache:
+                try await waitForever()
+            case .offline, .offlineWithoutCache:
+                throw URLError(.notConnectedToInternet)
+            case .live, .attention, .credentialsRejected:
+                // As long as a real load takes, so the chart's loading
+                // state shows.
+                try await Task.sleep(for: .seconds(1.5))
+            }
+        }
         let price = holding.currentPrice ?? 100
         let calendar = Calendar(identifier: .gregorian)
         let today = calendar.startOfDay(for: Date())
@@ -149,6 +190,12 @@ struct DemoPortfolioRepository: PortfolioRepository {
 
     func connectionPortalURL(credentials: SnapTradeCredentials, darkMode: Bool) async throws -> URL {
         try await offline.connectionPortalURL(credentials: credentials, darkMode: darkMode)
+    }
+
+    private func waitForever() async throws -> Never {
+        while true {
+            try await Task.sleep(for: .seconds(3_600))
+        }
     }
 }
 #endif

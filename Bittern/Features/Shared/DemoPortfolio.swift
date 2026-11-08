@@ -200,8 +200,77 @@ enum DemoPortfolio {
             percent: amount / abs(quantity * regularClose),
             observedAt: observedAt,
             sessionStart: sessionStart,
-            sessionEnd: sessionEnd
+            sessionEnd: sessionEnd,
+            price: extendedHoursPrice
         )
+    }
+
+    /// The demo portfolio with its brokerage connection disabled, for the
+    /// banner that asks the user to fix it.
+    static var snapshotWithDisabledConnection: PortfolioSnapshot {
+        let demo = snapshot
+        return .make(
+            accounts: demo.accounts.map { account in
+                PortfolioAccount(
+                    id: account.id,
+                    name: account.name,
+                    institutionName: account.institutionName,
+                    providerLogoURL: account.providerLogoURL,
+                    isConnectionDisabled: account.id == "demo-brokerage",
+                    currencyCode: account.currencyCode
+                )
+            },
+            holdings: demo.holdings,
+            lastUpdated: demo.lastUpdated
+        )
+    }
+}
+
+/// Which of the dashboard's states a demo launch shows, from
+/// `BITTERN_DEMO_STATE`, for screenshots and checking the design.
+enum DemoScenario: String {
+    /// Data that loads at once, online.
+    case live
+    /// Launch with a cache, waiting for prices that never come.
+    case loading
+    /// Launch without a cache, waiting for a load that never comes.
+    case loadingWithoutCache = "loading-empty"
+    /// No network, with a cache.
+    case offline
+    /// No network and no cache.
+    case offlineWithoutCache = "offline-empty"
+    /// A disabled brokerage connection.
+    case attention
+    /// SnapTrade refuses the credentials and there is no cache.
+    case credentialsRejected = "rejected"
+
+    static var current: DemoScenario {
+        ProcessInfo.processInfo.environment["BITTERN_DEMO_STATE"]
+            .flatMap(DemoScenario.init(rawValue:)) ?? .live
+    }
+
+    var isOnline: Bool {
+        switch self {
+        case .offline, .offlineWithoutCache: false
+        default: true
+        }
+    }
+
+    /// What the demo launch finds on disk.
+    var cachedSnapshot: PortfolioSnapshot? {
+        switch self {
+        case .loading:
+            DemoPortfolio.snapshot
+        case .offline:
+            // Last complete a while ago, as a real cache would be.
+            .make(
+                accounts: DemoPortfolio.snapshot.accounts,
+                holdings: DemoPortfolio.snapshot.holdings,
+                lastUpdated: Date().addingTimeInterval(-47 * 60)
+            )
+        case .live, .loadingWithoutCache, .offlineWithoutCache, .attention, .credentialsRejected:
+            nil
+        }
     }
 }
 #endif

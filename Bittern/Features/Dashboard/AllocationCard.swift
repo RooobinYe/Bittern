@@ -231,13 +231,16 @@ private struct AllocationLensCard: View {
 /// The lens: its shadow, Liquid Glass and rim. The Liquid Glass bends
 /// whatever is under it, the bands or the page, so the lens looks the same
 /// at rest and lifted, on the card and off it.
-private struct AllocationLensGlass: View {
+struct AllocationLensGlass: View {
     let radius: CGFloat
+    /// The shadow's strength. A placeholder card under the lens is pale, so
+    /// a lighter shadow keeps the lens from looking heavier than the card.
+    var shadowOpacity: Double = 0.28
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.black.opacity(0.28), lineWidth: 10)
+                .stroke(Color.black.opacity(shadowOpacity), lineWidth: 10)
                 .frame(width: radius * 2 + 8, height: radius * 2 + 8)
                 .blur(radius: 8)
                 .offset(y: 3)
@@ -296,7 +299,8 @@ struct LiftedAllocationLens: View {
 }
 
 /// The total, and under it the return, which a tap switches between today
-/// and all time. The same choice is in the holdings menu.
+/// and all time. The same choice is in the holdings menu. The mode's name
+/// stays as it is in every state: "Today" names the return, not the date.
 private struct PerformanceSummary: View {
     let total: String
     let change: String
@@ -304,13 +308,16 @@ private struct PerformanceSummary: View {
     let mode: PerformanceMode
     let select: (@MainActor (PerformanceMode) -> Void)?
 
+    @Environment(\.priceStatus) private var priceStatus
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(total)
                 .font(.keyFigure(.largeTitle, weight: .bold))
-                .foregroundStyle(BitternTheme.ink)
+                .foregroundStyle(priceStatus.keyFigureColor(BitternTheme.ink))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                .accessibilityLabel(priceStatus.accessibilityLabel(for: total))
 
             if let select {
                 Button {
@@ -320,7 +327,7 @@ private struct PerformanceSummary: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Return")
-                .accessibilityValue("\(mode.title), \(change)")
+                .accessibilityValue("\(mode.title), \(priceStatus.accessibilityLabel(for: change))")
                 .accessibilityHint("Switches between today and all time")
                 .sensoryFeedback(.selection, trigger: mode)
             } else {
@@ -334,9 +341,11 @@ private struct PerformanceSummary: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(change)
                 .font(.keyFigure(.body))
-                .foregroundStyle(changeColor)
+                .foregroundStyle(priceStatus.figureColor(changeColor))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                // Animates only the switch between today and all time; new
+                // prices replace the figure without a transition.
                 .contentTransition(.numericText())
 
             Text(mode.title)
@@ -421,7 +430,7 @@ private struct LegendChip: View {
 }
 
 /// Rows of views that wrap, each row centered.
-private struct CenteredFlowLayout: Layout {
+struct CenteredFlowLayout: Layout {
     let spacing: CGFloat
     let lineSpacing: CGFloat
 

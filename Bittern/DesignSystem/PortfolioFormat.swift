@@ -140,25 +140,25 @@ enum PortfolioFormat {
         )
     }
 
-    /// A persisted snapshot can be days old, so anything before today states
-    /// its date; a bare time of day would read as just refreshed.
-    static func lastUpdated(
-        _ date: Date,
+    /// What VoiceOver says after a figure shown in gray: when every price
+    /// was last known. Data can be days old, so anything before today
+    /// states its date; a bare time of day would read as today's.
+    static func notUpdatedSince(
+        _ date: Date?,
         relativeTo now: Date = Date(),
         calendar: Calendar = .autoupdatingCurrent,
         locale: Locale = .autoupdatingCurrent
     ) -> String {
+        guard let date else { return "not updated" }
+        let style: Date.FormatStyle
         if calendar.isDate(date, inSameDayAs: now) {
-            return date.formatted(
-                .dateTime.hour().minute().second()
-                    .locale(locale)
-            )
+            style = .dateTime.hour().minute()
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            style = .dateTime.day().month(.abbreviated).hour().minute()
+        } else {
+            style = .dateTime.day().month(.abbreviated).year().hour().minute()
         }
-
-        let style: Date.FormatStyle = calendar.isDate(date, equalTo: now, toGranularity: .year)
-            ? .dateTime.day().month(.abbreviated).hour().minute()
-            : .dateTime.day().month(.abbreviated).year().hour().minute()
-        return date.formatted(style.locale(locale))
+        return "not updated since \(date.formatted(style.locale(locale)))"
     }
 
     /// A day, such as "7 Nov".

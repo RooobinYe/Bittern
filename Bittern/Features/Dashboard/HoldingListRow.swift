@@ -24,6 +24,7 @@ struct HoldingListRow: View {
 
     @ScaledMetric(relativeTo: .title3) private var iconSize: CGFloat = 40
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.priceStatus) private var priceStatus
 
     private var performanceAmount: Double? {
         holding.performanceAmount(for: performanceMode)
@@ -80,11 +81,12 @@ struct HoldingListRow: View {
 
             Text(marketValueText)
                 .font(.keyFigure(.headline))
-                .foregroundStyle(BitternTheme.ink)
+                .foregroundStyle(priceStatus.figureColor(BitternTheme.ink))
+                .accessibilityLabel(priceStatus.accessibilityLabel(for: marketValueText))
 
             Text(performanceText)
                 .font(.keyFigure(.subheadline))
-                .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
+                .foregroundStyle(priceStatus.figureColor(BitternTheme.performanceColor(performanceAmount)))
 
             if let extendedHoursPresentation {
                 extendedHoursPerformanceLabel(extendedHoursPresentation)
@@ -119,7 +121,8 @@ struct HoldingListRow: View {
 
                         Text(marketValueText)
                             .font(.keyFigure(.headline))
-                            .foregroundStyle(BitternTheme.ink)
+                            .foregroundStyle(priceStatus.figureColor(BitternTheme.ink))
+                            .accessibilityLabel(priceStatus.accessibilityLabel(for: marketValueText))
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                             .layoutPriority(1)
@@ -148,7 +151,7 @@ struct HoldingListRow: View {
 
             Text(performanceText)
                 .font(.keyFigure(.subheadline))
-                .foregroundStyle(BitternTheme.performanceColor(performanceAmount))
+                .foregroundStyle(priceStatus.figureColor(BitternTheme.performanceColor(performanceAmount)))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
@@ -170,7 +173,7 @@ struct HoldingListRow: View {
             Text(changeText(amount: presentation.change.amount, percent: presentation.change.percent))
                 .font(.keyFigure(.caption))
                 .foregroundStyle(
-                    BitternTheme.performanceColor(presentation.change.amount)
+                    priceStatus.figureColor(BitternTheme.performanceColor(presentation.change.amount))
                 )
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: false)

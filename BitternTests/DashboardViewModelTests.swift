@@ -31,10 +31,15 @@ private final class StubRepository: PortfolioRepository {
     }
 
     var load: () throws -> PortfolioLoadResult = { throw URLError(.notConnectedToInternet) }
-    var refresh: () throws -> PortfolioLoadResult = { throw URLError(.notConnectedToInternet) }
+    /// Prices for the holdings asked about. By default, the same prices.
+    var refresh: (PortfolioSnapshot) throws -> PortfolioLoadResult = { snapshot in
+        PortfolioLoadResult(snapshot: snapshot, partialFailure: PortfolioLoadPartialFailure())
+    }
     var holdsCalls = false
     var honorsCancellation = true
     private(set) var calls: [Call] = []
+    /// The symbols each price refresh asked about.
+    private(set) var refreshedSymbols: [[String]] = []
     private var held: [HeldCall] = []
     private var nextID = 0
 
@@ -47,7 +52,8 @@ private final class StubRepository: PortfolioRepository {
 
     func refreshPrices(for snapshot: PortfolioSnapshot) async throws -> PortfolioLoadResult {
         calls.append(.refresh)
-        return holdsCalls ? try await hold(.refresh) : try refresh()
+        refreshedSymbols.append(snapshot.holdings.map(\.symbol).sorted())
+        return holdsCalls ? try await hold(.refresh) : try refresh(snapshot)
     }
 
     func priceHistory(for holding: PortfolioHolding, range: HoldingChartRange) async throws -> HoldingPriceSeries {
@@ -73,6 +79,11 @@ private final class StubRepository: PortfolioRepository {
         )
     }
 
+    /// Fails the held call at `index`, oldest first.
+    func fail(_ index: Int = 0, with error: any Error) {
+        held.remove(at: index).continuation.resume(throwing: error)
+    }
+
     private func hold(_ call: Call) async throws -> PortfolioLoadResult {
         nextID += 1
         let id = nextID
@@ -96,11 +107,17 @@ private final class StubRepository: PortfolioRepository {
 private nonisolated final class SavedSnapshots: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [PortfolioSnapshot] = []
+    private var deleteCount = 0
 
     var all: [PortfolioSnapshot] { lock.withLock { values } }
+    var deletes: Int { lock.withLock { deleteCount } }
 
     func append(_ snapshot: PortfolioSnapshot) {
         lock.withLock { values.append(snapshot) }
+    }
+
+    func delete() {
+        lock.withLock { deleteCount += 1 }
     }
 }
 
@@ -126,8 +143,26 @@ private func settle() async {
     }
 }
 
-/// Keychain, disk and settings are replaced, so running these on any simulator
-/// leaves the real credentials, cached portfolio and preferences untouched.
+private extension PortfolioLoadState {
+    var skeleton: LaunchSkeleton?? {
+        guard case .loading(let skeleton) = self else { return nil }
+        return .some(skeleton)
+    }
+
+    var failure: PortfolioLoadFailure? {
+        guard case .failed(let failure) = self else { return nil }
+        return failure
+    }
+
+    var isNotLoaded: Bool {
+        guard case .notLoaded = self else { return false }
+        return true
+    }
+}
+
+/// Keychain, disk, settings, the network path and time are replaced, so
+/// running these on any simulator leaves the real credentials, cached
+/// portfolio and preferences untouched.
 @Suite
 struct DashboardViewModelTests {
     private let credentials = SnapTradeCredentials(
@@ -138,6 +173,8 @@ struct DashboardViewModelTests {
     )
     private let saved = SavedSnapshots()
     private let repository = StubRepository()
+    private let clock = TestClock()
+    private let network = TestNetworkMonitor()
     private let defaultsSuite = "BitternTests.\(UUID().uuidString)"
 
     private var defaults: UserDefaults {
@@ -159,97 +196,150 @@ struct DashboardViewModelTests {
         cached: PortfolioSnapshot? = nil
     ) -> DashboardViewModel {
         let saved = saved
+        let clock = clock
         let box = UncheckedSnapshot(value: cached)
         return DashboardViewModel(
             credentialsStore: store,
             repository: repository,
             defaults: defaults,
             loadCachedSnapshot: { box.value },
-            saveCachedSnapshot: { saved.append($0) }
+            saveCachedSnapshot: { saved.append($0) },
+            deleteCachedSnapshot: { saved.delete() },
+            networkMonitor: network,
+            sleep: { try await clock.sleep(for: $0) },
+            now: { clock.now }
         )
     }
 
     private func complete(
         _ symbol: String = "AAPL",
-        at time: TimeInterval = 2_000
+        at time: TimeInterval = 2_000,
+        instrumentKind: PortfolioInstrumentKind? = .stock
     ) -> PortfolioSnapshot {
         .make(
             accounts: [makeAccount()],
-            holdings: [makeHolding(symbol: symbol)],
+            holdings: [makeHolding(symbol: symbol, instrumentKind: instrumentKind)],
             lastUpdated: Date(timeIntervalSince1970: time)
         )
     }
 
-    /// A model that has finished its first load, with later calls held.
-    private func bootstrappedModel() async -> DashboardViewModel {
-        let first = complete(at: 1_000)
-        repository.refresh = {
-            PortfolioLoadResult(snapshot: first, partialFailure: PortfolioLoadPartialFailure())
-        }
-        let model = viewModel(credentials: credentials, cached: first)
+    private func result(_ snapshot: PortfolioSnapshot) -> PortfolioLoadResult {
+        PortfolioLoadResult(snapshot: snapshot, partialFailure: PortfolioLoadPartialFailure())
+    }
+
+    /// The same holdings at `price`, priced now.
+    private func repriced(_ snapshot: PortfolioSnapshot, to price: Double) -> PortfolioSnapshot {
+        .make(
+            accounts: snapshot.accounts,
+            holdings: snapshot.holdings.map {
+                $0.repriced(
+                    currentPrice: price,
+                    previousClose: $0.previousClose,
+                    preMarketChange: nil,
+                    postMarketChange: nil,
+                    marketSession: $0.marketSession,
+                    regularPriceTime: clock.now
+                )
+            },
+            lastUpdated: clock.now
+        )
+    }
+
+    /// Lets the model start a sleep of `duration`, moves time on by it, and
+    /// lets the model act on it. Moving time before the model sleeps would
+    /// leave that sleep waiting forever.
+    private func advance(by duration: Duration) async {
+        await settle { clock.pendingSleeps.contains(duration) }
+        clock.advance(by: duration)
+        await settle()
+    }
+
+    /// A model that has launched from a cache holding `cached` and is
+    /// showing current prices, with the holdings refresh after launch done.
+    private func launchedModel(cached: PortfolioSnapshot) async -> DashboardViewModel {
+        repository.load = { [result] in result(cached) }
+        let model = viewModel(credentials: credentials, cached: cached)
         await model.bootstrap()
-        repository.holdsCalls = true
+        await settle()
         return model
     }
+
+    // MARK: - Launch
 
     @Test func withoutCredentialsNothingIsLoadedAndNoSnapshotExists() async {
         let model = viewModel(credentials: nil)
 
         await model.bootstrap()
 
-        guard case .notLoaded = model.loadState else {
-            Issue.record("expected notLoaded, got \(model.loadState)")
-            return
-        }
+        #expect(model.loadState.isNotLoaded)
         #expect(model.snapshot == nil)
         #expect(model.displaySnapshot == nil)
         #expect(model.sortedHoldings.isEmpty)
+        #expect(repository.calls.isEmpty)
     }
 
-    @Test func startsInLoadingWithCredentials() {
+    @Test func startsLaunchingWithNothingDrawnWithCredentials() {
         let model = viewModel(credentials: credentials)
 
-        guard case .loading = model.loadState else {
-            Issue.record("expected loading, got \(model.loadState)")
-            return
-        }
+        #expect(model.loadState.skeleton == .some(nil))
     }
 
-    @Test func firstLoadFailureWithNoDataIsAFailedState() async {
-        let model = viewModel(credentials: credentials)
+    @Test func launchWithACacheKeepsTheSkeletonUntilPricesArrive() async {
+        let cached = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [makeHolding(), makeHolding(symbol: "MSFT")],
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
+        )
+        repository.holdsCalls = true
+        let model = viewModel(credentials: credentials, cached: cached)
 
-        await model.bootstrap()
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.heldCalls == [.refresh] }
 
-        guard case .failed(let message) = model.loadState else {
-            Issue.record("expected failed, got \(model.loadState)")
-            return
-        }
-        #expect(message.contains("internet"))
-        #expect(model.errorMessage == nil)
+        // Only prices are awaited, for the cache's holdings.
+        #expect(repository.refreshedSymbols == [["AAPL", "MSFT"]])
+        #expect(model.loadState.skeleton == .some(nil))
+        #expect(model.snapshot == nil)
+
+        await advance(by: LivePriceRefresh.skeletonDelay)
+        #expect(model.loadState.skeleton == LaunchSkeleton(rowCount: 2, isRowCountKnown: true))
+
+        repository.answer(with: repriced(cached, to: 120))
+        await settle { repository.heldCalls == [.load] }
+
+        #expect(model.snapshot?.totalMarketValue == 2_400)
+        #expect(model.priceStatus == .current)
+
+        repository.answer(with: repriced(cached, to: 120))
+        await launch.value
     }
 
-    @Test func retryAfterFailureLoads() async {
+    @Test func pricesThatArriveQuicklySkipTheSkeleton() async {
+        let cached = complete(at: 1_000)
+        let model = await launchedModel(cached: cached)
+
+        #expect(model.snapshot != nil)
+        await advance(by: LivePriceRefresh.skeletonDelay)
+        #expect(model.snapshot != nil)
+    }
+
+    @Test func launchWithoutACacheShowsAFadingSkeletonUntilTheFullLoad() async {
+        repository.holdsCalls = true
         let model = viewModel(credentials: credentials)
-        await model.bootstrap()
 
-        let snapshot = complete()
-        repository.load = {
-            PortfolioLoadResult(snapshot: snapshot, partialFailure: PortfolioLoadPartialFailure())
-        }
-        await model.fullRefresh()
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.heldCalls == [.load] }
+        await advance(by: LivePriceRefresh.skeletonDelay)
 
-        #expect(model.snapshot?.totalMarketValue == 1_100)
+        #expect(model.loadState.skeleton == LaunchSkeleton.withoutCache)
+        #expect(!LaunchSkeleton.withoutCache.isRowCountKnown)
+
+        repository.answer(with: complete())
+        await launch.value
+
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(repository.calls == [.load])
         #expect(saved.all.count == 1)
-    }
-
-    @Test func refreshFailureKeepsExistingDataAndWarns() async throws {
-        let model = viewModel(credentials: credentials, cached: complete())
-
-        await model.bootstrap()
-
-        #expect(model.snapshot?.totalMarketValue == 1_100)
-        #expect(try #require(model.errorMessage).contains("internet"))
-        #expect(saved.all.isEmpty)
     }
 
     @Test func cachedDataIsRecomputedByCurrentRules() async {
@@ -265,6 +355,7 @@ struct DashboardViewModelTests {
             hasMixedCurrencies: false,
             lastUpdated: Date(timeIntervalSince1970: 1_000)
         )
+        network.set(online: false)
         let model = viewModel(credentials: credentials, cached: stale)
 
         await model.bootstrap()
@@ -272,22 +363,238 @@ struct DashboardViewModelTests {
         #expect(model.snapshot?.allTimeGainAmount == nil)
     }
 
-    @Test func partialRefreshWarnsKeepsUpdateTimeAndSparesTheCache() async throws {
+    // MARK: - Without a network
+
+    @Test func launchWithoutNetworkShowsTheCacheInGrayAtOnce() async {
+        let cached = complete(at: 1_000)
+        network.set(online: false)
+        let model = viewModel(credentials: credentials, cached: cached)
+
+        await model.bootstrap()
+
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(model.priceStatus == .stale(since: cached.lastUpdated))
+        #expect(repository.calls.isEmpty)
+        #expect(model.errorMessage == nil)
+        #expect(!model.isLiveRefreshing)
+    }
+
+    @Test func launchWithoutNetworkOrCacheStaysOnTheSkeletonAndLoadsWhenOnline() async {
+        network.set(online: false)
+        repository.load = { [result, complete] in result(complete("AAPL", 2_000, .stock)) }
+        let model = viewModel(credentials: credentials)
+
+        await model.bootstrap()
+
+        #expect(model.loadState.skeleton == LaunchSkeleton.withoutCache)
+        #expect(model.loadState.failure == nil)
+        #expect(repository.calls.isEmpty)
+
+        network.set(online: true)
+        await settle { model.snapshot != nil }
+
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(model.priceStatus == .current)
+        #expect(repository.calls == [.load])
+    }
+
+    @Test func losingTheNetworkGraysTheDataAndItsReturnRefreshesIt() async {
+        let cached = complete(at: 1_000)
+        let model = await launchedModel(cached: cached)
+        let lastUpdated = model.snapshot?.lastUpdated
+        #expect(model.isLiveRefreshing)
+
+        network.set(online: false)
+        await settle()
+
+        #expect(model.priceStatus == .stale(since: lastUpdated))
+        #expect(!model.isLiveRefreshing)
+        #expect(model.snapshot != nil)
+
+        let callsBefore = repository.calls.count
+        repository.refresh = { [repriced] snapshot in
+            PortfolioLoadResult(snapshot: repriced(snapshot, 130), partialFailure: PortfolioLoadPartialFailure())
+        }
+        network.set(online: true)
+        await settle { model.priceStatus == .current }
+
+        #expect(repository.calls.count == callsBefore + 1)
+        #expect(model.snapshot?.holdings.first?.currentPrice == 130)
+        #expect(model.isLiveRefreshing)
+        #expect(model.errorMessage == nil)
+    }
+
+    // MARK: - Failures with a network
+
+    @Test func transientLaunchFailuresRetryThenShowTheCacheInGray() async {
+        let cached = complete(at: 1_000)
+        repository.refresh = { _ in throw URLError(.timedOut) }
+        let model = viewModel(credentials: credentials, cached: cached)
+
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.calls.count == 1 }
+        #expect(model.snapshot == nil)
+
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 1))
+        await settle { repository.calls.count == 2 }
+        #expect(model.snapshot == nil)
+
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 2))
+        await launch.value
+
+        #expect(repository.calls == [.refresh, .refresh, .refresh])
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(model.priceStatus == .stale(since: cached.lastUpdated))
+        // Nothing the user did failed, so nothing is said.
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func transientFailuresWithoutACacheEndOnTheErrorPage() async throws {
+        repository.load = { throw SnapTradeError.httpStatus(503, "") }
+        let model = viewModel(credentials: credentials)
+
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.calls.count == 1 }
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 1))
+        await settle { repository.calls.count == 2 }
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 2))
+        await launch.value
+
+        let failure = try #require(model.loadState.failure)
+        #expect(failure.attention == nil)
+        #expect(repository.calls == [.load, .load, .load])
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func tryingAgainAfterTheErrorPageLoads() async {
+        repository.load = { throw SnapTradeError.decodingFailed(operation: "listAccounts", reason: "") }
+        let model = viewModel(credentials: credentials)
+        await model.bootstrap()
+        #expect(model.loadState.failure != nil)
+
+        let snapshot = complete()
+        repository.load = { [result] in result(snapshot) }
+        await model.retryLaunch()
+
+        #expect(model.snapshot?.totalMarketValue == 1_100)
+        #expect(saved.all.count == 1)
+    }
+
+    @Test func rejectedCredentialsWithoutACacheExplainWhyAtOnce() async throws {
+        repository.load = { throw SnapTradeError.httpStatus(401, "{\"code\":\"1083\"}") }
+        let model = viewModel(credentials: credentials)
+
+        await model.bootstrap()
+
+        let failure = try #require(model.loadState.failure)
+        #expect(failure.attention == PortfolioAttention(reason: .credentialsRejected))
+        // Retrying can't fix it.
+        #expect(repository.calls == [.load])
+    }
+
+    @Test func rejectedCredentialsWithACacheShowABannerOverLivePrices() async {
+        let cached = complete(at: 1_000)
+        repository.load = { throw SnapTradeError.httpStatus(403, "") }
+        let model = viewModel(credentials: credentials, cached: cached)
+
+        await model.bootstrap()
+
+        #expect(repository.calls == [.refresh, .load])
+        #expect(model.attention == PortfolioAttention(reason: .credentialsRejected))
+        #expect(model.priceStatus == .current)
+        #expect(model.errorMessage == nil)
+
+        // Fixed: the next holdings load clears it.
+        repository.load = { [result] in result(cached) }
+        await model.refresh()
+        #expect(model.attention == nil)
+    }
+
+    @Test func aDisabledConnectionShowsABanner() async {
+        let disabled = PortfolioSnapshot.make(
+            accounts: [makeAccount(isConnectionDisabled: true)],
+            holdings: [makeHolding()],
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
+        )
+        repository.load = { [result] in result(disabled) }
+        let model = viewModel(credentials: credentials)
+
+        await model.bootstrap()
+
+        #expect(model.attention == PortfolioAttention(reason: .connectionDisabled(providerNames: ["Broker a1"])))
+        #expect(model.attention?.title == "Broker a1 holdings couldn’t be refreshed")
+    }
+
+    // MARK: - Holdings
+
+    @Test func holdingsAreRefetchedOnceAfterLaunchPrices() async {
+        let cached = complete("AAPL", at: 1_000)
+        let current = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [makeHolding(), makeHolding(symbol: "MSFT")],
+            lastUpdated: Date(timeIntervalSince1970: 2_000)
+        )
+        repository.load = { [result] in result(current) }
+        let model = viewModel(credentials: credentials, cached: cached)
+
+        await model.bootstrap()
+
+        #expect(repository.calls == [.refresh, .load])
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL", "MSFT"])
+        #expect(saved.all.last?.holdings.count == 2)
+    }
+
+    @Test func pullToRefreshLoadsHoldingsAndPrices() async {
+        let model = await launchedModel(cached: complete(at: 1_000))
+        let callsBefore = repository.calls
+
+        let refreshed = complete("MSFT", at: 3_000)
+        repository.load = { [result] in result(refreshed) }
+        await model.refresh()
+
+        #expect(repository.calls == callsBefore + [.load])
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["MSFT"])
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func aFailedPullToRefreshSaysSoAndKeepsTheData() async throws {
+        let model = await launchedModel(cached: complete(at: 1_000))
+
+        repository.load = { throw URLError(.timedOut) }
+        await model.refresh()
+
+        #expect(try #require(model.errorMessage).contains("timed out"))
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(model.priceStatus == .current)
+    }
+
+    @Test func partialPricesWarnKeepTheUpdateTimeAndSpareTheCache() async throws {
         let cached = complete()
         let partial = PortfolioSnapshot.make(
             accounts: cached.accounts,
             holdings: [makeHolding(currentPrice: nil)],
             lastUpdated: nil
         )
-        repository.refresh = {
+        repository.refresh = { _ in
             PortfolioLoadResult(
                 snapshot: partial,
                 partialFailure: PortfolioLoadPartialFailure(missingQuoteSymbols: ["AAPL"])
             )
         }
+        repository.load = { throw URLError(.timedOut) }
         let model = viewModel(credentials: credentials, cached: cached)
 
-        await model.bootstrap()
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.calls.count == 2 }
+        // Live refresh has started its own first wait, which may be as long
+        // as the holdings retry's: let both begin before time moves.
+        let backoff = LivePriceRefresh.backoff(afterFailures: 1)
+        let waits = backoff == LivePriceRefresh.interval ? 2 : 1
+        await settle { clock.pendingSleeps.count(where: { $0 == backoff }) == waits }
+        await advance(by: backoff)
+        await settle { repository.calls.count == 3 }
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 2))
+        await launch.value
 
         #expect(model.snapshot?.holdings.first?.currentPrice == nil)
         #expect(model.snapshot?.totalMarketValue == nil)
@@ -296,18 +603,18 @@ struct DashboardViewModelTests {
         #expect(saved.all.isEmpty)
     }
 
-    @Test func completeRefreshAdvancesTimeAndSaves() async {
+    @Test func completePricesAdvanceTimeAndSave() async {
         let cached = complete(at: 1_000)
         let fresh = complete(at: 2_000)
-        repository.refresh = {
-            PortfolioLoadResult(snapshot: fresh, partialFailure: PortfolioLoadPartialFailure())
-        }
+        repository.refresh = { [result] _ in result(fresh) }
+        repository.load = { throw SnapTradeError.decodingFailed(operation: "listAccounts", reason: "") }
         let model = viewModel(credentials: credentials, cached: cached)
 
         await model.bootstrap()
 
         #expect(model.snapshot?.lastUpdated == fresh.lastUpdated)
         #expect(saved.all.map(\.lastUpdated) == [fresh.lastUpdated])
+        #expect(model.priceStatus == .current)
         #expect(model.errorMessage == nil)
     }
 
@@ -316,9 +623,7 @@ struct DashboardViewModelTests {
             accounts: [makeAccount()],
             holdings: [makeHolding(), makeHolding(symbol: "SHOP", currencyCode: "CAD")]
         )
-        repository.load = {
-            PortfolioLoadResult(snapshot: mixed, partialFailure: PortfolioLoadPartialFailure())
-        }
+        repository.load = { [result] in result(mixed) }
         let model = viewModel(credentials: credentials)
 
         await model.bootstrap()
@@ -335,9 +640,7 @@ struct DashboardViewModelTests {
                 makeHolding(symbol: "SHOP", accountID: "a2", currencyCode: "CAD")
             ]
         )
-        repository.load = {
-            PortfolioLoadResult(snapshot: mixed, partialFailure: PortfolioLoadPartialFailure())
-        }
+        repository.load = { [result] in result(mixed) }
         let model = viewModel(credentials: credentials)
         await model.bootstrap()
 
@@ -347,6 +650,174 @@ struct DashboardViewModelTests {
 
         #expect(model.displaySnapshot?.totalMarketValue == 1_100)
     }
+
+    // MARK: - Live prices
+
+    @Test func liveRefreshFetchesOnlyHoldingsInSessionEveryInterval() async {
+        let date = clock.now
+        let cached = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [
+                makeHolding(symbol: "BTC", instrumentKind: .crypto),
+                makeHolding(
+                    symbol: "AAPL",
+                    marketSession: HoldingMarketSession(
+                        start: date.addingTimeInterval(3_600),
+                        regularStart: date.addingTimeInterval(7_200),
+                        regularEnd: date.addingTimeInterval(30_000),
+                        end: date.addingTimeInterval(44_000)
+                    )
+                )
+            ],
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
+        )
+        let model = await launchedModel(cached: cached)
+        #expect(repository.refreshedSymbols == [["AAPL", "BTC"]])
+
+        await advance(by: LivePriceRefresh.interval)
+        await settle { repository.refreshedSymbols.count == 2 }
+        await advance(by: LivePriceRefresh.interval)
+        await settle { repository.refreshedSymbols.count == 3 }
+
+        #expect(repository.refreshedSymbols == [["AAPL", "BTC"], ["BTC"], ["BTC"]])
+        #expect(model.isLive(cached.holdings[0]))
+        #expect(!model.isLive(cached.holdings[1]))
+    }
+
+    @Test func numbersChangeInPlaceAsLivePricesArrive() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        let total = model.snapshot?.totalMarketValue
+
+        repository.refresh = { [repriced] snapshot in
+            PortfolioLoadResult(snapshot: repriced(snapshot, 115), partialFailure: PortfolioLoadPartialFailure())
+        }
+        await advance(by: LivePriceRefresh.interval)
+        await settle { model.snapshot?.totalMarketValue != total }
+
+        #expect(model.snapshot?.totalMarketValue == 1_150)
+        #expect(model.priceStatus == .current)
+    }
+
+    @Test func liveRefreshStopsInTheBackgroundAndRefreshesEverythingOnReturn() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        model.sceneDidEnterBackground()
+        let callsBefore = repository.calls.count
+
+        await advance(by: LivePriceRefresh.interval * 3)
+
+        #expect(repository.calls.count == callsBefore)
+        #expect(!model.isLiveRefreshing)
+
+        model.sceneDidBecomeActive()
+        await settle { repository.calls.count == callsBefore + 1 }
+
+        // Not a launch: the data stayed on screen throughout.
+        #expect(model.snapshot != nil)
+        #expect(repository.calls.last == .refresh)
+        #expect(model.isLiveRefreshing)
+    }
+
+    @Test func liveRefreshWaitsForTheNextSessionWhenNothingTrades() async {
+        let opening = clock.now.addingTimeInterval(600)
+        let cached = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [
+                makeHolding(
+                    marketSession: HoldingMarketSession(
+                        start: opening,
+                        regularStart: opening.addingTimeInterval(3_600),
+                        regularEnd: opening.addingTimeInterval(30_000),
+                        end: opening.addingTimeInterval(44_000)
+                    )
+                )
+            ],
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
+        )
+        let model = await launchedModel(cached: cached)
+        let callsBefore = repository.calls.count
+
+        await advance(by: LivePriceRefresh.interval)
+        await advance(by: LivePriceRefresh.interval)
+        #expect(repository.calls.count == callsBefore)
+
+        await advance(by: .seconds(600))
+        await settle { repository.calls.count == callsBefore + 1 }
+        #expect(repository.refreshedSymbols.last == ["AAPL"])
+        #expect(model.isLive(cached.holdings[0]))
+    }
+
+    @Test func repeatedLiveFailuresGrayThePricesUntilOneSucceeds() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        let lastUpdated = model.snapshot?.lastUpdated
+
+        repository.refresh = { _ in throw URLError(.timedOut) }
+        await advance(by: LivePriceRefresh.interval)
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 1))
+        #expect(model.priceStatus == .current)
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 2))
+
+        #expect(model.priceStatus == .stale(since: lastUpdated))
+        #expect(model.errorMessage == nil)
+
+        repository.refresh = { [result] snapshot in result(snapshot) }
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 3))
+        await settle { model.priceStatus == .current }
+
+        #expect(model.priceStatus == .current)
+    }
+
+    @Test func aTickThatLosesAPriceIsRetriedBeforeItShows() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        let lost = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [makeHolding(symbol: "BTC", currentPrice: nil, instrumentKind: .crypto)],
+            lastUpdated: nil
+        )
+        repository.refresh = { _ in
+            PortfolioLoadResult(
+                snapshot: lost,
+                partialFailure: PortfolioLoadPartialFailure(missingQuoteSymbols: ["BTC"])
+            )
+        }
+
+        await advance(by: LivePriceRefresh.interval)
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 1))
+        #expect(model.snapshot?.holdings.first?.currentPrice == 110)
+
+        // The third time it's news: the price is shown as missing.
+        await advance(by: LivePriceRefresh.backoff(afterFailures: 2))
+        await settle { model.snapshot?.holdings.first?.currentPrice == nil }
+        #expect(model.snapshot?.totalMarketValue == nil)
+        #expect(model.errorMessage == nil)
+    }
+
+    // MARK: - Credentials
+
+    @Test func newCredentialsAreALaunchWithTheOldCacheDeleted() async throws {
+        let store = CredentialsStore(storage: InMemoryCredentialsStorage(credentials))
+        let cached = complete("OLD", at: 1_000)
+        repository.load = { [result] in result(cached) }
+        let model = viewModel(store: store, cached: cached)
+        await model.bootstrap()
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["OLD"])
+
+        var otherUser = credentials
+        otherUser.userId = "other"
+        try store.save(otherUser)
+        repository.holdsCalls = true
+        let refresh = Task { await model.fullRefresh() }
+        await settle { repository.heldCalls == [.load] }
+
+        #expect(saved.deletes == 1)
+        #expect(model.snapshot == nil)
+        #expect(model.loadState.skeleton != nil)
+
+        repository.answer(with: complete("NEW"))
+        await refresh.value
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["NEW"])
+    }
+
+    // MARK: - Settings
 
     @Test func minimumMarketValueIsOneSettingSavedToTheInjectedDefaults() {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
@@ -375,7 +846,9 @@ struct DashboardViewModelTests {
             defaults: defaults,
             initialSnapshot: snapshot,
             loadCachedSnapshot: { nil },
-            saveCachedSnapshot: { _ in }
+            saveCachedSnapshot: { _ in },
+            deleteCachedSnapshot: {},
+            networkMonitor: network
         )
 
         model.setMinimumMarketValue(1)
@@ -407,11 +880,12 @@ struct DashboardViewModelTests {
     // MARK: - Refreshes in flight
 
     @Test func aSecondRefreshJoinsTheOneInFlight() async {
-        let model = await bootstrappedModel()
+        let model = await launchedModel(cached: complete(at: 1_000))
+        repository.holdsCalls = true
         let callsBefore = repository.calls.count
 
         let first = Task { await model.refresh() }
-        await settle { repository.heldCalls == [.refresh] }
+        await settle { repository.heldCalls == [.load] }
         let second = Task { await model.refresh() }
         await settle()
 
@@ -427,27 +901,22 @@ struct DashboardViewModelTests {
         #expect(repository.calls.count == callsBefore + 1)
     }
 
-    @Test func aFullRefreshReplacesAPriceRefreshThatWaitsForIt() async {
-        let model = await bootstrappedModel()
-        let priceRefreshFinished = Flag()
+    @Test func aHoldingsLoadReplacesALiveTickThatWaitsForIt() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        repository.holdsCalls = true
 
-        let price = Task {
-            await model.refresh()
-            priceRefreshFinished.isSet = true
-        }
+        await advance(by: LivePriceRefresh.interval)
         await settle { repository.heldCalls == [.refresh] }
 
-        let full = Task { await model.fullRefresh() }
+        let full = Task { await model.refresh() }
         await settle { repository.heldCalls == [.load] }
 
         #expect(repository.heldCalls == [.load])
-        #expect(!priceRefreshFinished.isSet)
 
         repository.answer(with: complete("MSFT"))
         await full.value
-        await price.value
+        await settle()
 
-        #expect(priceRefreshFinished.isSet)
         #expect(model.snapshot?.holdings.map(\.symbol) == ["MSFT"])
         #expect(!model.isLoading)
     }

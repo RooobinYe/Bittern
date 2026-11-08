@@ -11,8 +11,10 @@ struct AppDependencies {
     let credentialsStore: CredentialsStore
     let repository: any PortfolioRepository
     let logoSource: LogoSource
+    var networkMonitor: any NetworkMonitor = SystemNetworkMonitor()
     var loadCachedSnapshot: @Sendable () async -> PortfolioSnapshot? = { await PortfolioCache.loadAsync() }
     var saveCachedSnapshot: @Sendable (PortfolioSnapshot) -> Void = { PortfolioCache.save($0) }
+    var deleteCachedSnapshot: @Sendable () throws -> Void = { try PortfolioCache.clear() }
 
     static func live() -> AppDependencies {
         #if DEBUG
@@ -50,13 +52,18 @@ struct AppDependencies {
 
     #if DEBUG
     /// Made-up data for screenshots: no Keychain, no cache, no network.
+    /// `BITTERN_DEMO_STATE` picks a state to show (see `DemoScenario`).
     static func demo() -> AppDependencies {
-        AppDependencies(
+        let scenario = DemoScenario.current
+        let cached = scenario.cachedSnapshot
+        return AppDependencies(
             credentialsStore: PreviewSupport.demoCredentialsStore(),
-            repository: DemoPortfolioRepository(),
+            repository: DemoPortfolioRepository(scenario: scenario),
             logoSource: .none,
-            loadCachedSnapshot: { nil },
-            saveCachedSnapshot: { _ in }
+            networkMonitor: FixedNetworkMonitor(isOnline: scenario.isOnline),
+            loadCachedSnapshot: { cached },
+            saveCachedSnapshot: { _ in },
+            deleteCachedSnapshot: {}
         )
     }
     #endif

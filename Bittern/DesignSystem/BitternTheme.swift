@@ -22,6 +22,28 @@ enum BitternTheme {
     static let positivePerformance = Color(.positivePerformance)
     static let negativePerformance = Color(.negativePerformance)
     static let warning = Color(uiColor: .systemOrange)
+    /// Something only the user can fix. Darker than `systemOrange` in light
+    /// mode, so the banner's icon holds 3:1 on its tint.
+    static let attention = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .systemOrange
+            : UIColor(red: 0.79, green: 0.2, blue: 0, alpha: 1)
+    })
+    /// Behind a banner about something only the user can fix.
+    static let attentionBackground = Color(uiColor: .systemOrange).opacity(0.12)
+    /// Figures that aren't current: large ones such as a total or a price,
+    /// and smaller ones such as a change. Both keep 3:1 or better on the
+    /// background at their size.
+    static let staleKeyFigure = Color(uiColor: .systemGray)
+    static let staleFigure = secondaryInk
+    /// Blocks standing in for data that is on its way, and the light that
+    /// passes over them.
+    static let skeleton = Color(uiColor: .secondarySystemFill)
+    static let skeletonHighlight = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.08)
+            : UIColor.white.withAlphaComponent(0.7)
+    })
 
     /// A holding the allocation leaves out, having no value to share.
     static let unallocatedHoldingColor = Color(uiColor: .systemGray3)

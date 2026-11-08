@@ -125,6 +125,7 @@ struct DashboardView: View {
             minimumMarketValue: viewModel.minPriceThreshold,
             hiddenHoldingCount: includingSmallHoldings ? 0 : viewModel.hiddenHoldingCount,
             isPrivacyEnabled: isPrivacyEnabled,
+            priceStatus: viewModel.priceStatus,
             viewportSize: viewportSize,
             layoutMode: DashboardLayoutMetrics.layoutMode(in: viewportSize)
         )
