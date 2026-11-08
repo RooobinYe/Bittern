@@ -1,6 +1,6 @@
 # Portfolio Context
 
-This context defines the user-facing meaning of asset prices, portfolio valuation, and chart ranges across assets with different trading schedules, plus the contribution-planning language built on those valuations.
+This context defines the user-facing meaning of asset prices, portfolio valuation, and chart ranges across assets with different trading schedules, how current the figures on screen are, plus the contribution-planning language built on those valuations.
 
 ## Language
 
@@ -65,8 +65,34 @@ The single currency every holding in a sum shares. Bittern never converts betwee
 _Avoid_: Base currency, reporting currency, converted value
 
 **Complete Snapshot**:
-A portfolio snapshot in which every holding has a current price. Only a Complete Snapshot advances "Updated" and is kept for the next launch; one with missing prices is shown with those holdings and all totals as N/A.
+A portfolio snapshot in which every holding has a current price. Only a Complete Snapshot records when its prices were known and is kept for the next launch, overwriting the one before; one with missing prices is shown with those holdings and all totals as N/A. The kept snapshot never expires by age: Stale Figures say how old it is.
 _Avoid_: Fresh data, successful refresh
+
+### Freshness
+
+**Launch**:
+The time from having no portfolio in memory for the saved credentials until data or an error shows: a cold start, including after iOS ended the app in the background, or changed credentials. A Launch always shows the skeleton, unless data arrives within moments; with a kept Complete Snapshot it waits only for that snapshot's prices, then re-fetches holdings behind the data. Returning from the background is not a Launch: the data stays, and new prices replace it.
+_Avoid_: Startup, reload, first load
+
+**In-Session Holding**:
+A holding whose price can move now: crypto always; anything else from the start of its exchange's pre-market to the end of its post-market. A holding whose trading day isn't known yet counts as closed until a quote says more.
+_Avoid_: Open market, live holding
+
+**Live Refresh**:
+New prices for every In-Session Holding, fetched on a fixed interval while the app is in the foreground with a network path, and stopped in the background. New prices replace the figures in place, without animation. Regular-Market Valuation still holds: extended-hours quotes never change totals, allocation or order.
+_Avoid_: Polling, auto-refresh, streaming
+
+**Stale Figure**:
+A price-derived figure shown from the last data because current prices can't be had: there is no network path, or loading keeps failing for network reasons. It is shown in gray, and VoiceOver adds when every price was last known. Names, logos, allocation bands and the legend aren't Stale Figures and keep their colors. A closed market's close is its current price, so it is not a Stale Figure.
+_Avoid_: Offline mode, cached value, outdated price
+
+**Bar in Progress**:
+The last point of a holding's chart range: the bar whose interval includes now (1D 5 minutes, 5D 15 minutes, 1M an hour, 3M, YTD and 1Y a day, 5Y a week, MAX a month), whose close follows the live price. A point is added only when the next interval begins. Extended-hours quotes move only the 1D Extended-Hours Continuation; 5D and longer follow the regular session.
+_Avoid_: Live point, tick
+
+**Attention**:
+A problem only the user can fix, such as SnapTrade refusing the credentials or a disabled brokerage connection. Over data it is a banner, kept until the problem is gone; with no data, the error page. Problems that may pass on their own are retried and never become Attention.
+_Avoid_: Error banner, warning
 
 ### Contribution Planning
 
@@ -128,6 +154,8 @@ _Avoid_: Preset, profile, saved scenario
 
 ## Relationships
 
+- **Live Refresh** prices only **In-Session Holdings**; a failing **Live Refresh** turns the figures into **Stale Figures**, and the next success turns them back
+- A holding's chart range follows the live price through its **Bar in Progress**
 - The **Contribution Plan** elects zero or more **Elected Holdings**, each carrying exactly one **Target Percentage**
 - The **Contribution Pool** is derived from every **Elected Holding**'s **Regular-Market Valuation** plus the **Contribution Amount**
 - Every **Elected Holding** resolves to exactly one **Buy Amount** and one **Post-Contribution Percentage**
@@ -152,3 +180,6 @@ _Avoid_: Preset, profile, saved scenario
 - What a `cost_basis` of zero means — resolved: the broker doesn't know the cost, not that the position was free. It is treated as unknown.
 - Whether a position's `cost_basis` is a total or a per-unit price — resolved 2026-11-06: per unit. SnapTrade documents it as the "book price or average purchase price", and real holdings show it at the scale of the share price, not of price × quantity.
 - Degenerate inputs (Contribution Amount of zero, or zero Elected Holdings) — resolved: no results are shown; there is no zero-money allocation.
+- How the app says data is loading, live or out of date — resolved 2026-11-08: with no status text at all, TradingView-style. The skeleton says data is on its way, figures that move say they are live, and gray says they aren't current; only Attention gets words. "Updated" is no longer shown, on screen or in the shared image.
+- Whether "Today" should change when figures are Stale — resolved 2026-11-08: no. It names the return mode (the most recent session's change, paired with All time), not the calendar day, just as it shows Friday's change on a Sunday.
+- Whether the kept Complete Snapshot should expire — resolved 2026-11-08: no. Old isn't wrong; gray and VoiceOver's date say how old it is. It is deleted when credentials are cleared or changed.
