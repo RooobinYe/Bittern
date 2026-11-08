@@ -192,14 +192,17 @@ struct DashboardVisualContent: View {
             .padding(.leading)
             .frame(maxWidth: .infinity)
 
+        // The export's insets mirror the live list's: the allocation brings
+        // its own and spans the row, the holdings sit 16 in from each side.
+        // A narrower allocation would wrap the legend differently.
         case (.stacked, nil):
             VStack(spacing: 24) {
                 allocation(fillsAvailableSpace: false)
                 exportHoldings
+                    .padding(.horizontal)
             }
             .padding(.bottom, 14)
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.horizontal)
             .frame(maxWidth: .infinity)
 
         case (.split, nil):
@@ -213,11 +216,12 @@ struct DashboardVisualContent: View {
                     )
 
                 exportHoldings
+                    .padding(.horizontal)
                     .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
             }
             .padding(.bottom, 14)
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.horizontal)
+            .padding(.leading)
             .frame(maxWidth: .infinity)
         }
     }
