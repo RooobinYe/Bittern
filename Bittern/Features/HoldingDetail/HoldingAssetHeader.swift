@@ -13,10 +13,14 @@ struct HoldingAssetHeader: View {
     /// The close 1D or YTD is measured from, when the series carries one.
     let seriesBaselinePrice: Double?
     let isPrivacyEnabled: Bool
+    /// The range's history is on its way, so a change measured from its
+    /// first point can't be known yet.
+    var isRangeLoading = false
     let avatarColor: Color
 
     @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 64
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.priceStatus) private var priceStatus
 
     private var displayPoint: HoldingPricePoint? {
         selectedPoint ?? defaultDisplayPoint
@@ -74,21 +78,35 @@ struct HoldingAssetHeader: View {
 
                 Text(priceText)
                     .font(.keyFigure(.largeTitle, weight: .bold))
-                    .foregroundStyle(BitternTheme.ink)
+                    .foregroundStyle(
+                        selectedPoint == nil ? priceStatus.keyFigureColor(BitternTheme.ink) : BitternTheme.ink
+                    )
                     .lineLimit(1)
                     // The price is the one figure that must stay whole on a
                     // single line, so it shrinks before it would wrap.
                     .minimumScaleFactor(0.6)
+                    .accessibilityLabel(
+                        selectedPoint == nil ? priceStatus.accessibilityLabel(for: priceText) : priceText
+                    )
 
-                ViewThatFits(in: .horizontal) {
+                if isChangeLoading {
                     HStack(spacing: 8) {
-                        changeAmountLabel
-                        changePercentLabel
+                        changeSkeleton(width: 84, capsule: false)
+                        changeSkeleton(width: 64, capsule: true)
                     }
+                    .accessibilityElement()
+                    .accessibilityLabel("Loading change")
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            changeAmountLabel
+                            changePercentLabel
+                        }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        changeAmountLabel
-                        changePercentLabel
+                        VStack(alignment: .leading, spacing: 4) {
+                            changeAmountLabel
+                            changePercentLabel
+                        }
                     }
                 }
 
@@ -118,21 +136,52 @@ struct HoldingAssetHeader: View {
         .accessibilityHidden(true)
     }
 
+    /// The change can't be known until the range's first point is, and
+    /// that point is on its way.
+    private var isChangeLoading: Bool {
+        isRangeLoading && basePrice == nil
+    }
+
+    /// Gray while the price isn't current, unless the user is reading a
+    /// point of the chart.
+    private var changeColor: Color {
+        let color = BitternTheme.performanceColor(priceDelta)
+        return selectedPoint == nil ? priceStatus.figureColor(color) : color
+    }
+
     private var changeAmountLabel: some View {
         Text(changeAmountText)
             .font(.keyFigure(.body))
-            .foregroundStyle(BitternTheme.performanceColor(priceDelta))
+            .foregroundStyle(changeColor)
             .lineLimit(1)
     }
 
     private var changePercentLabel: some View {
         Text(priceDeltaPercentText)
             .font(.keyFigure(.body))
-            .foregroundStyle(BitternTheme.performanceColor(priceDelta))
+            .foregroundStyle(changeColor)
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(BitternTheme.performanceColor(priceDelta).opacity(0.15), in: .capsule)
+            .background(
+                selectedPoint == nil && priceStatus.isStale
+                    ? Color(uiColor: .tertiarySystemFill)
+                    : changeColor.opacity(0.15),
+                in: .capsule
+            )
+    }
+
+    /// A block the size of a change figure, or of its capsule.
+    private func changeSkeleton(width: CGFloat, capsule: Bool) -> some View {
+        Text(verbatim: "+0.00%")
+            .font(.keyFigure(.body))
+            .hidden()
+            .frame(width: width)
+            .padding(.vertical, capsule ? 2 : 0)
+            .overlay {
+                SkeletonBlock(cornerRadius: capsule ? 13 : 6)
+                    .padding(.vertical, capsule ? 0 : 2)
+            }
     }
 
     private var changeAmountText: String {
@@ -175,6 +224,8 @@ struct HoldingAssetHeader: View {
 struct HoldingChartSection: View {
     let series: [HoldingPricePoint]
     let timeDomain: PriceChartTimeDomain?
+    /// What the value axis covers, so live prices don't move it.
+    var valueBounds: ClosedRange<Double>? = nil
     let previousClose: Double?
     /// The close 1D or YTD is measured from, when the series carries one.
     let seriesBaselinePrice: Double?
@@ -186,6 +237,10 @@ struct HoldingChartSection: View {
     @Binding var range: HoldingChartRange
     @Binding var selectedPoint: HoldingPricePoint?
     let isLoading: Bool
+    var isUnavailableOffline = false
+    var endMarker = PerformanceChartEndMarker.plain
+
+    @Environment(\.priceStatus) private var priceStatus
 
     private var basePrice: Double? {
         range.detailChangeBasePrice(
@@ -233,7 +288,13 @@ struct HoldingChartSection: View {
             selectedRange: $range,
             selectedPoint: $selectedPoint,
             isLoading: isLoading,
-            background: Color(uiColor: .systemGroupedBackground)
+            background: Color(uiColor: .systemGroupedBackground),
+            valueBounds: valueBounds,
+            endMarker: endMarker,
+            isStale: priceStatus.isStale,
+            placeholder: isLoading
+                ? .loading
+                : isUnavailableOffline ? .unavailableOffline : .none
         )
     }
 

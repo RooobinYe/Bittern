@@ -21,8 +21,11 @@ struct HoldingDetailDestination: View {
            let holding = snapshot.holdings.first(where: { $0.id == route.holdingID }) {
             HoldingDetailView(
                 holding: holding,
-                portfolio: viewModel.displaySnapshot ?? snapshot
+                portfolio: viewModel.displaySnapshot ?? snapshot,
+                isLive: viewModel.isLive(holding),
+                isOnline: viewModel.isOnline
             )
+            .environment(\.priceStatus, viewModel.priceStatus)
         } else {
             ContentUnavailableView(
                 "Holding Unavailable",
@@ -37,9 +40,13 @@ struct HoldingDetailView: View {
     let holding: PortfolioHolding
     /// The portfolio the holding's allocation is a share of.
     let portfolio: PortfolioSnapshot
+    /// The holding's price is moving and current.
+    var isLive = false
+    var isOnline = true
 
     @State private var model = HoldingDetailModel()
     @Environment(\.portfolioRepository) private var repository
+    @Environment(\.priceStatus) private var priceStatus
     @AppStorage(AppSettingKey.privacyModeEnabled) private var isPrivacyEnabled = false
 
     var body: some View {
@@ -52,6 +59,7 @@ struct HoldingDetailView: View {
                     selectedPoint: model.selectedPoint,
                     seriesBaselinePrice: model.visibleSeries?.baselinePrice,
                     isPrivacyEnabled: isPrivacyEnabled,
+                    isRangeLoading: model.isLoading,
                     avatarColor: BitternTheme.holdingAllocationColor(
                         for: holding,
                         in: portfolio.holdings
@@ -65,6 +73,7 @@ struct HoldingDetailView: View {
                 HoldingChartSection(
                     series: model.visibleSeries?.points ?? [],
                     timeDomain: model.visibleSeries?.timeDomain,
+                    valueBounds: model.visibleValueBounds,
                     previousClose: holding.previousClose,
                     seriesBaselinePrice: model.visibleSeries?.baselinePrice,
                     currencyCode: holding.currencyCode,
@@ -72,7 +81,9 @@ struct HoldingDetailView: View {
                     ranges: model.availableRanges,
                     range: $model.selectedRange,
                     selectedPoint: $model.selectedPoint,
-                    isLoading: model.isLoading
+                    isLoading: model.isLoading,
+                    isUnavailableOffline: model.isVisibleRangeUnavailableOffline,
+                    endMarker: priceStatus.isStale ? .stale : isLive ? .live : .plain
                 )
                 .listRowBackground(Color.clear)
                 .listRowInsets(.horizontal, 4)
@@ -96,7 +107,7 @@ struct HoldingDetailView: View {
             // cancel the reload.
             let range = model.selectedRange
             await Task {
-                await model.load(range, for: holding, using: repository, reload: true)
+                await model.load(range, for: holding, using: repository, isOnline: isOnline, reload: true)
             }.value
         }
         // The header shows the full name; the symbol stays readable once it
@@ -105,7 +116,22 @@ struct HoldingDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .errorToast(message: $model.errorMessage)
         .task(id: model.selectedRange) {
-            await model.load(model.selectedRange, for: holding, using: repository)
+            await model.load(model.selectedRange, for: holding, using: repository, isOnline: isOnline)
+        }
+        // New prices move the chart's last bar; no animation.
+        .onChange(of: holding) { _, holding in
+            for range in model.follow(holding) {
+                Task {
+                    await model.load(range, for: holding, using: repository, isOnline: isOnline, reload: true)
+                }
+            }
+        }
+        .onChange(of: isOnline) { _, isOnline in
+            guard isOnline else { return }
+            let range = model.selectedRange
+            Task {
+                await model.load(range, for: holding, using: repository, isOnline: true)
+            }
         }
     }
 
