@@ -36,6 +36,8 @@ struct DashboardShareSnapshot: Sendable {
     let minimumMarketValue: Double
     let hiddenHoldingCount: Int
     var isPrivacyEnabled: Bool
+    /// Gray in the image as on screen when prices aren't current.
+    let priceStatus: PriceStatus
     let viewportSize: CGSize
     let layoutMode: DashboardLayoutMode
 
@@ -137,6 +139,7 @@ private struct PortfolioShareScreenshotContent: View {
                 layoutMode: snapshot.layoutMode,
                 controls: nil
             )
+            .environment(\.priceStatus, snapshot.priceStatus)
         }
         .frame(width: width, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)

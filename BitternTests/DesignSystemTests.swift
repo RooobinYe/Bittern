@@ -238,8 +238,18 @@ struct PortfolioFormatTests {
         let now = Date()
         let afternoon = calendar.date(bySettingHour: 14, minute: 30, second: 5, of: now)!
 
-        #expect(PortfolioFormat.lastUpdated(afternoon, relativeTo: afternoon, calendar: calendar, locale: uk) == "14:30:05")
-        #expect(PortfolioFormat.lastUpdated(afternoon, relativeTo: afternoon, calendar: calendar, locale: us).contains("2:30:05"))
+        #expect(PortfolioFormat.notUpdatedSince(afternoon, relativeTo: afternoon, calendar: calendar, locale: uk) == "not updated since 14:30")
+        #expect(PortfolioFormat.notUpdatedSince(afternoon, relativeTo: afternoon, calendar: calendar, locale: us).contains("2:30"))
+        #expect(PortfolioFormat.notUpdatedSince(nil) == "not updated")
+    }
+
+    @Test func staleFiguresStateWhenTheyWereLastCurrent() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        #expect(PriceStatus.current.accessibilityLabel(for: "$1,100") == "$1,100")
+        #expect(
+            PriceStatus.stale(since: since).accessibilityLabel(for: "$1,100", now: since)
+                .hasPrefix("$1,100, not updated since ")
+        )
     }
 
     @Test func anOlderSnapshotStatesItsDate() {
@@ -249,8 +259,8 @@ struct PortfolioFormatTests {
         let earlier = calendar.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 16, minute: 5))!
         let lastYear = calendar.date(from: DateComponents(year: 2025, month: 11, day: 3, hour: 16, minute: 5))!
 
-        let thisYear = PortfolioFormat.lastUpdated(earlier, relativeTo: now, calendar: calendar, locale: uk)
+        let thisYear = PortfolioFormat.notUpdatedSince(earlier, relativeTo: now, calendar: calendar, locale: uk)
         #expect(thisYear.contains("3 Nov") && thisYear.contains("16:05") && !thisYear.contains("2026"))
-        #expect(PortfolioFormat.lastUpdated(lastYear, relativeTo: now, calendar: calendar, locale: uk).contains("2025"))
+        #expect(PortfolioFormat.notUpdatedSince(lastYear, relativeTo: now, calendar: calendar, locale: uk).contains("2025"))
     }
 }

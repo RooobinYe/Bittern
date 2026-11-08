@@ -40,6 +40,9 @@ struct DashboardControls {
     let selectPerformanceMode: @MainActor (PerformanceMode) -> Void
     let selectSortOption: @MainActor (HoldingSortOption) -> Void
     let refresh: () async -> Void
+    /// What the user has to fix, shown above the data until it is fixed.
+    var attention: PortfolioAttention? = nil
+    var openSettings: () -> Void = {}
 }
 
 struct DashboardContent: View {
@@ -58,16 +61,39 @@ struct DashboardContent: View {
                 Button("Connect Brokerage", action: connectBrokerage)
                     .buttonStyle(.borderedProminent)
             }
-        case .loading:
-            ProgressView("Loading portfolio…")
-        case .failed(let message):
-            ContentUnavailableView {
-                Label("Portfolio Unavailable", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try Again") {
-                    Task { await viewModel.fullRefresh() }
+        case .loading(nil):
+            // The first moments of launch: a load that answers this fast
+            // shows its data without a skeleton in between.
+            Color.clear
+        case .loading(let skeleton?):
+            GeometryReader { proxy in
+                DashboardSkeleton(
+                    skeleton: skeleton,
+                    performanceMode: viewModel.performanceMode,
+                    sortOption: viewModel.sortOption,
+                    layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
+                    controls: controls
+                )
+            }
+        case .failed(let failure):
+            if let attention = failure.attention {
+                ContentUnavailableView {
+                    Label("Portfolio Unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(attention.message)
+                } actions: {
+                    Button("Settings", action: connectBrokerage)
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                ContentUnavailableView {
+                    Label("Portfolio Unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(failure.message)
+                } actions: {
+                    Button("Try Again") {
+                        Task { await viewModel.retryLaunch() }
+                    }
                 }
             }
         case .loaded(let snapshot):
@@ -84,6 +110,7 @@ struct DashboardContent: View {
                     controls: controls
                 )
             }
+            .environment(\.priceStatus, viewModel.priceStatus)
         }
     }
 
@@ -91,8 +118,46 @@ struct DashboardContent: View {
         DashboardControls(
             selectPerformanceMode: { viewModel.performanceMode = $0 },
             selectSortOption: { viewModel.sortOption = $0 },
-            refresh: { await viewModel.refresh() }
+            refresh: { await viewModel.refresh() },
+            attention: viewModel.attention,
+            openSettings: connectBrokerage
         )
+    }
+}
+
+/// A problem only the user can fix, over the data it concerns: what, why,
+/// and the way to Settings. It stays until the problem is gone.
+struct AttentionBanner: View {
+    let attention: PortfolioAttention
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title3)
+                .foregroundStyle(BitternTheme.attention)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(attention.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(BitternTheme.ink)
+                Text(attention.message)
+                    .font(.footnote)
+                    .foregroundStyle(BitternTheme.secondaryInk)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+
+            Button("Settings", action: openSettings)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.borderless)
+                .frame(minHeight: 44)
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+        .background(BitternTheme.attentionBackground, in: .rect(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -155,6 +220,13 @@ struct DashboardVisualContent: View {
         case (.stacked, let controls?):
             List {
                 Section {
+                    if let attention = controls.attention {
+                        AttentionBanner(attention: attention, openSettings: controls.openSettings)
+                            .listRowInsets(.horizontal, 16)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+
                     allocation(fillsAvailableSpace: false)
                         .padding(.vertical, 8)
                         .listRowInsets(.horizontal, 0)
@@ -171,25 +243,32 @@ struct DashboardVisualContent: View {
             .refreshable { await controls.refresh() }
 
         case (.split, let controls?):
-            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                allocation(fillsAvailableSpace: true)
-                    .frame(
-                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                        maxHeight: .infinity
-                    )
-
-                List {
-                    holdingsSection(controls: controls)
+            VStack(spacing: 12) {
+                if let attention = controls.attention {
+                    AttentionBanner(attention: attention, openSettings: controls.openSettings)
+                        .padding(.horizontal)
                 }
-                .listStyle(.plain)
-                .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
-                .softNavigationBarEdge()
-                .refreshable { await controls.refresh() }
+
+                HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
+                    allocation(fillsAvailableSpace: true)
+                        .frame(
+                            minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
+                            idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
+                            maxWidth: DashboardLayoutMetrics.maximumChartSide,
+                            maxHeight: .infinity
+                        )
+
+                    List {
+                        holdingsSection(controls: controls)
+                    }
+                    .listStyle(.plain)
+                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
+                    .softNavigationBarEdge()
+                    .refreshable { await controls.refresh() }
+                }
+                .padding(.leading)
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.leading)
             .frame(maxWidth: .infinity)
 
         // The export's insets mirror the live list's: the allocation brings
@@ -239,7 +318,6 @@ struct DashboardVisualContent: View {
 
     private func header(controls: DashboardControls?) -> HoldingsHeader {
         HoldingsHeader(
-            lastUpdated: portfolio.lastUpdated,
             performanceMode: performanceMode,
             sortOption: sortOption,
             controls: controls

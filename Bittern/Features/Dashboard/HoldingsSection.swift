@@ -5,10 +5,10 @@
 
 import SwiftUI
 
-/// The holdings title, when prices were updated, and the menu that picks
-/// the return and the order.
+/// The holdings title and the menu that picks the return and the order.
+/// It says nothing about when prices were updated: figures that aren't
+/// current turn gray instead.
 struct HoldingsHeader: View {
-    let lastUpdated: Date?
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
     /// Nil shows the menu's label without the menu, as in the exported image.
@@ -32,15 +32,10 @@ struct HoldingsHeader: View {
     }
 
     private var titles: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Holdings")
-                .font(.title2.bold())
-                .foregroundStyle(BitternTheme.ink)
-
-            Text(lastUpdated.map { "Updated \(PortfolioFormat.lastUpdated($0))" } ?? "Prices incomplete")
-                .font(.footnote)
-                .foregroundStyle(BitternTheme.secondaryInk)
-        }
+        Text("Holdings")
+            .font(.title2.bold())
+            .foregroundStyle(BitternTheme.ink)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
