@@ -90,7 +90,9 @@ struct LivePortfolioRepository: PortfolioRepository {
                 currencyCode: position.currencyCode,
                 dividendsReceived: dividends.activitiesByAccount[account.id].flatMap {
                     dividendAmount(for: symbol, currencyCode: position.currencyCode, activities: $0)
-                }
+                },
+                marketSession: priced.marketSession,
+                regularPriceTime: priced.regularPriceTime
             )
         }
 
@@ -148,7 +150,11 @@ struct LivePortfolioRepository: PortfolioRepository {
                 currentPrice: priced.currentPrice,
                 previousClose: priced.previousClose,
                 preMarketChange: priced.preMarketChange,
-                postMarketChange: priced.postMarketChange
+                postMarketChange: priced.postMarketChange,
+                // A quote without a trading day leaves the last known one,
+                // which still says when the holding trades.
+                marketSession: priced.marketSession ?? holding.marketSession,
+                regularPriceTime: priced.regularPriceTime
             )
         }
 
@@ -175,7 +181,7 @@ struct LivePortfolioRepository: PortfolioRepository {
     }
 
     /// A snapshot and its partial failures. Only a snapshot where every
-    /// holding has a price advances "Updated".
+    /// holding has a price is a Complete Snapshot, with a time of its own.
     private func result(
         accounts: [PortfolioAccount],
         holdings: [PortfolioHolding],
@@ -224,7 +230,9 @@ struct LivePortfolioRepository: PortfolioRepository {
             currentPrice: quote.regularMarketPrice.flatMap { $0 > 0 ? $0 : nil },
             previousClose: quote.regularMarketPreviousClose,
             preMarketChange: extendedHoursChange(quote: quote.preMarket, quantity: quantity),
-            postMarketChange: extendedHoursChange(quote: quote.postMarket, quantity: quantity)
+            postMarketChange: extendedHoursChange(quote: quote.postMarket, quantity: quantity),
+            marketSession: quote.marketSession,
+            regularPriceTime: quote.regularMarketTime
         )
     }
 
@@ -240,7 +248,8 @@ struct LivePortfolioRepository: PortfolioRepository {
             percent: amount / abs(quantity * quote.regularClose),
             observedAt: quote.observedAt,
             sessionStart: quote.sessionStart,
-            sessionEnd: quote.sessionEnd
+            sessionEnd: quote.sessionEnd,
+            price: quote.price
         )
     }
 
@@ -254,11 +263,15 @@ private struct PricedValues {
     let previousClose: Double?
     let preMarketChange: HoldingExtendedHoursChange?
     let postMarketChange: HoldingExtendedHoursChange?
+    let marketSession: HoldingMarketSession?
+    let regularPriceTime: Date?
 
     static let none = PricedValues(
         currentPrice: nil,
         previousClose: nil,
         preMarketChange: nil,
-        postMarketChange: nil
+        postMarketChange: nil,
+        marketSession: nil,
+        regularPriceTime: nil
     )
 }

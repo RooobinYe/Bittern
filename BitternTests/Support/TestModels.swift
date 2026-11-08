@@ -9,14 +9,17 @@ func makeHolding(
     currentPrice: Double? = 110,
     previousClose: Double? = 105,
     currencyCode: String = "USD",
-    dividendsReceived: Double? = 0
+    dividendsReceived: Double? = 0,
+    instrumentKind: PortfolioInstrumentKind? = .stock,
+    marketSession: HoldingMarketSession? = nil,
+    regularPriceTime: Date? = nil
 ) -> PortfolioHolding {
     PortfolioHolding(
         id: "\(accountID)-\(symbol)",
         accountID: accountID,
         symbol: symbol,
         name: symbol,
-        instrumentKind: .stock,
+        instrumentKind: instrumentKind,
         logoURL: nil,
         accountName: "Account",
         quantity: quantity,
@@ -27,7 +30,20 @@ func makeHolding(
         preMarketChange: nil,
         postMarketChange: nil,
         currencyCode: currencyCode,
-        dividendsReceived: dividendsReceived
+        dividendsReceived: dividendsReceived,
+        marketSession: marketSession,
+        regularPriceTime: regularPriceTime
+    )
+}
+
+func makeAccount(id: String = "a1", currencyCode: String = "USD", isConnectionDisabled: Bool) -> PortfolioAccount {
+    PortfolioAccount(
+        id: id,
+        name: "Account \(id)",
+        institutionName: "Broker \(id)",
+        providerLogoURL: nil,
+        isConnectionDisabled: isConnectionDisabled,
+        currencyCode: currencyCode
     )
 }
 

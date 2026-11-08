@@ -161,7 +161,9 @@ extension YahooFinanceClient {
                         : nil,
                     postMarket: extendedHoursQuote?.extendedHoursSession == .postMarket
                         ? extendedHoursQuote
-                        : nil
+                        : nil,
+                    regularMarketTime: quote.regularMarketTime,
+                    marketSession: quote.marketSession
                 )
             }
             return YahooQuoteBatch(quotes: enrichedQuotes, didFailExtendedHours: false)
@@ -204,6 +206,7 @@ extension YahooFinanceClient {
                     URLQueryItem(name: "range", value: "1d"),
                     URLQueryItem(name: "includePrePost", value: "false")
                 ],
+                cachePolicy: .reloadIgnoringLocalCacheData,
                 operation: "quote candidate=\(yahooSymbol)"
             )
             guard let meta = result.meta, let currentPrice = meta.regularMarketPrice else {
@@ -220,7 +223,11 @@ extension YahooFinanceClient {
                     regularMarketPrice: currentPrice,
                     regularMarketPreviousClose: meta.chartPreviousClose,
                     preMarket: nil,
-                    postMarket: nil
+                    postMarket: nil,
+                    regularMarketTime: meta.regularMarketTime.map {
+                        Date(timeIntervalSince1970: TimeInterval($0))
+                    },
+                    marketSession: marketSession(from: meta.currentTradingPeriod)
                 ),
                 extendedHoursProbe: extendedHoursProbe(
                     meta: meta,
@@ -271,6 +278,21 @@ extension YahooFinanceClient {
             )
         }
         return .inactive
+    }
+
+    /// The trading day around the quote, from pre-market to post-market. A
+    /// period Yahoo leaves out takes the regular session's bounds; without
+    /// a well-formed regular session there is no trading day.
+    private func marketSession(from periods: YahooCurrentTradingPeriodsDTO?) -> HoldingMarketSession? {
+        guard let regular = marketSession(from: periods?.regular) else { return nil }
+        let preMarket = marketSession(from: periods?.pre).flatMap { $0.end <= regular.start ? $0 : nil }
+        let postMarket = marketSession(from: periods?.post).flatMap { regular.end <= $0.start ? $0 : nil }
+        return HoldingMarketSession(
+            start: preMarket?.start ?? regular.start,
+            regularStart: regular.start,
+            regularEnd: regular.end,
+            end: postMarket?.end ?? regular.end
+        )
     }
 
     private func marketSession(from period: YahooCurrentTradingPeriodDTO?) -> PriceChartTimeSegment? {
@@ -334,6 +356,7 @@ extension YahooFinanceClient {
                 URLQueryItem(name: "range", value: "1d"),
                 URLQueryItem(name: "includePrePost", value: "true")
             ],
+            cachePolicy: .reloadIgnoringLocalCacheData,
             operation: "\(sessionName) candidate=\(symbol)"
         )
 

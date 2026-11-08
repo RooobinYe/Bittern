@@ -90,6 +90,43 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
         )
     }
 
+    /// The holdings whose price can move at `date`. See
+    /// `PortfolioHolding.isInActiveSession(at:)`.
+    func activeHoldings(at date: Date) -> [PortfolioHolding] {
+        holdings.filter { $0.isInActiveSession(at: date) }
+    }
+
+    /// The earliest known trading day still to open after `date`, when no
+    /// holding is in one now.
+    func nextSessionStart(after date: Date) -> Date? {
+        holdings.compactMap(\.marketSession?.start).filter { $0 > date }.min()
+    }
+
+    /// Only the holdings with these ids, for pricing part of the portfolio.
+    func only(holdingIDs: Set<String>) -> PortfolioSnapshot {
+        .make(
+            accounts: accounts,
+            holdings: holdings.filter { holdingIDs.contains($0.id) },
+            lastUpdated: lastUpdated
+        )
+    }
+
+    /// This snapshot with the price fields of `priced`, a freshly quoted part
+    /// of it, matched by holding. Holdings left out keep their prices. Only a
+    /// result in which every holding has a price takes `pricedAt` as its time.
+    func merging(prices priced: [PortfolioHolding], pricedAt: Date?) -> PortfolioSnapshot {
+        let pricedByID = Dictionary(priced.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let merged = holdings.map { holding in
+            pricedByID[holding.id].map(holding.repriced(from:)) ?? holding
+        }
+        let isComplete = merged.allSatisfy { $0.currentPrice != nil }
+        return .make(
+            accounts: accounts,
+            holdings: merged,
+            lastUpdated: isComplete ? (pricedAt ?? lastUpdated) : lastUpdated
+        )
+    }
+
     /// Only the accounts at one provider, with totals recomputed. A provider
     /// with no accounts here leaves the snapshot whole rather than empty.
     func filtered(toProvider providerName: String?) -> PortfolioSnapshot {

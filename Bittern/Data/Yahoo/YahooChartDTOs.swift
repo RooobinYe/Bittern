@@ -33,6 +33,8 @@ struct YahooChartMetaDTO: Decodable {
     let currency: String?
     let symbol: String?
     let regularMarketPrice: Double?
+    /// Unix seconds of the trade `regularMarketPrice` comes from.
+    let regularMarketTime: Int?
     let chartPreviousClose: Double?
     let previousClose: Double?
     let exchangeTimezoneName: String?
@@ -103,6 +105,10 @@ struct YahooQuoteDTO: Sendable {
     let regularMarketPreviousClose: Double?
     let preMarket: YahooExtendedHoursQuoteDTO?
     let postMarket: YahooExtendedHoursQuoteDTO?
+    /// When `regularMarketPrice` traded.
+    var regularMarketTime: Date? = nil
+    /// The trading day the quote belongs to.
+    var marketSession: HoldingMarketSession? = nil
 }
 
 struct YahooExtendedHoursQuoteDTO: Sendable {
