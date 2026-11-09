@@ -37,6 +37,7 @@ private final class StubRepository: PortfolioRepository {
     }
     var holdsCalls = false
     var honorsCancellation = true
+    var marketDataConnected = true
     private(set) var calls: [Call] = []
     /// The symbols each price refresh asked about.
     private(set) var refreshedSymbols: [[String]] = []
@@ -70,6 +71,10 @@ private final class StubRepository: PortfolioRepository {
 
     func connectionPortalURL(credentials: SnapTradeCredentials, darkMode: Bool) async throws -> URL {
         throw URLError(.unsupportedURL)
+    }
+
+    func isMarketDataConnected() async -> Bool {
+        marketDataConnected
     }
 
     /// Answers the held call at `index`, oldest first.
@@ -716,6 +721,75 @@ struct DashboardViewModelTests {
         #expect(model.snapshot != nil)
         #expect(repository.calls.last == .refresh)
         #expect(model.isLiveRefreshing)
+    }
+
+    @Test func returningWithTheConnectionLostGraysThePricesUntilNewOnesArrive() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        let lastUpdated = model.snapshot?.lastUpdated
+        model.sceneDidEnterBackground()
+        repository.marketDataConnected = false
+        repository.holdsCalls = true
+
+        model.sceneDidBecomeActive()
+        await settle { repository.heldCalls == [.refresh] }
+        #expect(model.priceStatus == .stale(since: lastUpdated))
+
+        repository.marketDataConnected = true
+        repository.answer(with: repriced(model.snapshot!, to: 120))
+        await settle { model.priceStatus == .current }
+        #expect(model.priceStatus == .current)
+        #expect(model.snapshot?.holdings.first?.currentPrice == 120)
+    }
+
+    @Test func returningWithTheConnectionLiveKeepsTheColors() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        model.sceneDidEnterBackground()
+        repository.holdsCalls = true
+
+        model.sceneDidBecomeActive()
+        await settle { repository.heldCalls == [.refresh] }
+
+        #expect(model.priceStatus == .current)
+    }
+
+    @Test func aLostConnectionLeavesPricesOfAClosedMarketInColor() async {
+        let opening = clock.now.addingTimeInterval(600)
+        let cached = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [
+                makeHolding(
+                    marketSession: HoldingMarketSession(
+                        start: opening,
+                        regularStart: opening.addingTimeInterval(3_600),
+                        regularEnd: opening.addingTimeInterval(30_000),
+                        end: opening.addingTimeInterval(44_000)
+                    )
+                )
+            ],
+            lastUpdated: clock.now.addingTimeInterval(-60)
+        )
+        let model = await launchedModel(cached: cached)
+        model.sceneDidEnterBackground()
+        repository.marketDataConnected = false
+        repository.holdsCalls = true
+
+        model.sceneDidBecomeActive()
+        await settle { repository.heldCalls == [.refresh] }
+
+        #expect(model.priceStatus == .current)
+    }
+
+    @Test func aConnectionLostWhileLiveGraysThePricesAtTheNextTick() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        let lastUpdated = model.snapshot?.lastUpdated
+        repository.marketDataConnected = false
+        repository.holdsCalls = true
+
+        await advance(by: LivePriceRefresh.interval)
+        await settle { repository.heldCalls == [.refresh] }
+
+        #expect(model.priceStatus == .stale(since: lastUpdated))
+        #expect(model.errorMessage == nil)
     }
 
     @Test func liveRefreshWaitsForTheNextSessionWhenNothingTrades() async {

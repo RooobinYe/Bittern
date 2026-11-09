@@ -639,7 +639,9 @@ final class DashboardViewModel {
     /// Fetches prices for the holdings in an active session every interval.
     /// With none in session it waits for the next one to open, checking
     /// every price now and then. While prices aren't current it fetches
-    /// all of them, backing off as failures repeat.
+    /// all of them, backing off as failures repeat. Prices turn stale at
+    /// once when the Market Data Connection is lost, and after a few failed
+    /// requests in a row while it is live.
     private func runLiveRefresh(id: UInt64, refreshingFirst: Bool) async {
         var failures = 0
         var pricesEverything = refreshingFirst
@@ -660,6 +662,9 @@ final class DashboardViewModel {
                 pricesEverything = true
                 continue
             }
+
+            await markStaleIfConnectionLost()
+            guard !Task.isCancelled, id == liveTaskID else { return }
 
             let holdingIDs = pricesEverything || priceStatus.isStale
                 ? nil
@@ -696,6 +701,24 @@ final class DashboardViewModel {
                 : LivePriceRefresh.backoff(afterFailures: failures)
             do { try await sleep(delay) } catch { return }
         }
+    }
+
+    /// Before each price request: with the Market Data Connection lost,
+    /// the figures on screen are the last ones heard, not current ones,
+    /// unless no market can have moved since. Returning from the background
+    /// usually finds it lost. The prices the request brings turn them back.
+    private func markStaleIfConnectionLost() async {
+        guard !priceStatus.isStale else { return }
+        let isConnected = await repository.isMarketDataConnected()
+        guard !isConnected,
+              !priceStatus.isStale,
+              let shown = snapshot,
+              shown.mayHavePricesMoved(until: now())
+        else {
+            return
+        }
+        AppLog.portfolio.debug("Market data connection lost; prices shown as stale")
+        priceStatus = .stale(since: shown.lastUpdated)
     }
 
     // MARK: - Network

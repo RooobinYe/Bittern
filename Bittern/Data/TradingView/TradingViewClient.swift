@@ -58,6 +58,12 @@ struct TradingViewClient {
         serverStore.server
     }
 
+    /// Whether the connection market data comes through is live. See
+    /// `TradingViewConnection.isLive`.
+    func isConnected() async -> Bool {
+        await connection.isLive
+    }
+
     /// Saves `server` and drops the open connection, so every request from
     /// now on goes through it.
     func use(_ server: TradingViewServer) async {

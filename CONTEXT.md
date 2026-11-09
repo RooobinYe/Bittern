@@ -95,8 +95,12 @@ New prices for every In-Session Holding, fetched on a fixed interval while the a
 _Avoid_: Polling, auto-refresh, streaming
 
 **Stale Figure**:
-A price-derived figure shown from the last data because current prices can't be had: there is no network path, or loading keeps failing for network reasons. It is shown in gray, and VoiceOver adds when every price was last known. Names, logos, allocation bands and the legend aren't Stale Figures and keep their colors. A closed market's close is its current price, so it is not a Stale Figure.
+A price-derived figure shown from the last data because current prices can't be had, or haven't arrived yet: there is no network path, the Market Data Connection is lost while prices may have moved since they were last known, or Live Refresh keeps failing. It is shown in gray, and VoiceOver adds when every price was last known. Names, logos, allocation bands and the legend aren't Stale Figures and keep their colors. A closed market's close is its current price, so it is not a Stale Figure; but prices may have moved unless every holding's market is known to have stayed closed since they were last known, which needs its next trading day to be known.
 _Avoid_: Offline mode, cached value, outdated price
+
+**Market Data Connection**:
+The one WebSocket market data comes through, to TradingView or through the user's own server. It is live while the server has sent something, a heartbeat at least, within two missed heartbeats and five seconds (25 seconds with TradingView's 10-second heartbeat). A closed socket, or one silent for longer, is lost; after time in the background that is usually the case, so returning reopens it. A network path on the device doesn't make it live: only the server's heartbeat says the whole way to it works.
+_Avoid_: Network, online
 
 **Bar in Progress**:
 The last point of a holding's chart range: the bar whose interval includes now (1D 5 minutes, 5D 15 minutes, 1M an hour, 3M, YTD and 1Y a day, 5Y a week, MAX a month), whose close follows the live price. A point is added only when the next interval begins. Pre- and post-market quotes move only the 1D Extended-Hours Continuation, and Overnight Quotes no chart; 5D and longer follow the regular session.
@@ -166,7 +170,7 @@ _Avoid_: Preset, profile, saved scenario
 
 ## Relationships
 
-- **Live Refresh** prices only **In-Session Holdings**; a failing **Live Refresh** turns the figures into **Stale Figures**, and the next success turns them back
+- **Live Refresh** prices only **In-Session Holdings**; a failing **Live Refresh**, or a lost **Market Data Connection** while prices may have moved, turns the figures into **Stale Figures**, and the next success turns them back
 - A holding's chart range follows the live price through its **Bar in Progress**
 - The **Contribution Plan** elects zero or more **Elected Holdings**, each carrying exactly one **Target Percentage**
 - The **Contribution Pool** is derived from every **Elected Holding**'s **Regular-Market Valuation** plus the **Contribution Amount**
@@ -195,3 +199,4 @@ _Avoid_: Preset, profile, saved scenario
 - How the app says data is loading, live or out of date — resolved 2026-11-08: with no status text at all, TradingView-style. The skeleton says data is on its way, figures that move say they are live, and gray says they aren't current; only Attention gets words. "Updated" is no longer shown, on screen or in the shared image.
 - Whether "Today" should change when figures are Stale — resolved 2026-11-08: no. It names the return mode (the most recent session's change, paired with All time), not the calendar day, just as it shows Friday's change on a Sunday.
 - Whether the kept Complete Snapshot should expire — resolved 2026-11-08: no. Old isn't wrong; gray and VoiceOver's date say how old it is. It is deleted when credentials are cleared or changed.
+- When figures turn gray on returning from the background — resolved 2026-11-09: as in TradingView's app, gray at once when the **Market Data Connection** is lost and prices may have moved, and in color again with the first new prices. Until then the figures are the ones from before the background, not current ones. Failures with the connection live, such as quotes not arriving, still turn figures gray only after Live Refresh fails three times in a row.

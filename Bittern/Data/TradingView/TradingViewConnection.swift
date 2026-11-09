@@ -77,9 +77,14 @@ nonisolated struct TradingViewSeries: Sendable {
 actor TradingViewConnection {
     typealias SocketFactory = @Sendable () async throws -> any TradingViewSocket
 
-    /// TradingView sends a heartbeat every 10 seconds; a socket silent for
-    /// longer than this is treated as gone.
-    static let stallLimit: Duration = .seconds(25)
+    /// How often TradingView sends a heartbeat, as measured.
+    static let heartbeatInterval: Duration = .seconds(10)
+    /// A socket silent for longer than this, two missed heartbeats and some
+    /// margin, is treated as gone.
+    static let stallLimit: Duration = heartbeatInterval * 2 + .seconds(5)
+    /// A gap between heartbeats longer than this is logged: it comes before
+    /// a stall, or says the heartbeat has changed.
+    static let lateHeartbeat: Duration = heartbeatInterval + heartbeatInterval / 2
 
     private let makeSocket: SocketFactory
     private let clock = ContinuousClock()
@@ -87,6 +92,7 @@ actor TradingViewConnection {
     private var generation: UInt64 = 0
     private var opening: Task<UInt64, any Error>?
     private var lastReceived: ContinuousClock.Instant?
+    private var lastHeartbeat: ContinuousClock.Instant?
     private var subscribers: [String: AsyncThrowingStream<TradingViewMessage, any Error>.Continuation] = [:]
 
     init(makeSocket: @escaping SocketFactory) {
@@ -94,6 +100,13 @@ actor TradingViewConnection {
     }
 
     // MARK: - Connection
+
+    /// Whether a socket is open and the server has sent something on it,
+    /// a heartbeat at least, within the stall limit. Opens nothing.
+    var isLive: Bool {
+        guard socket != nil, let lastReceived else { return false }
+        return clock.now - lastReceived <= Self.stallLimit
+    }
 
     /// The generation of the open socket, opening one first if there is
     /// none. Sessions belong to one generation: when the socket fails, every
@@ -119,6 +132,7 @@ actor TradingViewConnection {
         let generation = generation
         self.socket = socket
         lastReceived = clock.now
+        lastHeartbeat = nil
         Task { await self.receive(from: socket, generation: generation) }
 
         try await send("set_auth_token", [.string("unauthorized_user_token")], generation: generation)
@@ -171,6 +185,7 @@ actor TradingViewConnection {
                 for frame in try TradingViewFraming.decode(packet) {
                     switch frame {
                     case .heartbeat(let payload):
+                        noteHeartbeat()
                         try await socket.send(TradingViewFraming.encode(payload))
                     case .message(let payload):
                         guard let message = try TradingViewFraming.message(from: payload) else { continue }
@@ -180,6 +195,18 @@ actor TradingViewConnection {
             }
         } catch {
             fail(error, generation: generation)
+        }
+    }
+
+    /// Logs a heartbeat that came late. A gap past the stall limit isn't
+    /// one: the app was suspended, and the socket counts as gone anyway.
+    private func noteHeartbeat() {
+        let now = clock.now
+        defer { lastHeartbeat = now }
+        guard let lastHeartbeat else { return }
+        let gap = now - lastHeartbeat
+        if gap > Self.lateHeartbeat, gap <= Self.stallLimit {
+            AppLog.marketData.warning("TradingView heartbeat late: \(gap, privacy: .public) since the last")
         }
     }
 
@@ -207,6 +234,7 @@ actor TradingViewConnection {
         socket.close()
         self.socket = nil
         lastReceived = nil
+        lastHeartbeat = nil
         let ended = subscribers.values
         subscribers = [:]
         let reported = Self.transportError(error)

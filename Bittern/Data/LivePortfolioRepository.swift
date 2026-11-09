@@ -195,6 +195,10 @@ struct LivePortfolioRepository: PortfolioRepository {
         await marketData.use(server)
     }
 
+    func isMarketDataConnected() async -> Bool {
+        await marketData.isConnected()
+    }
+
     /// A snapshot and its partial failures. Only a snapshot where every
     /// holding has a price is a Complete Snapshot, with a time of its own.
     private func result(
