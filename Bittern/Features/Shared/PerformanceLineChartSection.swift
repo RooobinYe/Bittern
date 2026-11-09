@@ -325,6 +325,7 @@ private struct PerformanceLineChart<Point: Hashable>: View {
         let geometry = PerformanceChartGeometry(
             values: points.map(value),
             positions: points.indices.map(position(at:)),
+            xExtent: xExtent,
             baseValue: baseValue,
             valueBounds: valueBounds
         )
@@ -519,8 +520,6 @@ private struct PerformanceLineChart<Point: Hashable>: View {
             ticks = PerformanceChartTimeAxis.hourBoundaries(
                 from: domain.start,
                 to: domain.end,
-                // The plotted stretch, which is shorter than the domain
-                // while a round-the-clock day is still under way.
                 visibleDuration: geometry.xDomain.upperBound - geometry.xDomain.lowerBound,
                 calendar: calendar
             )
@@ -549,6 +548,17 @@ private struct PerformanceLineChart<Point: Hashable>: View {
     }
 
     // MARK: - Scales
+
+    /// A time axis covers its whole domain, so a session in progress stops
+    /// short of its scheduled close. Indexed points fill the axis.
+    private var xExtent: ClosedRange<Double>? {
+        switch xScale {
+        case .unavailable, .indexed:
+            return nil
+        case .time(let domain, _):
+            return 0...domain.duration
+        }
+    }
 
     private func position(at index: Int) -> Double? {
         switch xScale {
@@ -644,18 +654,25 @@ nonisolated struct PerformanceChartGeometry {
     let xDomain: ClosedRange<Double>
     let yDomain: ClosedRange<Double>
 
-    /// - Parameter valueBounds: The values the value axis must cover, when
-    ///   it should hold still rather than fit `values`.
+    /// - Parameters:
+    ///   - xExtent: The positions the horizontal axis must cover, when it
+    ///     should reach past the plotted points rather than fit them.
+    ///   - valueBounds: The values the value axis must cover, when it
+    ///     should hold still rather than fit `values`.
     init(
         values: [Double],
         positions: [Double?],
+        xExtent: ClosedRange<Double>? = nil,
         baseValue: Double?,
         valueBounds: ClosedRange<Double>? = nil
     ) {
         self.values = values
         self.positions = positions
 
-        let plotted = positions.compactMap { $0 }
+        var plotted = positions.compactMap { $0 }
+        if let xExtent {
+            plotted += [xExtent.lowerBound, xExtent.upperBound]
+        }
         xDomain = (plotted.min() ?? 0)...max(plotted.max() ?? 1, (plotted.min() ?? 0) + 1)
 
         var range = valueBounds.map { [$0.lowerBound, $0.upperBound] } ?? values
