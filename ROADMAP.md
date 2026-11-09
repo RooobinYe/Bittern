@@ -23,6 +23,6 @@ Bittern 接下来的修改计划，按建议顺序排列。
 ## 暂不做
 
 - 金额从 `Double` 换成 `Decimal`：App 只展示不下单，目前够用
-- 多币种支持（汇率换算、分币种小计、`Money` 类型）：持仓只有美元，见 [ADR 0002](docs/adr/0002-single-currency-portfolio.md)
+- 多币种支持（汇率换算、分币种小计、`Money` 类型）：持仓只有美元，见 [CONTEXT.md](CONTEXT.md)
 - 把定投搜索移出主线程：在 Mac 上用 Release 构建实测，普通组合每次渲染不到 1ms，极端输入（35 只持仓）约 88ms
 - 定投配置对比图：V1 决定只显示行内数字

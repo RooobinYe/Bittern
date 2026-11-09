@@ -22,7 +22,7 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
 
     /// Totals are nil unless every holding contributes to them in one shared
     /// currency: Bittern never converts, so there is no honest sum otherwise
-    /// (docs/adr/0002-single-currency-portfolio.md).
+    /// (see the currency decision in CONTEXT.md).
     static func make(
         accounts: [PortfolioAccount],
         holdings: [PortfolioHolding],

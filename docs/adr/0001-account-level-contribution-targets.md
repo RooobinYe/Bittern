@@ -1,3 +1,0 @@
-# Account-level contribution targets
-
-The contribution calculator attaches elections, Target Percentages, and Buy Amounts to account-level holdings (one row per account × symbol), not to symbols merged across accounts. Nearly every DCA tool works at asset level, but this calculator's output must be directly executable: buy orders are placed in a specific brokerage account, so a symbol-level "buy $400 of AAPL" would still leave the user to split it across accounts by hand. The persisted Contribution Plan is therefore keyed by account + symbol; reversing this later means migrating stored targets and redefining what every percentage refers to.
