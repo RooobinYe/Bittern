@@ -106,6 +106,14 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
             .min()
     }
 
+    /// Whether any price could have changed since every price was last
+    /// known. True when that time isn't known. See
+    /// `PortfolioHolding.mayHaveMoved(since:until:)`.
+    func mayHavePricesMoved(until now: Date) -> Bool {
+        guard let lastUpdated else { return true }
+        return holdings.contains { $0.mayHaveMoved(since: lastUpdated, until: now) }
+    }
+
     /// Only the holdings with these ids, for pricing part of the portfolio.
     func only(holdingIDs: Set<String>) -> PortfolioSnapshot {
         .make(

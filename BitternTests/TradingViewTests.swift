@@ -344,6 +344,21 @@ struct TradingViewQuoteTests {
         #expect(server.messages(named: "quote_add_symbols").count == 2)
     }
 
+    @Test func theConnectionIsLiveOnlyWhileASocketIsOpen() async throws {
+        let server = FakeTradingViewServer(quotes: ["AAPL": FakeMarket.stockQuote()])
+        let client = server.client(at: marketTime(day: 6, hour: 11))
+        // Asking opens nothing.
+        #expect(await !client.isConnected())
+        #expect(server.socketCount == 0)
+
+        _ = try await client.quotes(for: [MarketQuoteRequest(symbol: "AAPL", instrumentKind: .stock)])
+        #expect(await client.isConnected())
+
+        server.dropConnections()
+        try await eventually { await !client.isConnected() }
+        #expect(server.socketCount == 1)
+    }
+
     @Test func noNetworkIsReportedAsOffline() async throws {
         let server = FakeTradingViewServer(quotes: ["AAPL": FakeMarket.stockQuote()])
         server.setRefusesConnections(true)

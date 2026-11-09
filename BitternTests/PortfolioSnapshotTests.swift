@@ -133,6 +133,75 @@ struct PortfolioSnapshotTests {
 }
 
 @Suite
+struct PriceMovementTests {
+    private let lastKnown = Date(timeIntervalSince1970: 1_000_000)
+
+    /// A trading day from `start` hours after `lastKnown` to `end` hours
+    /// after it.
+    private func session(from start: Double, to end: Double) -> HoldingMarketSession {
+        HoldingMarketSession(
+            start: lastKnown.addingTimeInterval(start * 3_600),
+            regularStart: lastKnown.addingTimeInterval((start + 1) * 3_600),
+            regularEnd: lastKnown.addingTimeInterval((end - 1) * 3_600),
+            end: lastKnown.addingTimeInterval(end * 3_600)
+        )
+    }
+
+    private func snapshot(_ holdings: [PortfolioHolding]) -> PortfolioSnapshot {
+        .make(accounts: [makeAccount()], holdings: holdings, lastUpdated: lastKnown)
+    }
+
+    private func hours(_ count: Double) -> Date {
+        lastKnown.addingTimeInterval(count * 3_600)
+    }
+
+    @Test func aMarketKnownToOpenLaterHasNotMoved() {
+        let holdings = snapshot([makeHolding(marketSession: session(from: 5, to: 21))])
+        #expect(!holdings.mayHavePricesMoved(until: hours(4)))
+    }
+
+    @Test func aSessionUnderWayOrOverSinceMayHaveMoved() {
+        let holdings = snapshot([makeHolding(marketSession: session(from: 5, to: 21))])
+        #expect(holdings.mayHavePricesMoved(until: hours(6)))
+        #expect(holdings.mayHavePricesMoved(until: hours(30)))
+    }
+
+    @Test func aSessionUnderWayWhenPricesWereKnownMayHaveMoved() {
+        let holdings = snapshot([makeHolding(marketSession: session(from: -2, to: 14))])
+        #expect(holdings.mayHavePricesMoved(until: hours(1)))
+    }
+
+    @Test func theOvernightSessionCounts() {
+        var day = session(from: -16, to: -1)
+        day.overnight = DateInterval(start: hours(1), end: hours(9))
+        let holdings = snapshot([makeHolding(marketSession: day)])
+        #expect(!holdings.mayHavePricesMoved(until: hours(0.5)))
+        #expect(holdings.mayHavePricesMoved(until: hours(2)))
+    }
+
+    /// After the close the latest trading day stays until the next begins,
+    /// so when that is isn't known.
+    @Test func withoutAKnownNextSessionPricesMayHaveMoved() {
+        let holdings = snapshot([makeHolding(marketSession: session(from: -16, to: -1))])
+        #expect(holdings.mayHavePricesMoved(until: hours(1)))
+    }
+
+    @Test func cryptoAndUnknownHoursMayAlwaysHaveMoved() {
+        #expect(snapshot([makeHolding(symbol: "BTC", instrumentKind: .crypto)]).mayHavePricesMoved(until: hours(0.1)))
+        #expect(snapshot([makeHolding()]).mayHavePricesMoved(until: hours(0.1)))
+    }
+
+    @Test func pricesNeverAllKnownMayHaveMoved() {
+        let holdings = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [makeHolding(marketSession: session(from: 5, to: 21))],
+            lastUpdated: nil
+        )
+        #expect(holdings.mayHavePricesMoved(until: hours(1)))
+    }
+}
+
+@Suite
 struct PortfolioSnapshotPersistenceTests {
     /// A cache written before these rules holds a zero cost and a total built
     /// from it. Loading must not bring those numbers back.

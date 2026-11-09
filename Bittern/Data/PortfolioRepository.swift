@@ -26,10 +26,14 @@ protocol PortfolioRepository {
     func checkMarketDataServer(_ server: TradingViewServer) async throws -> TradingViewServerCheck
     /// Sends market data through `server` from now on.
     func useMarketDataServer(_ server: TradingViewServer) async
+    /// Whether the Market Data Connection is live: the server has been heard
+    /// from lately. Opens nothing.
+    func isMarketDataConnected() async -> Bool
 }
 
 /// Repositories without live market data, such as previews and the demo,
-/// stay on TradingView and can't test a server.
+/// stay on TradingView and can't test a server. They have no connection to
+/// lose: a network path is all their prices need.
 extension PortfolioRepository {
     var marketDataServer: TradingViewServer { .tradingView }
 
@@ -38,6 +42,8 @@ extension PortfolioRepository {
     }
 
     func useMarketDataServer(_ server: TradingViewServer) async {}
+
+    func isMarketDataConnected() async -> Bool { true }
 }
 
 struct PortfolioCurrencyMismatch: Equatable, Sendable {

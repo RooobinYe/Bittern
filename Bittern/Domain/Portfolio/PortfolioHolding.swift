@@ -142,6 +142,22 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         return marketSession.isActive(at: date) || marketSession.isOvernight(at: date)
     }
 
+    /// Whether the price could have changed from `date` to `now`: it was
+    /// in session at some point between them, or nothing says it wasn't.
+    /// Only a trading day known to start after `now`, with none of the known
+    /// sessions running in between, says the market stayed closed.
+    func mayHaveMoved(since date: Date, until now: Date) -> Bool {
+        guard instrumentKind != .crypto else { return true }
+        guard let marketSession else { return true }
+        let sessions = [
+            DateInterval(start: marketSession.start, end: max(marketSession.start, marketSession.end)),
+            marketSession.overnight
+        ].compactMap { $0 }
+        let ranInBetween = sessions.contains { $0.start <= now && date < $0.end }
+        guard !ranInBetween else { return true }
+        return !sessions.contains { $0.start > date }
+    }
+
     var marketValue: Double? {
         guard let currentPrice else { return nil }
         return quantity * currentPrice
