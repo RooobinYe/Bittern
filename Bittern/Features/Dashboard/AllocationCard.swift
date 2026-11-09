@@ -32,9 +32,10 @@ final class AllocationLensMotion {
     var isLifted = false
     /// The card on screen. Global, not a space named on the page: inside a
     /// list, a named space is measured from below the bars. It changes
-    /// with every scroll, and only the lifted lens reads it, so it redraws
-    /// nothing.
-    @ObservationIgnored var cardFrame: CGRect = .zero
+    /// with every scroll. Only the lifted lens reads it, so a scroll while
+    /// the lens springs back carries the lens along with the card, and a
+    /// scroll at rest redraws nothing.
+    var cardFrame: CGRect = .zero
 }
 
 struct PortfolioAllocationSection: View {
@@ -215,8 +216,19 @@ private struct AllocationLensCard: View {
                     motion.translation = value.translation
                 }
             }
-            .onEnded { _ in
-                withAnimation(.spring(duration: 0.5, bounce: 0.3)) {
+            .onEnded { value in
+                // The spring starts at the finger's speed, so a flung lens
+                // carries on a little before it swings back.
+                let spring = Animation.interpolatingSpring(
+                    duration: 0.5,
+                    bounce: 0.3,
+                    initialVelocity: Self.returnVelocity(value.velocity, from: motion.translation)
+                )
+                // Put the lens back on the card only once the spring has
+                // settled. A bouncy spring is logically complete while it is
+                // still swinging past the middle, and the card's lens, drawn
+                // at the exact middle, would take over with a jump.
+                withAnimation(spring, completionCriteria: .removed) {
                     motion.translation = .zero
                 } completion: {
                     // Another drag may have picked it up meanwhile.
@@ -225,6 +237,17 @@ private struct AllocationLensCard: View {
                     }
                 }
             }
+    }
+
+    /// The finger's velocity as the spring takes it: the share of the way
+    /// back to the middle covered per second, positive toward the middle.
+    /// The spring moves the lens along the line to the middle, so only the
+    /// velocity along that line carries over.
+    static func returnVelocity(_ velocity: CGSize, from translation: CGSize) -> Double {
+        let distanceSquared = translation.width * translation.width + translation.height * translation.height
+        guard distanceSquared > 0 else { return 0 }
+        let outward = velocity.width * translation.width + velocity.height * translation.height
+        return -outward / distanceSquared
     }
 }
 
@@ -288,11 +311,12 @@ struct LiftedAllocationLens: View {
             GeometryReader { proxy in
                 let page = proxy.frame(in: .global)
                 let card = motion.cardFrame
+                // The drag and the card apart: the spring animates the
+                // offset, while a scroll moves the position at once, without
+                // cutting the spring short.
                 AllocationLensGlass(radius: AllocationCardMetrics.lensRadius(in: card.size))
-                    .position(
-                        x: card.midX - page.minX + motion.translation.width,
-                        y: card.midY - page.minY + motion.translation.height
-                    )
+                    .offset(motion.translation)
+                    .position(x: card.midX - page.minX, y: card.midY - page.minY)
             }
         }
     }
