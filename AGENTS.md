@@ -6,7 +6,7 @@
 # 约定
 
 - 金融数据 quick to fail：不用 0、默认值或估算代替缺失数据，不静默丢弃持仓，不跨币种相加
-- 只支持单一币种，不做换算，理由见 `docs/adr/0002-single-currency-portfolio.md`
+- 只支持单一币种，不做换算，理由见 `CONTEXT.md`
 - 术语和业务含义以 CONTEXT.md 为准，与代码不一致时先指出来
 - 分层：`Domain/` 只依赖 Foundation；client 只在 `App/AppDependencies.swift` 创建，界面从 environment 取 `PortfolioRepository` 和 `LogoSource`
 
