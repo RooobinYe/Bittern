@@ -237,6 +237,7 @@ struct DashboardViewModelTests {
                     previousClose: $0.previousClose,
                     preMarketChange: nil,
                     postMarketChange: nil,
+                    overnightChange: nil,
                     marketSession: $0.marketSession,
                     regularPriceTime: clock.now
                 )

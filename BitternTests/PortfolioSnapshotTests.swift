@@ -205,6 +205,26 @@ struct LivePricingTests {
         #expect(snapshot.nextSessionStart(after: now) == now.addingTimeInterval(600))
     }
 
+    /// Between post-market and the next pre-market a stock still trades
+    /// overnight, so its price can move; it waits for the overnight session
+    /// like for a trading day.
+    @Test func theOvernightSessionKeepsAStockInSession() {
+        var ended = session(opensIn: -60_000)
+        ended.overnight = DateInterval(start: now.addingTimeInterval(-60), end: now.addingTimeInterval(3_600))
+        var endedLater = session(opensIn: -60_000)
+        endedLater.overnight = DateInterval(start: now.addingTimeInterval(300), end: now.addingTimeInterval(3_600))
+        let snapshot = PortfolioSnapshot.make(
+            accounts: [makeAccount()],
+            holdings: [
+                makeHolding(symbol: "NIGHT", marketSession: ended),
+                makeHolding(symbol: "SOON", marketSession: endedLater)
+            ]
+        )
+
+        #expect(snapshot.activeHoldings(at: now).map(\.symbol) == ["NIGHT"])
+        #expect(snapshot.nextSessionStart(after: now) == now.addingTimeInterval(300))
+    }
+
     @Test func partOfThePortfolioTakesNewPricesAndTheRestKeepsTheirs() {
         let earlier = Date(timeIntervalSince1970: 1_000)
         let snapshot = PortfolioSnapshot.make(
@@ -217,6 +237,7 @@ struct LivePricingTests {
             previousClose: 105,
             preMarketChange: nil,
             postMarketChange: nil,
+            overnightChange: nil,
             marketSession: nil,
             regularPriceTime: now
         )
@@ -234,6 +255,7 @@ struct LivePricingTests {
             previousClose: nil,
             preMarketChange: nil,
             postMarketChange: nil,
+            overnightChange: nil,
             marketSession: nil,
             regularPriceTime: nil
         )

@@ -229,7 +229,9 @@ nonisolated enum FakeMarket {
             "session-correction": .string("0400-1700:20261127,20261224;dayoff:20250109")
         ]),
         .object(["id": .string("premarket"), "session": .string("0400-0930")]),
-        .object(["id": .string("postmarket"), "session": .string("1600-2000")])
+        .object(["id": .string("postmarket"), "session": .string("1600-2000")]),
+        .object(["id": .string("night"), "session": .string("2000-0400")]),
+        .object(["id": .string("24h"), "session": .string("2000-2000")])
     ])
     static let usHolidays = "20261126,20261225"
 
@@ -243,7 +245,9 @@ nonisolated enum FakeMarket {
         currency: String = "USD",
         priceTime: Date = marketTime(day: 6, hour: 19, minute: 59),
         extendedPrice: Double? = nil,
-        extendedTime: Date? = nil
+        extendedTime: Date? = nil,
+        overnightPrice: Double? = nil,
+        overnightTime: Date? = nil
     ) -> [String: JSONValue] {
         [
             "lp": .number(price),
@@ -256,6 +260,8 @@ nonisolated enum FakeMarket {
             "session_holidays": .string(usHolidays),
             "rtc": extendedPrice.map(JSONValue.number) ?? .null,
             "rtc_time": extendedTime.map { .number($0.timeIntervalSince1970) } ?? .null,
+            "ntc": overnightPrice.map(JSONValue.number) ?? .null,
+            "ntc_time": overnightTime.map { .number($0.timeIntervalSince1970) } ?? .null,
             "first_bar_time_1d": .number(454_896_000)
         ]
     }

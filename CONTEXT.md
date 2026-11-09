@@ -54,6 +54,18 @@ _Avoid_: Device-local night, latest extended-hours data
 The estimated change in a holding's value derived from its quantity and Post-Market Quote, accompanied by the quote's percentage change from the immediately preceding regular close. During an Active Post-Market Session with no observed trade yet, both changes are zero.
 _Avoid_: Post-market market value, current holding gain
 
+**Overnight Quote**:
+The latest available price from the current overnight session, the provider-scheduled interval between one trading day's post-market and the next trading day's pre-market (for US stocks 20:00–04:00 ET, Sunday evening into Monday included), measured relative to the most recent regular close and shown only as supplemental context, marked with a moon. It never moves a chart: the 1D Display Cycle ends with post-market.
+_Avoid_: Night quote, next-day quote, 24-hour price
+
+**Active Overnight Session**:
+The overnight session that follows the latest trading day, while the current instant falls within its start and end boundaries. Historical overnight observations alone do not make the session active.
+_Avoid_: Device-local night, closed market
+
+**Overnight Holding Change**:
+The estimated change in a holding's value derived from its quantity and Overnight Quote, accompanied by the quote's percentage change from the most recent regular close. During an Active Overnight Session with no observed trade yet, both changes are zero.
+_Avoid_: Overnight market value, current holding gain
+
 **Regular-Session Holding Change**:
 The change in a holding's value across the most recently completed regular session, measured from the preceding regular close to the latest regular close. It remains distinct from any subsequent Pre-Market or Post-Market Holding Change.
 _Avoid_: Current change, pre-market change, after-hours change
@@ -75,7 +87,7 @@ The time from having no portfolio in memory for the saved credentials until data
 _Avoid_: Startup, reload, first load
 
 **In-Session Holding**:
-A holding whose price can move now: crypto always; anything else from the start of its exchange's pre-market to the end of its post-market. A holding whose trading day isn't known yet counts as closed until a quote says more.
+A holding whose price can move now: crypto always; anything else from the start of its exchange's pre-market to the end of its post-market, and through the overnight session that follows. A holding whose trading day isn't known yet counts as closed until a quote says more.
 _Avoid_: Open market, live holding
 
 **Live Refresh**:
@@ -87,7 +99,7 @@ A price-derived figure shown from the last data because current prices can't be 
 _Avoid_: Offline mode, cached value, outdated price
 
 **Bar in Progress**:
-The last point of a holding's chart range: the bar whose interval includes now (1D 5 minutes, 5D 15 minutes, 1M an hour, 3M, YTD and 1Y a day, 5Y a week, MAX a month), whose close follows the live price. A point is added only when the next interval begins. Extended-hours quotes move only the 1D Extended-Hours Continuation; 5D and longer follow the regular session.
+The last point of a holding's chart range: the bar whose interval includes now (1D 5 minutes, 5D 15 minutes, 1M an hour, 3M, YTD and 1Y a day, 5Y a week, MAX a month), whose close follows the live price. A point is added only when the next interval begins. Pre- and post-market quotes move only the 1D Extended-Hours Continuation, and Overnight Quotes no chart; 5D and longer follow the regular session.
 _Avoid_: Live point, tick
 
 **Attention**:
