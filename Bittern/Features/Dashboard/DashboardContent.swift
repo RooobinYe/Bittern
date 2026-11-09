@@ -332,6 +332,7 @@ struct DashboardVisualContent: View {
             header(controls: controls)
                 .listRowSeparator(.hidden)
                 .listRowInsets(.horizontal, 16)
+                .listRowInsets(.bottom, 0)
 
             if sortedHoldings.isEmpty {
                 EmptyHoldingsView(hiddenNote: hiddenNote)

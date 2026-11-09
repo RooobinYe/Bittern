@@ -28,7 +28,7 @@ struct HoldingsHeader: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 4)
+        .padding(.top, 4)
     }
 
     private var titles: some View {

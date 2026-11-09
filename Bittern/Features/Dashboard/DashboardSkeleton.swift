@@ -69,6 +69,7 @@ struct DashboardSkeleton: View {
             )
             .listRowSeparator(.hidden)
             .listRowInsets(.horizontal, 16)
+            .listRowInsets(.bottom, 0)
 
             ForEach(0..<skeleton.rowCount, id: \.self) { index in
                 SkeletonHoldingRow(index: index)
