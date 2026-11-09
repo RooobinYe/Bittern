@@ -26,21 +26,25 @@ struct MarketQuote: Sendable {
     var regularMarketTime: Date? = nil
     /// The trading day the quote belongs to.
     var marketSession: HoldingMarketSession? = nil
+    /// The overnight quote, while the overnight session is under way.
+    var overnight: ExtendedHoursQuote? = nil
 }
 
 enum ExtendedHoursSession: Equatable, Sendable {
     case preMarket
     case postMarket
+    case overnight
 
     var logName: String {
         switch self {
         case .preMarket: "pre-market"
         case .postMarket: "post-market"
+        case .overnight: "overnight"
         }
     }
 }
 
-/// The active pre- or post-market quote. With no trade in the session yet,
+/// The active pre-market, post-market or overnight quote. With no trade in the session yet,
 /// `price` is the regular close and `observedAt` is nil.
 struct ExtendedHoursQuote: Sendable {
     let extendedHoursSession: ExtendedHoursSession

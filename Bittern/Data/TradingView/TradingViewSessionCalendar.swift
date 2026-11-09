@@ -5,7 +5,8 @@
 //  An exchange's trading hours as TradingView publishes them with a symbol:
 //  weekly sessions in the exchange's time zone ("0930-1600"), corrections
 //  for particular dates ("0930-1300:20261127;dayoff:20250109") and a list of
-//  holidays. From these it lays out the trading day around any instant.
+//  holidays. From these it lays out the trading day around any instant, and
+//  the overnight session after it.
 //
 
 import Foundation
@@ -16,6 +17,9 @@ struct TradingViewSessionCalendar {
     let tradesAroundTheClock: Bool
     private let regular: SessionRule
     private let extended: SessionRule?
+    /// Overnight hours, keyed by the trading day they lead into: a session
+    /// of `2000-0400` on Monday runs from Sunday 20:00 to Monday 04:00.
+    private let night: SessionRule?
     private let holidays: Set<Int>
     private let calendar: Calendar
 
@@ -24,7 +28,7 @@ struct TradingViewSessionCalendar {
     ///   - subsessions: TradingView's `subsessions`: objects with an `id`,
     ///     a `session` and an optional `session-correction`. The `regular`
     ///     one is required; `extended`, when present, spans pre-market to
-    ///     post-market.
+    ///     post-market, and `night`, when present, is the overnight session.
     ///   - holidays: Comma-separated `yyyyMMdd` dates.
     init(timeZone: String?, subsessions: JSONValue?, holidays: String?) throws {
         guard let identifier = timeZone, let zone = TimeZone(identifier: identifier) else {
@@ -49,6 +53,7 @@ struct TradingViewSessionCalendar {
         if tradesAroundTheClock {
             regular = SessionRule(weekly: [:], corrections: [:])
             extended = nil
+            night = nil
             self.holidays = []
             return
         }
@@ -59,6 +64,9 @@ struct TradingViewSessionCalendar {
         )
         extended = try byID["extended"]?["session"]?.string.map {
             try SessionRule(session: $0, correction: byID["extended"]?["session-correction"]?.string)
+        }
+        night = try byID["night"]?["session"]?.string.map {
+            try SessionRule(session: $0, correction: byID["night"]?["session-correction"]?.string)
         }
         self.holidays = try Set(
             (holidays ?? "")
@@ -118,14 +126,45 @@ struct TradingViewSessionCalendar {
 
     /// The trading day under way at `now`, or else the latest one that has
     /// started: after the close it stays the day that just ended until the
-    /// next one begins.
+    /// next one begins. It carries the overnight session that follows it.
     func latestTradingDay(startedBy now: Date) -> HoldingMarketSession? {
         guard let from = calendar.date(byAdding: .day, value: -14, to: now),
-              let through = calendar.date(byAdding: .day, value: 1, to: now)
+              let through = calendar.date(byAdding: .day, value: 1, to: now),
+              var day = tradingDays(from: from, through: through).last(where: { $0.start <= now })
         else {
             return nil
         }
-        return tradingDays(from: from, through: through).last { $0.start <= now }
+        day.overnight = overnight(after: day)
+        return day
+    }
+
+    /// The overnight session between `day` and the next trading day: the
+    /// next trading day's night hours, when it has some and they begin no
+    /// earlier than `day` ends.
+    func overnight(after day: HoldingMarketSession) -> DateInterval? {
+        guard let night,
+              let from = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day.regularStart)),
+              let through = calendar.date(byAdding: .day, value: 14, to: from),
+              let next = tradingDays(from: from, through: through).first
+        else {
+            return nil
+        }
+        let midnight = calendar.startOfDay(for: next.regularStart)
+        let number = dateNumber(of: midnight)
+        guard let span = night.span(
+                  on: number,
+                  weekday: calendar.component(.weekday, from: midnight),
+                  isHoliday: holidays.contains(number)
+              ),
+              let start = date(minutes: span.start, on: midnight),
+              let end = date(minutes: span.end, on: midnight),
+              start >= day.end
+        else {
+            return nil
+        }
+        let clampedEnd = min(end, next.start)
+        guard start < clampedEnd else { return nil }
+        return DateInterval(start: start, end: clampedEnd)
     }
 
     /// When a regular-session price that TradingView stamps `time` traded.

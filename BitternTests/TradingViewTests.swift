@@ -115,6 +115,25 @@ struct TradingViewSessionCalendarTests {
         #expect(mondayPreMarket.regularStart == time(11, 9, 9, 30))
     }
 
+    /// The overnight session leads into the next trading day: after Friday
+    /// it runs from Sunday 20:00 to Monday's pre-market.
+    @Test func theOvernightSessionFollowsTheTradingDay() throws {
+        let sundayNight = try #require(calendar.latestTradingDay(startedBy: time(11, 8, 23, 15)))
+        let tuesdayNight = try #require(calendar.latestTradingDay(startedBy: time(11, 10, 21)))
+
+        #expect(sundayNight.regularStart == time(11, 6, 9, 30))
+        #expect(sundayNight.overnight == DateInterval(start: time(11, 8, 20), end: time(11, 9, 4)))
+        #expect(tuesdayNight.overnight == DateInterval(start: time(11, 10, 20), end: time(11, 11, 4)))
+    }
+
+    /// Before a holiday the overnight session leads into the next trading
+    /// day instead.
+    @Test func aHolidayHasNoOvernightSession() throws {
+        let wednesday = try #require(calendar.tradingDay(on: day(11, 25)))
+
+        #expect(calendar.overnight(after: wednesday) == DateInterval(start: time(11, 26, 20), end: time(11, 27, 4)))
+    }
+
     /// Out of session TradingView stamps the regular close with the end of
     /// the trading day; it belongs to the session's last second.
     @Test func aCloseStampedAfterHoursMovesIntoTheSession() {
@@ -230,6 +249,53 @@ struct TradingViewQuoteTests {
         #expect(preMarket.observedAt == nil)
         #expect(preMarket.sessionStart == marketTime(day: 9, hour: 4))
         #expect(preMarket.sessionEnd == marketTime(day: 9, hour: 9, minute: 30))
+    }
+
+    @Test func anOvernightTradeIsTheOvernightQuote() async throws {
+        let server = FakeTradingViewServer(quotes: [
+            "AAPL": FakeMarket.stockQuote(
+                price: 110,
+                overnightPrice: 111.5,
+                overnightTime: marketTime(day: 8, hour: 23, minute: 14)
+            )
+        ])
+        let client = server.client(at: marketTime(day: 8, hour: 23, minute: 15))
+
+        let batch = try await client.quotes(for: [MarketQuoteRequest(symbol: "AAPL", instrumentKind: .stock)])
+        let quote = try #require(batch.quotes["AAPL"])
+        let overnight = try #require(quote.overnight)
+
+        #expect(overnight.price == 111.5)
+        #expect(overnight.regularClose == 110)
+        #expect(overnight.observedAt == marketTime(day: 8, hour: 23, minute: 14))
+        #expect(overnight.sessionStart == marketTime(day: 8, hour: 20))
+        #expect(overnight.sessionEnd == marketTime(day: 9, hour: 4))
+        #expect(quote.preMarket == nil && quote.postMarket == nil)
+        // The regular price and its trading day stay Friday's.
+        #expect(quote.regularMarketPrice == 110)
+        #expect(quote.marketSession?.regularStart == marketTime(day: 6, hour: 9, minute: 30))
+        #expect(!batch.didFailExtendedHours)
+    }
+
+    /// An overnight price from an earlier night isn't a trade in this one,
+    /// and a post-market price is never an overnight one.
+    @Test func anOldOvernightPriceIsNotATradeTonight() async throws {
+        let server = FakeTradingViewServer(quotes: [
+            "AAPL": FakeMarket.stockQuote(
+                price: 110,
+                extendedPrice: 112,
+                extendedTime: marketTime(day: 6, hour: 19, minute: 50),
+                overnightPrice: 99,
+                overnightTime: marketTime(day: 6, hour: 3)
+            )
+        ])
+        let client = server.client(at: marketTime(day: 8, hour: 21))
+
+        let batch = try await client.quotes(for: [MarketQuoteRequest(symbol: "AAPL", instrumentKind: .stock)])
+        let overnight = try #require(batch.quotes["AAPL"]?.overnight)
+
+        #expect(overnight.price == 110)
+        #expect(overnight.observedAt == nil)
     }
 
     @Test func unreadableHoursKeepTheRegularPriceAndSaySo() async throws {

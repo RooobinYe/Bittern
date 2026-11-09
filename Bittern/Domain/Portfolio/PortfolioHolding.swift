@@ -53,10 +53,21 @@ struct HoldingMarketSession: Hashable, Codable, Sendable {
     let regularStart: Date
     let regularEnd: Date
     let end: Date
+    /// The overnight session that follows this trading day, before the next
+    /// one's pre-market, when the exchange has one. It isn't part of the
+    /// trading day: charts end with post-market. Nil in data cached before
+    /// it was kept.
+    var overnight: DateInterval? = nil
 
     /// Pre-market, regular session or post-market is under way.
     func isActive(at date: Date) -> Bool {
         start <= date && date < end
+    }
+
+    /// The overnight session after this trading day is under way.
+    func isOvernight(at date: Date) -> Bool {
+        guard let overnight else { return false }
+        return overnight.start <= date && date < overnight.end
     }
 
     func isRegular(at date: Date) -> Bool {
@@ -86,6 +97,9 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
     var marketSession: HoldingMarketSession? = nil
     /// When `currentPrice` traded, as the quote reports it.
     var regularPriceTime: Date? = nil
+    /// Nil outside an overnight session, and in data cached before it was
+    /// kept.
+    var overnightChange: HoldingExtendedHoursChange? = nil
 
     var quantityUnit: HoldingQuantityUnit {
         instrumentKind == .crypto ? .tokens : .shares
@@ -109,11 +123,23 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         return postMarketChange
     }
 
+    func activeOvernightChange(at date: Date) -> HoldingExtendedHoursChange? {
+        guard let overnightChange,
+              overnightChange.isActive(at: date)
+        else {
+            return nil
+        }
+        return overnightChange
+    }
+
     /// Whether the price can move now: crypto always trades; anything else
-    /// only from the start of pre-market to the end of post-market. Without
-    /// a known trading day it is treated as closed until a quote says more.
+    /// only from the start of pre-market to the end of post-market, or in the
+    /// overnight session after it. Without a known trading day it is treated
+    /// as closed until a quote says more.
     func isInActiveSession(at date: Date) -> Bool {
-        instrumentKind == .crypto || marketSession?.isActive(at: date) == true
+        guard instrumentKind != .crypto else { return true }
+        guard let marketSession else { return false }
+        return marketSession.isActive(at: date) || marketSession.isOvernight(at: date)
     }
 
     var marketValue: Double? {
@@ -187,6 +213,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         previousClose: Double?,
         preMarketChange: HoldingExtendedHoursChange?,
         postMarketChange: HoldingExtendedHoursChange?,
+        overnightChange: HoldingExtendedHoursChange?,
         marketSession: HoldingMarketSession?,
         regularPriceTime: Date?
     ) -> PortfolioHolding {
@@ -208,7 +235,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
             currencyCode: currencyCode,
             dividendsReceived: dividendsReceived,
             marketSession: marketSession,
-            regularPriceTime: regularPriceTime
+            regularPriceTime: regularPriceTime,
+            overnightChange: overnightChange
         )
     }
 
@@ -220,6 +248,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
             previousClose: priced.previousClose,
             preMarketChange: priced.preMarketChange,
             postMarketChange: priced.postMarketChange,
+            overnightChange: priced.overnightChange,
             marketSession: priced.marketSession,
             regularPriceTime: priced.regularPriceTime
         )

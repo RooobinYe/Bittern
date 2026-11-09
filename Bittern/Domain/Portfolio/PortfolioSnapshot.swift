@@ -96,10 +96,14 @@ struct PortfolioSnapshot: nonisolated Codable, Sendable {
         holdings.filter { $0.isInActiveSession(at: date) }
     }
 
-    /// The earliest known trading day still to open after `date`, when no
-    /// holding is in one now.
+    /// The earliest known trading day or overnight session still to open
+    /// after `date`, when no holding is in one now.
     func nextSessionStart(after date: Date) -> Date? {
-        holdings.compactMap(\.marketSession?.start).filter { $0 > date }.min()
+        holdings
+            .flatMap { [$0.marketSession?.start, $0.marketSession?.overnight?.start] }
+            .compactMap { $0 }
+            .filter { $0 > date }
+            .min()
     }
 
     /// Only the holdings with these ids, for pricing part of the portfolio.

@@ -23,7 +23,7 @@ nonisolated enum TradingViewQuoteState: Sendable {
 actor TradingViewQuoteFeed {
     static let fields = [
         "lp", "lp_time", "prev_close_price", "currency_code", "update_mode",
-        "rtc", "rtc_time", "current_session", "timezone", "subsessions",
+        "rtc", "rtc_time", "ntc", "ntc_time", "current_session", "timezone", "subsessions",
         "session_holidays", "first_bar_time_1d", "pro_name", "type"
     ]
 

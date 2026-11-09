@@ -2,8 +2,9 @@
 //  TradingViewClient+Quotes.swift
 //  Bittern
 //
-//  Regular-session quotes, with the active pre- or post-market quote when
-//  one is in session, read from the streaming quote session.
+//  Regular-session quotes, with the active pre-market, post-market or
+//  overnight quote when one is in session, read from the streaming quote
+//  session.
 //
 
 import Foundation
@@ -128,16 +129,18 @@ extension TradingViewClient {
                 preMarket: extendedHours.quote?.extendedHoursSession == .preMarket ? extendedHours.quote : nil,
                 postMarket: extendedHours.quote?.extendedHoursSession == .postMarket ? extendedHours.quote : nil,
                 regularMarketTime: priceTime.map(calendar.regularTradeTime(for:)),
-                marketSession: marketSession
+                marketSession: marketSession,
+                overnight: extendedHours.quote?.extendedHoursSession == .overnight ? extendedHours.quote : nil
             ),
             extendedHours.didFail
         )
     }
 
-    /// The quote of the pre- or post-market session in progress at `now`.
-    /// TradingView's extended-hours price (`rtc`) counts only when it traded
-    /// inside that session; before the session's first trade the price is
-    /// the regular close.
+    /// The quote of the pre-market, post-market or overnight session in
+    /// progress at `now`. TradingView sends pre- and post-market trades as
+    /// `rtc` and overnight trades as `ntc`; either counts only when it
+    /// traded inside that session. Before the session's first trade the
+    /// price is the regular close.
     private func extendedHoursQuote(
         fields: [String: JSONValue],
         regularClose: Double?,
@@ -149,10 +152,13 @@ extension TradingViewClient {
         let active: (ExtendedHoursSession, PriceChartTimeSegment)
         let preMarket = PriceChartTimeSegment(start: marketSession.start, end: marketSession.regularStart)
         let postMarket = PriceChartTimeSegment(start: marketSession.regularEnd, end: marketSession.end)
+        let overnight = marketSession.overnight.map { PriceChartTimeSegment(start: $0.start, end: $0.end) }
         if preMarket.start < preMarket.end, preMarket.contains(now) {
             active = (.preMarket, preMarket)
         } else if postMarket.start < postMarket.end, postMarket.contains(now) {
             active = (.postMarket, postMarket)
+        } else if let overnight, overnight.contains(now) {
+            active = (.overnight, overnight)
         } else {
             return (nil, false)
         }
@@ -160,8 +166,9 @@ extension TradingViewClient {
             return (nil, true)
         }
 
-        let tradeTime = fields["rtc_time"]?.number.map { Date(timeIntervalSince1970: $0) }
-        let tradePrice = fields["rtc"]?.number.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let priceField = active.0 == .overnight ? "ntc" : "rtc"
+        let tradeTime = fields["\(priceField)_time"]?.number.map { Date(timeIntervalSince1970: $0) }
+        let tradePrice = fields[priceField]?.number.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         let trade = tradeTime.flatMap { time in
             tradePrice.flatMap { active.1.contains(time) ? (time, $0) : nil }
         }

@@ -55,6 +55,16 @@ struct HoldingListRow: View {
             )
         }
 
+        if let change = holding.activeOvernightChange(at: marketTime) {
+            return ExtendedHoursPresentation(
+                change: change,
+                systemImage: "moon.stars.fill",
+                primaryColor: .indigo,
+                secondaryColor: .yellow,
+                accessibilityName: "Overnight"
+            )
+        }
+
         return nil
     }
 

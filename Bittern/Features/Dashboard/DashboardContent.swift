@@ -185,13 +185,14 @@ struct DashboardVisualContent: View {
         BitternTheme.holdingAllocationColors(for: portfolio.holdings)
     }
 
-    /// When the next pre- or post-market session shown in a row ends, so the
-    /// row can stop showing it.
+    /// When the next pre-market, post-market or overnight session shown in
+    /// a row ends, so the row can stop showing it.
     private var nextExtendedHoursBoundary: Date? {
         sortedHoldings.flatMap { holding in
             [
                 holding.activePreMarketChange(at: marketTime)?.sessionEnd,
-                holding.activePostMarketChange(at: marketTime)?.sessionEnd
+                holding.activePostMarketChange(at: marketTime)?.sessionEnd,
+                holding.activeOvernightChange(at: marketTime)?.sessionEnd
             ].compactMap { $0 }
         }.min()
     }

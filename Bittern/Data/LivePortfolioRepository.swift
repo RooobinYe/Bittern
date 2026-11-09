@@ -93,7 +93,8 @@ struct LivePortfolioRepository: PortfolioRepository {
                     dividendAmount(for: symbol, currencyCode: position.currencyCode, activities: $0)
                 },
                 marketSession: priced.marketSession,
-                regularPriceTime: priced.regularPriceTime
+                regularPriceTime: priced.regularPriceTime,
+                overnightChange: priced.overnightChange
             )
         }
 
@@ -152,6 +153,7 @@ struct LivePortfolioRepository: PortfolioRepository {
                 previousClose: priced.previousClose,
                 preMarketChange: priced.preMarketChange,
                 postMarketChange: priced.postMarketChange,
+                overnightChange: priced.overnightChange,
                 // A quote without a trading day leaves the last known one,
                 // which still says when the holding trades.
                 marketSession: priced.marketSession ?? holding.marketSession,
@@ -244,6 +246,7 @@ struct LivePortfolioRepository: PortfolioRepository {
             previousClose: quote.regularMarketPreviousClose,
             preMarketChange: extendedHoursChange(quote: quote.preMarket, quantity: quantity),
             postMarketChange: extendedHoursChange(quote: quote.postMarket, quantity: quantity),
+            overnightChange: extendedHoursChange(quote: quote.overnight, quantity: quantity),
             marketSession: quote.marketSession,
             regularPriceTime: quote.regularMarketTime
         )
@@ -276,6 +279,7 @@ private struct PricedValues {
     let previousClose: Double?
     let preMarketChange: HoldingExtendedHoursChange?
     let postMarketChange: HoldingExtendedHoursChange?
+    let overnightChange: HoldingExtendedHoursChange?
     let marketSession: HoldingMarketSession?
     let regularPriceTime: Date?
 
@@ -284,6 +288,7 @@ private struct PricedValues {
         previousClose: nil,
         preMarketChange: nil,
         postMarketChange: nil,
+        overnightChange: nil,
         marketSession: nil,
         regularPriceTime: nil
     )
