@@ -12,7 +12,7 @@
 
 ## 运行
 
-- Xcode：需要 iOS 26.5 SDK，目前在 Xcode 27 beta 上开发
+- 用 Xcode 27 构建，App 最低支持 iOS 26.5
 - 打开 `Bittern.xcodeproj`，运行 `Bittern` scheme
 - 在 Settings 里填入 SnapTrade API Key，再从 App 里连接券商
 - 行情默认直连 TradingView，也可以在 Settings 里改成自己的转发服务器
