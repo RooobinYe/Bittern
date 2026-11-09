@@ -148,6 +148,19 @@ struct PerformanceChartGeometryTests {
         #expect(geometry.lastPlottedIndex == 3)
     }
 
+    @Test func theTimeAxisFitsThePointsUnlessGivenAnExtent() {
+        let fitted = PerformanceChartGeometry(values: [1, 2], positions: [10, 40], baseValue: nil)
+        let session = PerformanceChartGeometry(
+            values: [1, 2],
+            positions: [10, 40],
+            xExtent: 0...100,
+            baseValue: nil
+        )
+
+        #expect(fitted.xDomain == 10...40)
+        #expect(session.xDomain == 0...100)
+    }
+
     @Test func theValueRangeIncludesTheBaseline() {
         let geometry = PerformanceChartGeometry(
             values: [100, 110],
