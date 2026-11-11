@@ -4,16 +4,12 @@ Bittern 接下来的修改计划，按建议顺序排列。
 
 - 术语以 [CONTEXT.md](CONTEXT.md) 为准。
 - 这里只写还没做的事，完成后勾选，整个阶段完成后可以删除。
-- 最后更新：2026-11-08
-
-## 阶段 5：新机型适配
-
-- [ ] 适配 iPhone Duo（外屏 5.4 英寸，内屏 7.6 英寸）
+- 最后更新：2026-11-12
 
 ## 待确认
 
 - [ ] 透镜移到卡片下方时在 HDR 屏幕上发出比白色还亮的光：怀疑是透镜的液态玻璃（也可能是标签栏的）
-- [ ] 是否继续支持 iPad：如果不用，改成 iPhone-only；删除 split 布局前，先确认 iPhone Duo 的内屏是否用得上它
+- [ ] 是否继续支持 iPad：如果不用，改成 iPhone-only。分栏布局不能删：iPhone Duo 内屏横放和部分折叠时都用它
 - [ ] 是否计划分发给别人：Consumer Key 现在存在设备上，只适合个人使用，分发前需要后端
 - [ ] 用同一个 userId 重复注册 SnapTrade 时的返回值
 - [ ] 运行时验证：Settings、Portfolio Accounts、Credentials 和 History 的实际渲染效果
