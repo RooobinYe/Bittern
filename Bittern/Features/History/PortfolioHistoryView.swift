@@ -42,36 +42,58 @@ struct PortfolioHistoryView: View {
     }
 
     private var history: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                PortfolioHistoryHeader(
-                    series: model.visibleSeries,
-                    fallbackPoint: model.history?.points.last,
-                    selectedPoint: model.selectedPoint,
-                    range: model.selectedRange,
-                    currencyCode: model.history?.currencyCode ?? "",
-                    isPrivacyEnabled: isPrivacyEnabled
-                )
+        PaneGeometryReader { size, fold in
+            let arrangement = Self.panes.arrangement(in: size, fold: fold)
 
-                PortfolioHistoryChartSection(
-                    series: model.visibleSeries,
-                    currencyCode: model.history?.currencyCode ?? "",
-                    isPrivacyEnabled: isPrivacyEnabled,
-                    range: $model.selectedRange,
-                    selectedPoint: $model.selectedPoint,
-                    isLoading: model.isLoading
-                )
-                .frame(maxWidth: Self.maximumChartWidth)
+            ScrollView {
+                switch arrangement {
+                case .single:
+                    VStack(alignment: .leading, spacing: 24) {
+                        header
+                        chart(plotHeight: .standard, showsRangeSelector: true)
+                            .frame(maxWidth: Self.maximumChartWidth)
+                    }
+                    .frame(maxWidth: Self.maximumContentWidth)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+
+                // The figures beside the chart, so the chart has the
+                // height; above a fold, the chart with its figures and the
+                // ranges below, where they are easier to reach.
+                case .columns, .rows:
+                    PaneSplit(arrangement: arrangement, margins: Self.paneMargins) {
+                        if arrangement.isRows {
+                            VStack(alignment: .leading, spacing: 16) {
+                                header
+                                chart(plotHeight: .fill, showsRangeSelector: false)
+                            }
+                        } else {
+                            header
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } second: {
+                        if arrangement.isRows {
+                            ChartRangeSelector(
+                                ranges: PortfolioHistoryRange.allCases,
+                                title: { $0.title },
+                                selectedRange: $model.selectedRange
+                            ) {
+                                model.selectedPoint = nil
+                            }
+                        } else {
+                            chart(plotHeight: .fill, showsRangeSelector: true)
+                        }
+                    }
+                    // Exactly the screen, so pulling still refreshes.
+                    .frame(height: size.height)
+                }
             }
-            .frame(maxWidth: Self.maximumContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
+            .softNavigationBarEdge()
         }
         // The grouped background of a holding's page, so the two chart
         // screens look alike.
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-        .contentMargins(.horizontal, 20, for: .scrollContent)
-        .softNavigationBarEdge()
         .errorToast(message: $model.errorMessage)
         .refreshable {
             await load()
@@ -89,8 +111,49 @@ struct PortfolioHistoryView: View {
         )
     }
 
+    private var header: some View {
+        PortfolioHistoryHeader(
+            series: model.visibleSeries,
+            fallbackPoint: model.history?.points.last,
+            selectedPoint: model.selectedPoint,
+            range: model.selectedRange,
+            currencyCode: model.history?.currencyCode ?? "",
+            isPrivacyEnabled: isPrivacyEnabled
+        )
+    }
+
+    private func chart(
+        plotHeight: PerformanceChartPlotHeight,
+        showsRangeSelector: Bool
+    ) -> some View {
+        PortfolioHistoryChartSection(
+            series: model.visibleSeries,
+            currencyCode: model.history?.currencyCode ?? "",
+            isPrivacyEnabled: isPrivacyEnabled,
+            range: $model.selectedRange,
+            selectedPoint: $model.selectedPoint,
+            isLoading: model.isLoading,
+            plotHeight: plotHeight,
+            showsRangeSelector: showsRangeSelector
+        )
+    }
+
     private static let maximumContentWidth: CGFloat = 900
     private static let maximumChartWidth: CGFloat = 760
+    private static let paneMargins = EdgeInsets(top: 8, leading: 20, bottom: 16, trailing: 20)
+
+    /// The figures need room for a seven-figure total at the large title
+    /// size; the chart, about an iPhone's width. Side by side only when
+    /// wider than tall: a tall view already gives the chart its height.
+    static let panes = PaneRequirements(
+        minimumLeadingWidth: 200,
+        minimumTrailingWidth: 360,
+        preferredWidth: .leading(260),
+        columnSpacing: 24,
+        minimumColumnsHeight: 360,
+        columnsOnlyWhenWide: true,
+        minimumRowHeight: 240
+    )
 }
 
 private struct PortfolioHistoryHeader: View {
@@ -209,6 +272,8 @@ private struct PortfolioHistoryChartSection: View {
     @Binding var range: PortfolioHistoryRange
     @Binding var selectedPoint: PortfolioHistoryPoint?
     let isLoading: Bool
+    var plotHeight = PerformanceChartPlotHeight.standard
+    var showsRangeSelector = true
 
     var body: some View {
         let baseValue = series.first?.totalValue
@@ -236,7 +301,9 @@ private struct PortfolioHistoryChartSection: View {
             selectedRange: $range,
             selectedPoint: $selectedPoint,
             isLoading: isLoading,
-            background: Color(uiColor: .systemGroupedBackground)
+            background: Color(uiColor: .systemGroupedBackground),
+            plotHeight: plotHeight,
+            showsRangeSelector: showsRangeSelector
         )
     }
 }

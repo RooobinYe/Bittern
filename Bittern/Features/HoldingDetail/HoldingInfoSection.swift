@@ -119,7 +119,7 @@ private struct HoldingReturnEquation {
 }
 
 /// Price gain + dividends = total return, as three columns; at accessibility
-/// text sizes, as three rows.
+/// text sizes, or in a column too narrow for three, as three rows.
 private struct HoldingReturnEquationRow: View {
     let equation: HoldingReturnEquation
     let currencyCode: String
@@ -129,21 +129,32 @@ private struct HoldingReturnEquationRow: View {
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 12) {
-                cell(equation.priceGain, alignment: .leading)
-                cell(equation.dividends, alignment: .leading)
-                cell(equation.totalReturn, alignment: .leading)
-            }
+            rows
         } else {
-            HStack(alignment: .center, spacing: 4) {
-                cell(equation.priceGain, alignment: .center)
-                ReturnOperator(symbol: "+", name: "plus")
-                cell(equation.dividends, alignment: .center)
-                ReturnOperator(symbol: "=", name: "equals")
-                cell(equation.totalReturn, alignment: .center)
+            ViewThatFits(in: .horizontal) {
+                columns
+                rows
             }
-            .padding(.vertical, 4)
         }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            cell(equation.priceGain, alignment: .leading)
+            cell(equation.dividends, alignment: .leading)
+            cell(equation.totalReturn, alignment: .leading)
+        }
+    }
+
+    private var columns: some View {
+        EquationColumnsLayout(spacing: 4) {
+            cell(equation.priceGain, alignment: .center)
+            ReturnOperator(symbol: "+", name: "plus")
+            cell(equation.dividends, alignment: .center)
+            ReturnOperator(symbol: "=", name: "equals")
+            cell(equation.totalReturn, alignment: .center)
+        }
+        .padding(.vertical, 4)
     }
 
     private func cell(_ metric: HoldingReturnMetric, alignment: HorizontalAlignment) -> some View {
@@ -154,6 +165,58 @@ private struct HoldingReturnEquationRow: View {
             alignment: alignment
         )
         .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+}
+
+/// The three metrics in equal columns with the operators between them at
+/// their own widths. Its ideal width is three of the widest metric, not
+/// their sum, so `ViewThatFits` stacks them before a title truncates.
+private struct EquationColumnsLayout: Layout {
+    let spacing: CGFloat
+
+    /// Even places hold metrics, odd ones operators.
+    private func widths(of subviews: Subviews) -> (metric: CGFloat, operators: CGFloat) {
+        var metric: CGFloat = 0
+        var operators: CGFloat = 0
+        for (index, subview) in subviews.enumerated() {
+            let width = subview.sizeThatFits(.unspecified).width
+            if index.isMultiple(of: 2) {
+                metric = max(metric, width)
+            } else {
+                operators += width
+            }
+        }
+        return (metric, operators)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (metric, operators) = widths(of: subviews)
+        let metricCount = CGFloat((subviews.count + 1) / 2)
+        let gaps = spacing * CGFloat(max(subviews.count - 1, 0))
+        let idealWidth = metric * metricCount + operators + gaps
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        guard let width = proposal.width, width.isFinite else {
+            return CGSize(width: idealWidth, height: height)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (_, operators) = widths(of: subviews)
+        let metricCount = CGFloat((subviews.count + 1) / 2)
+        let gaps = spacing * CGFloat(max(subviews.count - 1, 0))
+        let metricWidth = max(0, bounds.width - operators - gaps) / max(metricCount, 1)
+        var x = bounds.minX
+
+        for (index, subview) in subviews.enumerated() {
+            let width = index.isMultiple(of: 2) ? metricWidth : subview.sizeThatFits(.unspecified).width
+            subview.place(
+                at: CGPoint(x: x, y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: width, height: bounds.height)
+            )
+            x += width + spacing
+        }
     }
 }
 

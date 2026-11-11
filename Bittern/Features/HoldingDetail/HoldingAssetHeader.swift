@@ -239,6 +239,8 @@ struct HoldingChartSection: View {
     let isLoading: Bool
     var isUnavailableOffline = false
     var endMarker = PerformanceChartEndMarker.plain
+    var plotHeight = PerformanceChartPlotHeight.standard
+    var showsRangeSelector = true
 
     @Environment(\.priceStatus) private var priceStatus
 
@@ -294,7 +296,9 @@ struct HoldingChartSection: View {
             isStale: priceStatus.isStale,
             placeholder: isLoading
                 ? .loading
-                : isUnavailableOffline ? .unavailableOffline : .none
+                : isUnavailableOffline ? .unavailableOffline : .none,
+            plotHeight: plotHeight,
+            showsRangeSelector: showsRangeSelector
         )
     }
 

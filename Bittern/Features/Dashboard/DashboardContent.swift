@@ -6,29 +6,44 @@
 import SwiftUI
 
 enum DashboardLayoutMetrics {
-    /// These are content readability bounds, not device breakpoints. The split
-    /// layout appears whenever both panes can keep their useful minimum width.
+    /// These are content readability bounds, not device breakpoints. The
+    /// allocation and the holdings go side by side whenever both columns
+    /// keep their useful minimum width, and meet at the fold of a partially
+    /// folded display.
     static let minimumChartColumnWidth: CGFloat = 320
     static let idealChartColumnWidth: CGFloat = 440
     static let minimumHoldingsColumnWidth: CGFloat = 360
     static let columnSpacing: CGFloat = 28
-    static let preferredSplitWidth: CGFloat = 756
+    /// In a shorter column, the card at the column's narrowest (262 pt
+    /// tall) leaves under 200 pt for the total and the legend, so the page
+    /// stacks and scrolls instead.
     static let minimumSplitHeight: CGFloat = 460
+    /// Above and below a fold: room for the total and a card worth
+    /// reading on top, and for a few holdings below.
+    static let minimumFoldedRowHeight: CGFloat = 240
+    /// The allocation's widest, its insets included. One column is never
+    /// wider either, so the holdings start where the allocation does.
     static let maximumChartSide: CGFloat = 500
     static let maximumContentWidth: CGFloat = 1_280
     static let maximumExportWidth: CGFloat = maximumContentWidth + 48
 
-    static func layoutMode(in size: CGSize) -> DashboardLayoutMode {
-        size.width >= preferredSplitWidth
-            && size.height >= minimumSplitHeight
-            ? .split
-            : .stacked
-    }
-}
+    static let panes = PaneRequirements(
+        minimumLeadingWidth: minimumChartColumnWidth,
+        minimumTrailingWidth: minimumHoldingsColumnWidth,
+        preferredWidth: .leading(idealChartColumnWidth),
+        columnSpacing: columnSpacing,
+        minimumColumnsHeight: minimumSplitHeight,
+        minimumRowHeight: minimumFoldedRowHeight
+    )
 
-enum DashboardLayoutMode: Sendable {
-    case stacked
-    case split
+    static func layoutMode(in size: CGSize, fold: FoldDivision? = nil) -> PaneArrangement {
+        panes.arrangement(in: size, fold: fold)
+    }
+
+    /// The side margins that keep one column at the allocation's width.
+    static func singleColumnMargin(in width: CGFloat) -> CGFloat {
+        max(0, (width - maximumChartSide) / 2)
+    }
 }
 
 /// What the live dashboard lets people change. The exported image has no
@@ -66,12 +81,12 @@ struct DashboardContent: View {
             // shows its data without a skeleton in between.
             Color.clear
         case .loading(let skeleton?):
-            GeometryReader { proxy in
+            PaneGeometryReader { size, fold in
                 DashboardSkeleton(
                     skeleton: skeleton,
                     performanceMode: viewModel.performanceMode,
                     sortOption: viewModel.sortOption,
-                    layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
+                    layoutMode: DashboardLayoutMetrics.layoutMode(in: size, fold: fold),
                     controls: controls
                 )
             }
@@ -97,7 +112,7 @@ struct DashboardContent: View {
                 }
             }
         case .loaded(let snapshot):
-            GeometryReader { proxy in
+            PaneGeometryReader { size, fold in
                 DashboardVisualContent(
                     portfolio: viewModel.displaySnapshot ?? snapshot,
                     sortedHoldings: viewModel.sortedHoldings,
@@ -106,7 +121,7 @@ struct DashboardContent: View {
                     minimumMarketValue: viewModel.minPriceThreshold,
                     hiddenHoldingCount: viewModel.hiddenHoldingCount,
                     isPrivacyEnabled: isPrivacyEnabled,
-                    layoutMode: DashboardLayoutMetrics.layoutMode(in: proxy.size),
+                    layoutMode: DashboardLayoutMetrics.layoutMode(in: size, fold: fold),
                     controls: controls
                 )
             }
@@ -173,12 +188,13 @@ struct DashboardVisualContent: View {
     let minimumMarketValue: Double
     let hiddenHoldingCount: Int
     let isPrivacyEnabled: Bool
-    let layoutMode: DashboardLayoutMode
+    let layoutMode: PaneArrangement
     /// Nil when rendering the exported image.
     let controls: DashboardControls?
 
     @State private var marketTime = Date()
     @State private var lensMotion = AllocationLensMotion()
+    @State private var listWidth: CGFloat = 0
 
     /// The bands' colors, so a holding without a logo matches its band.
     private var holdingColorLookup: [String: Color] {
@@ -218,14 +234,13 @@ struct DashboardVisualContent: View {
     @ViewBuilder
     private var content: some View {
         switch (layoutMode, controls) {
-        case (.stacked, let controls?):
+        // One column as wide as the allocation, so the holdings start where
+        // it does; the list still scrolls from edge to edge.
+        case (.single, let controls?):
             List {
                 Section {
                     if let attention = controls.attention {
-                        AttentionBanner(attention: attention, openSettings: controls.openSettings)
-                            .listRowInsets(.horizontal, 16)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                        attentionRow(attention, controls: controls)
                     }
 
                     allocation(fillsAvailableSpace: false)
@@ -238,72 +253,70 @@ struct DashboardVisualContent: View {
                 holdingsSection(controls: controls)
             }
             .listStyle(.plain)
-            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .frame(maxWidth: .infinity)
+            .contentMargins(
+                .horizontal,
+                DashboardLayoutMetrics.singleColumnMargin(in: listWidth),
+                for: .scrollContent
+            )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                listWidth = width
+            }
             .softNavigationBarEdge()
             .refreshable { await controls.refresh() }
 
-        case (.split, let controls?):
-            VStack(spacing: 12) {
-                if let attention = controls.attention {
-                    AttentionBanner(attention: attention, openSettings: controls.openSettings)
-                        .padding(.horizontal)
-                }
-
-                HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                    allocation(fillsAvailableSpace: true)
-                        .frame(
-                            minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                            idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                            maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                            maxHeight: .infinity
-                        )
-
-                    List {
-                        holdingsSection(controls: controls)
+        // Side by side, or above and below a fold. The banner heads the
+        // holdings, so it never crosses the fold.
+        case (_, let controls?):
+            PaneSplit(arrangement: layoutMode) {
+                allocation(fillsAvailableSpace: true)
+            } second: {
+                List {
+                    if let attention = controls.attention {
+                        attentionRow(attention, controls: controls)
                     }
-                    .listStyle(.plain)
-                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
-                    .softNavigationBarEdge()
-                    .refreshable { await controls.refresh() }
+
+                    holdingsSection(controls: controls)
                 }
-                .padding(.leading)
+                .listStyle(.plain)
+                .softNavigationBarEdge()
+                .refreshable { await controls.refresh() }
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .frame(maxWidth: .infinity)
 
         // The export's insets mirror the live list's: the allocation brings
-        // its own and spans the row, the holdings sit 16 in from each side.
-        // A narrower allocation would wrap the legend differently.
-        case (.stacked, nil):
+        // its own, the holdings sit 16 in from each side. The image is laid
+        // out from the viewport alone, so it is never split at a fold.
+        case (.columns, nil):
+            PaneSplit(arrangement: layoutMode) {
+                allocation(fillsAvailableSpace: false)
+            } second: {
+                exportHoldings
+                    .padding(.horizontal)
+            }
+            .padding(.bottom, 14)
+            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+            .frame(maxWidth: .infinity)
+
+        case (_, nil):
             VStack(spacing: 24) {
                 allocation(fillsAvailableSpace: false)
                 exportHoldings
                     .padding(.horizontal)
             }
             .padding(.bottom, 14)
-            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .frame(maxWidth: .infinity)
-
-        case (.split, nil):
-            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                allocation(fillsAvailableSpace: false)
-                    .frame(
-                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                        alignment: .top
-                    )
-
-                exportHoldings
-                    .padding(.horizontal)
-                    .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
-            }
-            .padding(.bottom, 14)
-            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.leading)
+            .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private func attentionRow(_ attention: PortfolioAttention, controls: DashboardControls) -> some View {
+        AttentionBanner(attention: attention, openSettings: controls.openSettings)
+            .listRowInsets(.horizontal, 16)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     private func allocation(fillsAvailableSpace: Bool) -> some View {
@@ -312,6 +325,8 @@ struct DashboardVisualContent: View {
             performanceMode: performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             fillsAvailableSpace: fillsAvailableSpace,
+            // Above a fold the card is short, so the legend goes beside it.
+            legendBesideCard: layoutMode.isRows,
             selectPerformanceMode: controls?.selectPerformanceMode,
             lensMotion: controls == nil ? nil : lensMotion
         )
