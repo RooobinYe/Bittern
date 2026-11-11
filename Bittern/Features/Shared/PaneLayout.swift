@@ -113,10 +113,16 @@ struct PaneGeometryReader<Content: View>: View {
     }
 
     private static func fold(in proxy: GeometryProxy) -> FoldDivision? {
+        // Reserved regions arrived with the iOS 27.1 SDK. Built with an
+        // older one, as in CI, the screens lay out by size alone.
+        #if canImport(SwiftUICore, _version: 8.1.13)
         guard #available(iOS 27.1, *) else { return nil }
         return proxy.reservedRegions(kind: .division)
             .first { $0.isActive }
             .map { FoldDivision(frame: $0.frame) }
+        #else
+        return nil
+        #endif
     }
 }
 
