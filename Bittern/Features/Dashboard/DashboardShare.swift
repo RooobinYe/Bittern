@@ -39,7 +39,7 @@ struct DashboardShareSnapshot: Sendable {
     /// Gray in the image as on screen when prices aren't current.
     let priceStatus: PriceStatus
     let viewportSize: CGSize
-    let layoutMode: DashboardLayoutMode
+    let layoutMode: PaneArrangement
 
     /// Renders the dashboard as a PNG at the width it occupies on screen,
     /// capped at the export maximum. Shared by the share sheet and the debug
@@ -122,7 +122,10 @@ private struct PortfolioShareScreenshotContent: View {
     var body: some View {
         VStack(spacing: 0) {
             PortfolioExportHeader(title: snapshot.title)
-                .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
+                // In one column, the title starts where the total does.
+                .frame(maxWidth: snapshot.layoutMode == .single
+                    ? DashboardLayoutMetrics.maximumChartSide - 32
+                    : DashboardLayoutMetrics.maximumContentWidth)
                 .padding(.horizontal)
                 .padding(.top, 16)
                 .padding(.bottom, 18)

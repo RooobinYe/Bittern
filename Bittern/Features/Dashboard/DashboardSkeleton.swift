@@ -14,12 +14,16 @@ struct DashboardSkeleton: View {
     let skeleton: LaunchSkeleton
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
-    let layoutMode: DashboardLayoutMode
+    let layoutMode: PaneArrangement
     let controls: DashboardControls
 
+    @State private var listWidth: CGFloat = 0
+
+    /// The same places as the loaded dashboard, so nothing moves when the
+    /// data comes.
     var body: some View {
         switch layoutMode {
-        case .stacked:
+        case .single:
             List {
                 Section {
                     SkeletonAllocation(performanceMode: performanceMode)
@@ -32,30 +36,33 @@ struct DashboardSkeleton: View {
                 holdingsSection
             }
             .listStyle(.plain)
-            .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .frame(maxWidth: .infinity)
+            .contentMargins(
+                .horizontal,
+                DashboardLayoutMetrics.singleColumnMargin(in: listWidth),
+                for: .scrollContent
+            )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                listWidth = width
+            }
             .softNavigationBarEdge()
 
-        case .split:
-            HStack(alignment: .top, spacing: DashboardLayoutMetrics.columnSpacing) {
-                SkeletonAllocation(performanceMode: performanceMode)
-                    .frame(
-                        minWidth: DashboardLayoutMetrics.minimumChartColumnWidth,
-                        idealWidth: DashboardLayoutMetrics.idealChartColumnWidth,
-                        maxWidth: DashboardLayoutMetrics.maximumChartSide,
-                        maxHeight: .infinity,
-                        alignment: .top
-                    )
-
+        case .columns, .rows:
+            PaneSplit(arrangement: layoutMode) {
+                SkeletonAllocation(
+                    performanceMode: performanceMode,
+                    legendBesideCard: layoutMode.isRows
+                )
+                .frame(maxHeight: .infinity, alignment: layoutMode.isRows ? .top : .center)
+            } second: {
                 List {
                     holdingsSection
                 }
                 .listStyle(.plain)
-                .frame(minWidth: DashboardLayoutMetrics.minimumHoldingsColumnWidth)
                 .softNavigationBarEdge()
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
-            .padding(.leading)
             .frame(maxWidth: .infinity)
         }
     }
@@ -102,6 +109,7 @@ struct DashboardSkeleton: View {
 /// the legend, as blocks.
 private struct SkeletonAllocation: View {
     let performanceMode: PerformanceMode
+    var legendBesideCard = false
 
     /// The legend's chips, as wide as typical ones.
     private static let chipWidths: [CGFloat] = [128, 134, 114, 110, 122, 96]
@@ -140,30 +148,49 @@ private struct SkeletonAllocation: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                GeometryReader { proxy in
-                    let size = proxy.size
-                    ZStack {
-                        SkeletonBlock(cornerRadius: AllocationCardMetrics.cornerRadius)
-                        AllocationLensGlass(radius: AllocationCardMetrics.lensRadius(in: size), shadowOpacity: 0.1)
-                            .position(x: size.width / 2, y: size.height / 2)
+                if legendBesideCard {
+                    HStack(alignment: .center, spacing: 24) {
+                        card
+                            .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+                        legend
+                            .frame(maxWidth: .infinity)
                     }
+                } else {
+                    card
                 }
-                .aspectRatio(AllocationCardMetrics.aspectRatio, contentMode: .fit)
             }
 
-            CenteredFlowLayout(spacing: 8, lineSpacing: 10) {
-                ForEach(Self.chipWidths.indices, id: \.self) { index in
-                    SkeletonBlock(cornerRadius: 15)
-                        .frame(width: Self.chipWidths[index], height: 30)
-                }
+            if !legendBesideCard {
+                legend
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+        .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading portfolio")
+    }
+
+    private var card: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                SkeletonBlock(cornerRadius: AllocationCardMetrics.cornerRadius)
+                AllocationLensGlass(radius: AllocationCardMetrics.lensRadius(in: size), shadowOpacity: 0.1)
+                    .position(x: size.width / 2, y: size.height / 2)
+            }
+        }
+        .aspectRatio(AllocationCardMetrics.aspectRatio, contentMode: .fit)
+    }
+
+    private var legend: some View {
+        CenteredFlowLayout(spacing: 8, lineSpacing: 10) {
+            ForEach(Self.chipWidths.indices, id: \.self) { index in
+                SkeletonBlock(cornerRadius: 15)
+                    .frame(width: Self.chipWidths[index], height: 30)
+            }
+        }
     }
 }
 

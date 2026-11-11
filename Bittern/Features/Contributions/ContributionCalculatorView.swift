@@ -40,12 +40,37 @@ struct ContributionCalculatorView: View {
                         .buttonStyle(.borderedProminent)
                 }
             } else {
-                Form {
-                    amountSection(currencyCode: currencyCode)
-                    holdingsSection(session)
-                    resultSection(session, currencyCode: currencyCode)
+                PaneGeometryReader { size, fold in
+                    let arrangement = Self.panes.arrangement(in: size, fold: fold)
+
+                    switch arrangement {
+                    case .single:
+                        Form {
+                            amountSection(currencyCode: currencyCode)
+                            holdingsSection(session)
+                            resultSection(session, currencyCode: currencyCode)
+                        }
+                        .softNavigationBarEdge()
+
+                    // What the user enters leads, the result stays beside it
+                    // in view; above a fold, the entries sit where the
+                    // keyboard can't cover them.
+                    case .columns, .rows:
+                        PaneSplit(arrangement: arrangement) {
+                            Form {
+                                amountSection(currencyCode: currencyCode)
+                                holdingsSection(session)
+                            }
+                            .softNavigationBarEdge()
+                        } second: {
+                            Form {
+                                resultSection(session, currencyCode: currencyCode)
+                            }
+                            .softNavigationBarEdge()
+                        }
+                        .background(Color(uiColor: .systemGroupedBackground))
+                    }
                 }
-                .softNavigationBarEdge()
             }
         }
         .navigationTitle("Contribute")
@@ -168,6 +193,20 @@ struct ContributionCalculatorView: View {
             }
         }
     }
+
+    /// The holdings with their targets need about an iPhone's width; the
+    /// result, room for an account's name beside its amount. Side by side
+    /// only when wider than tall: a tall view shows the result below.
+    static let panes = PaneRequirements(
+        minimumLeadingWidth: 360,
+        minimumTrailingWidth: 280,
+        preferredWidth: .trailing(330),
+        // An inset form keeps no margin on an edge inside the screen.
+        columnSpacing: 20,
+        minimumColumnsHeight: 360,
+        columnsOnlyWhenWide: true,
+        minimumRowHeight: 240
+    )
 
     private func providerName(for holding: PortfolioHolding) -> String {
         viewModel.snapshot?.accounts

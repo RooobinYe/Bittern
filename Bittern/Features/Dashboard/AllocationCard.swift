@@ -43,6 +43,9 @@ struct PortfolioAllocationSection: View {
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let fillsAvailableSpace: Bool
+    /// The legend to the card's side rather than under it, for a space
+    /// too short for both, such as above a fold.
+    var legendBesideCard = false
     /// Nil shows the return without a control, as in the exported image.
     let selectPerformanceMode: (@MainActor (PerformanceMode) -> Void)?
     /// Nil keeps the lens still, as in the exported image.
@@ -61,16 +64,33 @@ struct PortfolioAllocationSection: View {
                     select: selectPerformanceMode
                 )
 
-                AllocationLensCard(slices: slices, motion: lensMotion)
-                    .aspectRatio(AllocationCardMetrics.aspectRatio, contentMode: .fit)
+                if legendBesideCard {
+                    HStack(alignment: .center, spacing: 24) {
+                        AllocationLensCard(slices: slices, motion: lensMotion)
+                            .aspectRatio(AllocationCardMetrics.aspectRatio, contentMode: .fit)
+                            .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+
+                        AllocationLegend(slices: slices)
+                            .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    AllocationLensCard(slices: slices, motion: lensMotion)
+                        .aspectRatio(AllocationCardMetrics.aspectRatio, contentMode: .fit)
+                }
             }
 
-            AllocationLegend(slices: slices)
+            if !legendBesideCard {
+                AllocationLegend(slices: slices)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
-        .frame(maxWidth: .infinity, maxHeight: fillsAvailableSpace ? .infinity : nil)
+        .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: fillsAvailableSpace ? .infinity : nil,
+            alignment: legendBesideCard ? .top : .center
+        )
     }
 
     private var performanceAmount: Double? {

@@ -86,6 +86,9 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     /// What shows in place of the line. `.none` keeps the spinner while
     /// `isLoading`.
     var placeholder = PerformanceChartPlaceholder.none
+    var plotHeight = PerformanceChartPlotHeight.standard
+    /// False when the screen places the ranges itself, as below a fold.
+    var showsRangeSelector = true
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 280
 
@@ -111,21 +114,21 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
                     chartOrState
                 }
             }
-            .frame(height: min(chartHeight, 420))
+            .modifier(PlotHeightModifier(plotHeight: plotHeight, standardHeight: min(chartHeight, 420)))
             .frame(maxWidth: .infinity)
             // Axis labels past this size would leave no room for the line.
             // VoiceOver reads each point's date and value instead.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
 
-            RangeSelector(
-                ranges: ranges,
-                title: rangeTitle,
-                selectedRange: $selectedRange
-            ) {
-                selectedPoint = nil
+            if showsRangeSelector {
+                ChartRangeSelector(
+                    ranges: ranges,
+                    title: rangeTitle,
+                    selectedRange: $selectedRange
+                ) {
+                    selectedPoint = nil
+                }
             }
-            // Up to eight ranges share one row, scrolling past that.
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
     }
 
@@ -158,6 +161,32 @@ struct PerformanceLineChartSection<Point: Hashable, RangeOption: Identifiable & 
     }
 }
 
+/// How tall the plot is.
+enum PerformanceChartPlotHeight {
+    /// A fixed height that grows with the text size, as in a scrolling page.
+    case standard
+    /// The height the screen leaves, for a chart that sits beside other
+    /// content and doesn't scroll.
+    case fill
+}
+
+private struct PlotHeightModifier: ViewModifier {
+    let plotHeight: PerformanceChartPlotHeight
+    let standardHeight: CGFloat
+
+    /// Below this the line and its axes have no room to read.
+    private static let minimumFillHeight: CGFloat = 160
+
+    func body(content: Content) -> some View {
+        switch plotHeight {
+        case .standard:
+            content.frame(height: standardHeight)
+        case .fill:
+            content.frame(minHeight: Self.minimumFillHeight, maxHeight: .infinity)
+        }
+    }
+}
+
 /// A range that has never loaded and can't while there is no network.
 private struct OfflineChartPlaceholder: View {
     var body: some View {
@@ -185,10 +214,11 @@ private struct OfflineChartPlaceholder: View {
 /// light gray capsule that fits its label, so it is the same size whether
 /// the row holds four ranges or eight. The labels sit an equal distance
 /// apart, so a wide "MAX" doesn't crowd its neighbours the way equal
-/// columns would. When even that doesn't fit (large text), the row
-/// scrolls instead of truncating. The capsule is neutral: gain or loss is
-/// the line's to show, not the control's.
-private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
+/// columns would; in a wide row they stop spreading and gather in the
+/// middle. When even that doesn't fit (large text), the row scrolls
+/// instead of truncating. The capsule is neutral: gain or loss is the
+/// line's to show, not the control's.
+struct ChartRangeSelector<RangeOption: Identifiable & Equatable>: View {
     let ranges: [RangeOption]
     let title: (RangeOption) -> String
     @Binding var selectedRange: RangeOption
@@ -198,6 +228,12 @@ private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
     @ScaledMetric(relativeTo: .subheadline) private var capsuleHeight: CGFloat = 32
 
     var body: some View {
+        rows
+            // Up to eight ranges share one row, scrolling past that.
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private var rows: some View {
         ViewThatFits(in: .horizontal) {
             row
 
@@ -219,7 +255,9 @@ private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
     }
 
     private var row: some View {
-        RangeRowLayout {
+        // A capsule's height apart at most, so four ranges on a wide
+        // screen read as one control rather than four strays.
+        RangeRowLayout(maximumSpare: capsuleHeight) {
             ForEach(ranges) { option in
                 rangeButton(option)
                     .id(option.id)
@@ -268,10 +306,13 @@ private struct RangeSelector<RangeOption: Identifiable & Equatable>: View {
 }
 
 /// Places each range at its own width and shares the row's spare width out
-/// evenly among them, so the gaps between labels match. Without a width to
-/// fill, it asks for the labels' total, which is how `ViewThatFits` knows
-/// when to fall back to scrolling.
-private struct RangeRowLayout: Layout {
+/// evenly among them, so the gaps between labels match, up to
+/// `maximumSpare` each; what is left over sits evenly at both ends.
+/// Without a width to fill, it asks for the labels' total, which is how
+/// `ViewThatFits` knows when to fall back to scrolling.
+struct RangeRowLayout: Layout {
+    let maximumSpare: CGFloat
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
         let idealWidth = sizes.reduce(0) { $0 + $1.width }
@@ -287,16 +328,32 @@ private struct RangeRowLayout: Layout {
         guard !subviews.isEmpty else { return }
 
         let widths = subviews.map { $0.sizeThatFits(.unspecified).width }
-        let spare = max(0, bounds.width - widths.reduce(0, +)) / CGFloat(subviews.count)
-        var x = bounds.minX
+        let frames = Self.slots(widths: widths, in: bounds.width, maximumSpare: maximumSpare)
 
-        for (subview, width) in zip(subviews, widths) {
+        for (subview, frame) in zip(subviews, frames) {
             subview.place(
-                at: CGPoint(x: x, y: bounds.midY),
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.midY),
                 anchor: .leading,
-                proposal: ProposedViewSize(width: width + spare, height: bounds.height)
+                proposal: ProposedViewSize(width: frame.width, height: bounds.height)
             )
-            x += width + spare
+        }
+    }
+
+    /// Each range's slot along the row, from the row's leading edge: its
+    /// own width plus its share of the spare width.
+    nonisolated static func slots(
+        widths: [CGFloat],
+        in rowWidth: CGFloat,
+        maximumSpare: CGFloat
+    ) -> [(minX: CGFloat, width: CGFloat)] {
+        guard !widths.isEmpty else { return [] }
+        let total = widths.reduce(0, +)
+        let spare = min(max(0, rowWidth - total) / CGFloat(widths.count), maximumSpare)
+        var x = max(0, rowWidth - total - spare * CGFloat(widths.count)) / 2
+
+        return widths.map { width in
+            defer { x += width + spare }
+            return (minX: x, width: width + spare)
         }
     }
 }
