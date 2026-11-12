@@ -2,8 +2,8 @@
 //  LivePriceRefresh.swift
 //  Bittern
 //
-//  How often prices refresh themselves, and how hard a failing load is
-//  retried.
+//  How often prices and holdings refresh themselves, and how hard a
+//  failing load is retried.
 //
 
 import Foundation
@@ -19,6 +19,10 @@ enum LivePriceRefresh {
     /// When no holding is in session: how long to wait before checking
     /// prices and sessions again, unless a known session opens sooner.
     static let idleCheckInterval: Duration = .seconds(15 * 60)
+
+    /// How long after holdings were last asked for they are asked for
+    /// again, behind the data, when prices next arrive.
+    static let holdingsInterval: Duration = .seconds(60 * 60)
 
     /// How long launch shows nothing before the skeleton, so a load that
     /// answers at once never flashes it.

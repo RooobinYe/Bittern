@@ -97,8 +97,12 @@ final class DashboardViewModel {
     @ObservationIgnored private var launchID: UInt64 = 0
     /// Launch found neither a cache nor a network and waits for one.
     @ObservationIgnored private var isLaunchWaitingForNetwork = false
-    /// Holdings are re-fetched once after launch, when prices first arrive.
+    /// Holdings are re-fetched when prices next arrive: after launch, and
+    /// once they are due.
     @ObservationIgnored private var isHoldingsRefreshPending = false
+    /// When holdings were last asked for. Nil means never, or that they may
+    /// have changed: due at once.
+    @ObservationIgnored private var lastHoldingsRequest: Date?
     @ObservationIgnored private var isRefreshingHoldings = false
     @ObservationIgnored private var networkTask: Task<Void, Never>?
     @ObservationIgnored private var isNetworkStatusKnown = false
@@ -464,52 +468,29 @@ final class DashboardViewModel {
         updateLiveRefresh()
     }
 
-    // MARK: - Refreshing on request
+    // MARK: - Refreshing holdings
 
-    /// Pull to refresh: holdings and prices from scratch, since prices
-    /// refresh themselves. A failure is reported.
-    func refresh() async {
-        guard let credentials = currentCredentials else {
-            resetForMissingCredentials()
-            return
-        }
-        guard launchCredentials == credentials, snapshot != nil else {
-            await relaunchIfNeeded(credentials)
-            return
-        }
-
-        lastPartialFailureMessage = nil
-        let outcome = await requestRefresh(.holdings, acceptsRegression: true)
-        switch outcome {
-        case .committed(let partialFailure):
-            isHoldingsRefreshPending = false
-            holdingsAttention = nil
-            report(partialFailure, force: true)
-        case .failed(let error):
-            if case .needsAction(let attention) = RefreshFailure(error) {
-                holdingsAttention = attention
-            }
-            errorMessage = UserFacingError.message(
-                for: error,
-                fallback: "Portfolio couldn’t be refreshed. Your existing data is still available."
-            )
-        case .rejected, .superseded:
-            break
-        }
-    }
-
-    /// Everything again, as after saving or clearing credentials or from
-    /// Settings. New credentials are a new launch, with the old cache gone.
+    /// After saving or clearing credentials. New credentials are a new
+    /// launch, with the old cache gone; the same ones re-fetch holdings
+    /// behind the data on screen.
     func fullRefresh() async {
         guard let credentials = currentCredentials else {
             resetForMissingCredentials()
             return
         }
         if launchCredentials == credentials, snapshot != nil {
-            await refresh()
+            isHoldingsRefreshPending = true
+            await refreshHoldingsIfPending()
         } else {
             await relaunchIfNeeded(credentials)
         }
+    }
+
+    /// Something outside the app, such as connecting a brokerage, may have
+    /// changed the holdings: they are re-fetched when prices next arrive,
+    /// without waiting out `LivePriceRefresh.holdingsInterval`.
+    func holdingsMayHaveChanged() {
+        lastHoldingsRequest = nil
     }
 
     /// The error page's Try Again.
@@ -537,9 +518,10 @@ final class DashboardViewModel {
         }
     }
 
-    /// Re-fetches holdings once after launch, behind the data on screen.
-    /// SnapTrade refusing the credentials shows a banner; other failures
-    /// leave the list as it is.
+    /// Re-fetches holdings behind the data on screen: once after launch, and
+    /// whenever they are due. SnapTrade refusing the credentials shows a
+    /// banner; other failures leave the list as it is, and its prices keep
+    /// refreshing.
     private func refreshHoldingsIfPending() async {
         guard isHoldingsRefreshPending, !isRefreshingHoldings else { return }
         isRefreshingHoldings = true
@@ -679,6 +661,9 @@ final class DashboardViewModel {
             switch outcome {
             case .committed:
                 failures = 0
+                if areHoldingsDue {
+                    isHoldingsRefreshPending = true
+                }
                 if isHoldingsRefreshPending {
                     Task { await refreshHoldingsIfPending() }
                 }
@@ -701,6 +686,15 @@ final class DashboardViewModel {
                 : LivePriceRefresh.backoff(afterFailures: failures)
             do { try await sleep(delay) } catch { return }
         }
+    }
+
+    /// Holdings change only when the user trades or connects a brokerage,
+    /// so after launch they are asked for again only once an hour has
+    /// passed since the last time.
+    private var areHoldingsDue: Bool {
+        guard let lastHoldingsRequest else { return true }
+        let interval = TimeInterval(LivePriceRefresh.holdingsInterval.components.seconds)
+        return now().timeIntervalSince(lastHoldingsRequest) >= interval
     }
 
     /// Before each price request: with the Market Data Connection lost,
@@ -842,6 +836,9 @@ final class DashboardViewModel {
 
         refreshFlight = flight
         isLoading = true
+        if request.kind == .holdings {
+            lastHoldingsRequest = now()
+        }
         AppLog.portfolio.debug(
             "Refresh started kind=\(request.kind.logName, privacy: .public) flight=\(flightID, privacy: .public)"
         )
@@ -945,6 +942,12 @@ final class DashboardViewModel {
         var awaitedFlight = initialFlight
         while true {
             let outcome = await awaitedFlight.task.value
+            if case .failed = outcome, awaitedFlight.kind > requestedKind {
+                // A live tick that waited for a holdings load: SnapTrade
+                // failing says nothing about prices, and whoever asked for
+                // the holdings handles it.
+                return .superseded
+            }
             guard case .superseded = outcome,
                   let replacement = refreshFlight,
                   replacement.id != awaitedFlight.id,

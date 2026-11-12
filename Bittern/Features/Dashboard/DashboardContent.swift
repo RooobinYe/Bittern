@@ -54,7 +54,6 @@ struct DashboardControls {
     // asks of its setter.
     let selectPerformanceMode: @MainActor (PerformanceMode) -> Void
     let selectSortOption: @MainActor (HoldingSortOption) -> Void
-    let refresh: () async -> Void
     /// What the user has to fix, shown above the data until it is fixed.
     var attention: PortfolioAttention? = nil
     var openSettings: () -> Void = {}
@@ -133,7 +132,6 @@ struct DashboardContent: View {
         DashboardControls(
             selectPerformanceMode: { viewModel.performanceMode = $0 },
             selectSortOption: { viewModel.sortOption = $0 },
-            refresh: { await viewModel.refresh() },
             attention: viewModel.attention,
             openSettings: connectBrokerage
         )
@@ -264,7 +262,6 @@ struct DashboardVisualContent: View {
                 listWidth = width
             }
             .softNavigationBarEdge()
-            .refreshable { await controls.refresh() }
 
         // Side by side, or above and below a fold. The banner heads the
         // holdings, so it never crosses the fold.
@@ -281,7 +278,6 @@ struct DashboardVisualContent: View {
                 }
                 .listStyle(.plain)
                 .softNavigationBarEdge()
-                .refreshable { await controls.refresh() }
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .frame(maxWidth: .infinity)

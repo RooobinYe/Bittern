@@ -512,7 +512,7 @@ struct DashboardViewModelTests {
 
         // Fixed: the next holdings load clears it.
         repository.load = { [result] in result(cached) }
-        await model.refresh()
+        await model.fullRefresh()
         #expect(model.attention == nil)
     }
 
@@ -550,28 +550,70 @@ struct DashboardViewModelTests {
         #expect(saved.all.last?.holdings.count == 2)
     }
 
-    @Test func pullToRefreshLoadsHoldingsAndPrices() async {
-        let model = await launchedModel(cached: complete(at: 1_000))
-        let callsBefore = repository.calls
+    @Test func holdingsAreRefetchedBehindTheDataOnceAnHourHasPassed() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        await advance(by: LivePriceRefresh.interval)
+        // Not due yet: the tick brought prices only.
+        #expect(repository.calls == [.refresh, .load, .refresh])
 
-        let refreshed = complete("MSFT", at: 3_000)
+        let refreshed = complete("ETH", at: 3_000, instrumentKind: .crypto)
         repository.load = { [result] in result(refreshed) }
-        await model.refresh()
+        await settle { clock.pendingSleeps.contains(LivePriceRefresh.interval) }
+        clock.advance(by: LivePriceRefresh.holdingsInterval)
+        await settle { model.snapshot?.holdings.first?.symbol == "ETH" }
 
-        #expect(repository.calls == callsBefore + [.load])
-        #expect(model.snapshot?.holdings.map(\.symbol) == ["MSFT"])
+        #expect(repository.calls == [.refresh, .load, .refresh, .refresh, .load])
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["ETH"])
+        #expect(model.priceStatus == .current)
         #expect(model.errorMessage == nil)
     }
 
-    @Test func aFailedPullToRefreshSaysSoAndKeepsTheData() async throws {
-        let model = await launchedModel(cached: complete(at: 1_000))
+    @Test func returningAfterAnHourRefetchesHoldingsAfterThePrices() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        model.sceneDidEnterBackground()
+        let callsBefore = repository.calls.count
 
-        repository.load = { throw URLError(.timedOut) }
-        await model.refresh()
+        clock.advance(by: LivePriceRefresh.holdingsInterval)
+        model.sceneDidBecomeActive()
+        await settle { repository.calls.count == callsBefore + 2 }
 
-        #expect(try #require(model.errorMessage).contains("timed out"))
-        #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
+        #expect(Array(repository.calls.dropFirst(callsBefore)) == [.refresh, .load])
+        #expect(model.snapshot != nil)
+    }
+
+    @Test func connectingABrokerageRefetchesHoldingsOnReturn() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        model.holdingsMayHaveChanged()
+        model.sceneDidEnterBackground()
+        let callsBefore = repository.calls.count
+
+        model.sceneDidBecomeActive()
+        await settle { repository.calls.count == callsBefore + 2 }
+
+        #expect(Array(repository.calls.dropFirst(callsBefore)) == [.refresh, .load])
+    }
+
+    @Test func aFailedHoldingsRefreshIsSilentAndLeavesLivePricesAlone() async {
+        let model = await launchedModel(cached: complete("BTC", at: 1_000, instrumentKind: .crypto))
+        repository.holdsCalls = true
+        await settle { clock.pendingSleeps.contains(LivePriceRefresh.interval) }
+        clock.advance(by: LivePriceRefresh.holdingsInterval)
+        await settle { repository.heldCalls == [.refresh] }
+        repository.answer(with: model.snapshot!)
+        await settle { repository.heldCalls == [.load] }
+
+        // The next tick waits for the holdings load, which fails.
+        await advance(by: LivePriceRefresh.interval)
+        #expect(repository.heldCalls == [.load])
+        repository.fail(with: URLError(.timedOut))
+        await settle()
+
+        // Ticks go on at their usual pace: SnapTrade failing isn't a
+        // price failure.
+        #expect(clock.pendingSleeps.contains(LivePriceRefresh.interval))
         #expect(model.priceStatus == .current)
+        #expect(model.errorMessage == nil)
+        #expect(model.snapshot?.holdings.map(\.symbol) == ["BTC"])
     }
 
     @Test func partialPricesWarnKeepTheUpdateTimeAndSpareTheCache() async throws {
@@ -954,14 +996,14 @@ struct DashboardViewModelTests {
 
     // MARK: - Refreshes in flight
 
-    @Test func aSecondRefreshJoinsTheOneInFlight() async {
+    @Test func aSecondHoldingsRefreshStartsNoSecondLoad() async {
         let model = await launchedModel(cached: complete(at: 1_000))
         repository.holdsCalls = true
         let callsBefore = repository.calls.count
 
-        let first = Task { await model.refresh() }
+        let first = Task { await model.fullRefresh() }
         await settle { repository.heldCalls == [.load] }
-        let second = Task { await model.refresh() }
+        let second = Task { await model.fullRefresh() }
         await settle()
 
         #expect(repository.calls.count == callsBefore + 1)
@@ -983,7 +1025,7 @@ struct DashboardViewModelTests {
         await advance(by: LivePriceRefresh.interval)
         await settle { repository.heldCalls == [.refresh] }
 
-        let full = Task { await model.refresh() }
+        let full = Task { await model.fullRefresh() }
         await settle { repository.heldCalls == [.load] }
 
         #expect(repository.heldCalls == [.load])

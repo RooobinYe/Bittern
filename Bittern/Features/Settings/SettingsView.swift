@@ -62,9 +62,6 @@ struct SettingsView: View {
                     }
                 }
             }
-            .refreshable {
-                await viewModel.fullRefresh()
-            }
             .errorToast(message: presentedErrorMessage)
             .confirmationDialog(
                 "Clear SnapTrade credentials?",
@@ -215,6 +212,8 @@ struct SettingsView: View {
         ) else {
             return
         }
+        // Holdings from a newly connected brokerage show on returning.
+        viewModel.holdingsMayHaveChanged()
         openURL(url)
     }
 }
