@@ -29,13 +29,16 @@ A portfolio snapshot in which every holding has a current price. Only a Complete
 ### Freshness
 
 **Launch**:
-The time from having no portfolio in memory for the saved credentials until data or an error shows: a cold start, including after iOS ended the app in the background, or changed credentials. A Launch always shows the skeleton, unless data arrives within moments; with a kept Complete Snapshot it waits only for that snapshot's prices, then re-fetches holdings behind the data. Returning from the background is not a Launch: the data stays, and new prices replace it.
+The time from having no portfolio in memory for the saved credentials until data or an error shows: a cold start, including after iOS ended the app in the background, or changed credentials. A Launch always shows the skeleton, unless data arrives within moments; with a kept Complete Snapshot it waits only for that snapshot's prices, then starts a Holdings Refresh. Returning from the background is not a Launch: the data stays, and new prices replace it.
 
 **In-Session Holding**:
 A holding whose price can move now: crypto always; anything else from the start of its exchange's pre-market to the end of its post-market, and through the overnight session that follows. A holding whose trading day isn't known yet counts as closed until a quote says more.
 
 **Live Refresh**:
 New prices for every In-Session Holding, fetched on a fixed interval while the app is in the foreground with a network path, and stopped in the background. New prices replace the figures in place, without animation. Regular-Market Valuation still holds: extended-hours quotes never change totals, allocation or order.
+
+**Holdings Refresh**:
+Accounts and holdings fetched again from SnapTrade behind the data on screen, when new prices arrive: once after a Launch with a kept Complete Snapshot, then whenever an hour has passed since holdings were last asked for, and on returning from SnapTrade's brokerage connection page. It shows no skeleton or spinner; a failure is silent and never turns figures gray, except SnapTrade refusing the credentials, which shows a banner. Nothing is refreshed by pulling.
 
 **Stale Figure**:
 A price-derived figure shown from the last data because current prices can't be had, or haven't arrived yet: there is no network path, the Market Data Connection is lost while prices may have moved since they were last known, or Live Refresh keeps failing. It is shown in gray, and VoiceOver adds when every price was last known. Names, logos, allocation bands and the legend aren't Stale Figures and keep their colors. A closed market's close is its current price, so it is not a Stale Figure; but prices may have moved unless every holding's market is known to have stayed closed since they were last known, which needs its next trading day to be known.
@@ -71,3 +74,4 @@ The single persisted set of holding elections and Target Percentages that carrie
 - Whether "Today" should change when figures are Stale — resolved 2026-11-08: no. It names the return mode (the most recent session's change, paired with All time), not the calendar day, just as it shows Friday's change on a Sunday.
 - Whether the kept Complete Snapshot should expire — resolved 2026-11-08: no. Old isn't wrong; gray and VoiceOver's date say how old it is. It is deleted when credentials are cleared or changed.
 - When figures turn gray on returning from the background — resolved 2026-11-09: as in TradingView's app, gray at once when the **Market Data Connection** is lost and prices may have moved, and in color again with the first new prices. Until then the figures are the ones from before the background, not current ones. Failures with the connection live, such as quotes not arriving, still turn figures gray only after Live Refresh fails three times in a row.
+- Whether to keep pull to refresh — resolved 2026-11-12: no, on no screen. Prices refresh themselves through Live Refresh, holdings through Holdings Refresh, and charts follow live prices; holdings change only when the user trades or connects a brokerage, so an hour is soon enough.

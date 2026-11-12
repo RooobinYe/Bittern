@@ -109,14 +109,6 @@ struct HoldingDetailView: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .refreshable {
-            // An unstructured task, so a redraw during the pull doesn't
-            // cancel the reload.
-            let range = model.selectedRange
-            await Task {
-                await model.load(range, for: holding, using: repository, isOnline: isOnline, reload: true)
-            }.value
-        }
         // The header shows the full name; the symbol stays readable once it
         // scrolls away and never truncates in the inline bar.
         .navigationTitle(holding.symbol)
