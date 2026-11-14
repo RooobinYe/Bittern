@@ -84,6 +84,7 @@ struct PortfolioAllocationSection: View {
             }
         }
         .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
         .frame(
             maxWidth: .infinity,
