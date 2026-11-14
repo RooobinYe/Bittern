@@ -27,7 +27,7 @@ struct DashboardSkeleton: View {
             List {
                 Section {
                     SkeletonAllocation(performanceMode: performanceMode)
-                        .padding(.vertical, 8)
+                        .padding(.bottom, 16)
                         .listRowInsets(.horizontal, 0)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
@@ -54,6 +54,7 @@ struct DashboardSkeleton: View {
                     performanceMode: performanceMode,
                     legendBesideCard: layoutMode.isRows
                 )
+                .padding(.vertical, 8)
                 .frame(maxHeight: .infinity, alignment: layoutMode.isRows ? .top : .center)
             } second: {
                 List {
@@ -165,7 +166,6 @@ private struct SkeletonAllocation: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
         .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)

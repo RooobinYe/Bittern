@@ -242,7 +242,7 @@ struct DashboardVisualContent: View {
                     }
 
                     allocation(fillsAvailableSpace: false)
-                        .padding(.vertical, 8)
+                        .padding(.bottom, 16)
                         .listRowInsets(.horizontal, 0)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
@@ -268,6 +268,7 @@ struct DashboardVisualContent: View {
         case (_, let controls?):
             PaneSplit(arrangement: layoutMode) {
                 allocation(fillsAvailableSpace: true)
+                    .padding(.vertical, 8)
             } second: {
                 List {
                     if let attention = controls.attention {
@@ -288,6 +289,7 @@ struct DashboardVisualContent: View {
         case (.columns, nil):
             PaneSplit(arrangement: layoutMode) {
                 allocation(fillsAvailableSpace: false)
+                    .padding(.vertical, 8)
             } second: {
                 exportHoldings
                     .padding(.horizontal)
@@ -299,6 +301,7 @@ struct DashboardVisualContent: View {
         case (_, nil):
             VStack(spacing: 24) {
                 allocation(fillsAvailableSpace: false)
+                    .padding(.vertical, 8)
                 exportHoldings
                     .padding(.horizontal)
             }
