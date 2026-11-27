@@ -86,6 +86,7 @@ struct DashboardContent: View {
                     skeleton: skeleton,
                     performanceMode: viewModel.performanceMode,
                     sortOption: viewModel.sortOption,
+                    isPrivacyEnabled: isPrivacyEnabled,
                     layoutMode: DashboardLayoutMetrics.layoutMode(in: size, fold: fold),
                     controls: controls
                 )

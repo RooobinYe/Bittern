@@ -36,10 +36,17 @@ struct DashboardView: View {
                 viewportSize = newSize
             }
             .toolbar {
-                if providerNames.count > 1 {
+                if providerNames.count > 1 || launchSkeleton?.hasMultipleProviders == true {
                     ToolbarItem(placement: .topBarLeading) {
-                        accountFilterMenu
-                            .tint(viewModel.selectedProviderName == nil ? nil : BitternTheme.accent)
+                        if providerNames.count > 1 {
+                            accountFilterMenu
+                                .tint(viewModel.selectedProviderName == nil ? nil : BitternTheme.accent)
+                        } else {
+                            Button {} label: {
+                                Label("Filter Accounts", systemImage: "building.columns")
+                            }
+                            .disabled(true)
+                        }
                     }
                 }
 
@@ -65,6 +72,11 @@ struct DashboardView: View {
                         ) {
                             Label("Share Portfolio", systemImage: "square.and.arrow.up")
                         }
+                    } else if launchSkeleton != nil {
+                        Button {} label: {
+                            Label("Share Portfolio", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(true)
                     }
                 }
 
@@ -89,6 +101,11 @@ struct DashboardView: View {
 
     private var providerNames: [String] {
         viewModel.snapshot?.accounts.providerNames ?? []
+    }
+
+    private var launchSkeleton: LaunchSkeleton? {
+        guard case .loading(let skeleton?) = viewModel.loadState else { return nil }
+        return skeleton
     }
 
     /// Filters the portfolio between all accounts and a single provider.

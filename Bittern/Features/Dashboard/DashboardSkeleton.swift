@@ -14,6 +14,7 @@ struct DashboardSkeleton: View {
     let skeleton: LaunchSkeleton
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
+    var isPrivacyEnabled = false
     let layoutMode: PaneArrangement
     let controls: DashboardControls
 
@@ -24,7 +25,10 @@ struct DashboardSkeleton: View {
         case .single:
             ScrollView {
                 VStack(spacing: DashboardLayoutMetrics.sectionSpacing) {
-                    SkeletonAllocation(performanceMode: performanceMode)
+                    SkeletonAllocation(
+                        performanceMode: performanceMode,
+                        legendChips: skeleton.legendChips
+                    )
                     holdingsSection
                 }
                 .padding(.bottom, 14)
@@ -37,10 +41,10 @@ struct DashboardSkeleton: View {
             PaneSplit(arrangement: layoutMode) {
                 SkeletonAllocation(
                     performanceMode: performanceMode,
+                    legendChips: skeleton.legendChips,
                     fillsAvailableSpace: true,
                     legendBesideCard: layoutMode.isRows
                 )
-                .frame(maxHeight: .infinity, alignment: layoutMode.isRows ? .top : .center)
             } second: {
                 ScrollView {
                     holdingsSection
@@ -64,7 +68,7 @@ struct DashboardSkeleton: View {
             .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
 
             ForEach(0..<skeleton.rowCount, id: \.self) { index in
-                SkeletonHoldingRow(index: index)
+                SkeletonHoldingRow(index: index, isPrivacyEnabled: isPrivacyEnabled)
                     .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
                     .padding(.vertical, DashboardLayoutMetrics.holdingRowVerticalPadding)
                     .opacity(fade(at: index))
@@ -97,11 +101,9 @@ struct DashboardSkeleton: View {
 /// the legend, as blocks.
 private struct SkeletonAllocation: View {
     let performanceMode: PerformanceMode
+    let legendChips: [LaunchSkeleton.LegendChip]
     var fillsAvailableSpace = false
     var legendBesideCard = false
-
-    /// The legend's chips, as wide as typical ones.
-    private static let chipWidths: [CGFloat] = [128, 134, 114, 110, 122, 96]
 
     var body: some View {
         VStack(spacing: 18) {
@@ -118,11 +120,11 @@ private struct SkeletonAllocation: View {
                                 .padding(.vertical, 5)
                         }
 
-                    HStack(alignment: .center, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(verbatim: "+0")
                             .font(.keyFigure(.body))
                             .hidden()
-                            .frame(width: 132, alignment: .leading)
+                            .frame(width: 148, alignment: .leading)
                             .overlay {
                                 SkeletonBlock(cornerRadius: 6)
                                     .padding(.vertical, 2)
@@ -157,7 +159,11 @@ private struct SkeletonAllocation: View {
         .padding(.top, 8)
         .padding(.bottom, fillsAvailableSpace ? 8 : 0)
         .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
-        .frame(maxWidth: .infinity)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: fillsAvailableSpace ? .infinity : nil,
+            alignment: legendBesideCard ? .top : .center
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading portfolio")
     }
@@ -175,11 +181,50 @@ private struct SkeletonAllocation: View {
     }
 
     private var legend: some View {
-        CenteredFlowLayout(spacing: 8, lineSpacing: 10) {
-            ForEach(Self.chipWidths.indices, id: \.self) { index in
-                SkeletonBlock(cornerRadius: 15)
-                    .frame(width: Self.chipWidths[index], height: 30)
+        CenteredFlowLayout(
+            spacing: AllocationLegendMetrics.spacing,
+            lineSpacing: AllocationLegendMetrics.lineSpacing
+        ) {
+            ForEach(legendChips.indices, id: \.self) { index in
+                let chip = legendChips[index]
+                SkeletonLegendChip(symbol: chip.symbol, percent: chip.percent)
             }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+    }
+}
+
+/// A legend chip block sized by hidden text with the same metrics as `LegendChip`,
+/// so rows wrap identically across Dynamic Type sizes.
+private struct SkeletonLegendChip: View {
+    let symbol: String
+    let percent: String
+
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = AllocationLegendMetrics.iconSize
+
+    var body: some View {
+        let height = iconSize + AllocationLegendMetrics.chipVerticalPaddingTotal
+
+        HStack(spacing: AllocationLegendMetrics.chipSpacing) {
+            Color.clear
+                .frame(width: iconSize, height: iconSize)
+
+            Text(verbatim: symbol)
+                .font(.caption.weight(.semibold))
+
+            Text(verbatim: percent)
+                .font(.keyFigure(.caption))
+
+            Color.clear
+                .frame(width: AllocationLegendMetrics.dotSize, height: AllocationLegendMetrics.dotSize)
+        }
+        .lineLimit(1)
+        .padding(.leading, AllocationLegendMetrics.chipLeadingPadding)
+        .padding(.trailing, AllocationLegendMetrics.chipTrailingPadding)
+        .frame(minHeight: height)
+        .hidden()
+        .overlay {
+            SkeletonBlock(cornerRadius: height / 2)
         }
     }
 }
@@ -188,33 +233,51 @@ private struct SkeletonAllocation: View {
 /// the share and the change.
 private struct SkeletonHoldingRow: View {
     let index: Int
+    let isPrivacyEnabled: Bool
 
     @ScaledMetric(relativeTo: .title3) private var iconSize: CGFloat = 40
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Widths that vary row to row, so the list reads as text, not stripes.
     private static let widths: [(symbol: CGFloat, quantity: CGFloat, value: CGFloat, change: CGFloat)] = [
-        (56, 92, 70, 128), (60, 86, 64, 132), (48, 96, 52, 120), (42, 104, 48, 122),
-        (54, 72, 48, 124), (56, 52, 48, 120), (52, 50, 48, 124), (36, 78, 48, 120),
-        (50, 56, 48, 128)
+        (56, 92, 74, 136), (60, 86, 68, 140), (48, 96, 56, 128), (42, 104, 52, 130),
+        (54, 72, 52, 132), (56, 52, 52, 128), (52, 50, 52, 132), (36, 78, 52, 128),
+        (50, 56, 52, 136)
     ]
 
     var body: some View {
         let widths = Self.widths[index % Self.widths.count]
-        HStack(spacing: 12) {
-            SkeletonBlock(cornerRadius: iconSize / 2)
-                .frame(width: iconSize, height: iconSize)
 
-            VStack(spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
                     line(width: widths.symbol, font: .headline)
-                    line(width: widths.quantity, font: .subheadline, faint: true)
-                    Spacer(minLength: 8)
                     line(width: widths.value, font: .headline)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    line(width: 46, font: .subheadline, faint: true)
-                    Spacer(minLength: 8)
                     line(width: widths.change, font: .subheadline, faint: true)
+                    line(width: isPrivacyEnabled ? 56 : 140, font: .subheadline, faint: true)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    SkeletonBlock(cornerRadius: iconSize / 2)
+                        .frame(width: iconSize, height: iconSize)
+
+                    VStack(spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                line(width: widths.symbol, font: .headline)
+                                if !isPrivacyEnabled {
+                                    line(width: widths.quantity, font: .subheadline, faint: true)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            line(width: widths.value, font: .headline)
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            line(width: 46, font: .subheadline, faint: true)
+                            Spacer(minLength: 8)
+                            line(width: widths.change, font: .subheadline, faint: true)
+                        }
+                    }
                 }
             }
         }
