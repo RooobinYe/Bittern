@@ -36,11 +36,24 @@ extension NetworkTests {
 
         private func makeClient(
             host: String? = nil,
+            diskCache: LogoDiskCache = .disabled,
             handler: @escaping LogoStubURLProtocol.Handler
         ) throws -> LogoClient {
             let session = LogoStubURLProtocol.session(handler: handler)
             let store = try makeStore(host: host)
-            return LogoClient(session: session, serverStore: store, userAgent: "BitternTests/1.0")
+            return LogoClient(
+                session: session,
+                serverStore: store,
+                diskCache: diskCache,
+                userAgent: "BitternTests/1.0"
+            )
+        }
+
+        private func makeTempDirectory() throws -> URL {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("LogoClientTests-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
         }
 
         @Test func svgLogoIsRasterizedTo256Pixels() async throws {
@@ -118,6 +131,56 @@ extension NetworkTests {
             await #expect(throws: LogoClientError.invalidImageData) {
                 try await client.image(for: "BAD", at: url)
             }
+        }
+
+        @Test func diskCachePersistsAcrossClientInstancesWithoutNetwork() async throws {
+            let dir = try makeTempDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let diskCache = LogoDiskCache(directoryURL: dir)
+            let url = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
+            let firstClient = try makeClient(diskCache: diskCache) { _ in
+                (200, "image/svg+xml", Self.validSVGData)
+            }
+
+            let firstImage = try await firstClient.image(for: "AAPL", at: url)
+            #expect(firstImage.cgImage?.width == 256)
+            #expect(LogoStubURLProtocol.requestedURLs == [url])
+
+            let secondClient = try makeClient(diskCache: diskCache) { _ in
+                Issue.record("Unexpected network request on disk cache hit")
+                return (500, "text/plain", Data())
+            }
+            #expect(secondClient.cachedImage(for: url) == nil)
+
+            let secondImage = try await secondClient.image(for: "AAPL", at: url)
+            #expect(secondImage.cgImage?.width == 256)
+            #expect(secondClient.cachedImage(for: url) != nil)
+            #expect(LogoStubURLProtocol.requestedURLs.isEmpty)
+        }
+
+        @Test func warmFromDiskPopulatesMemoryCacheAndIgnoresMissingURLs() async throws {
+            let dir = try makeTempDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let diskCache = LogoDiskCache(directoryURL: dir)
+            let apple = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
+            let missing = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/missing.svg"))
+
+            let writer = try makeClient(diskCache: diskCache) { _ in
+                (200, "image/svg+xml", Self.validSVGData)
+            }
+            _ = try await writer.image(for: "AAPL", at: apple)
+
+            let warmed = try makeClient(diskCache: diskCache) { _ in
+                Issue.record("Unexpected network request during disk warmup")
+                return (500, "text/plain", Data())
+            }
+            await warmed.warmFromDisk(urls: [apple, apple, missing])
+
+            #expect(warmed.cachedImage(for: apple)?.cgImage?.width == 256)
+            #expect(warmed.cachedImage(for: missing) == nil)
+            #expect(LogoStubURLProtocol.requestedURLs.isEmpty)
         }
     }
 }

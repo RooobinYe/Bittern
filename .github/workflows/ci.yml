@@ -44,13 +44,15 @@ jobs:
           echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
 
       # Release is where the optimizer surfaces its own warnings; both
-      # configurations must stay warning-free.
+      # configurations must stay warning-free. SWIFT_TREAT_WARNINGS_AS_ERRORS
+      # is configured on the Bittern and BitternTests targets rather than the
+      # command line so remote SPM packages keep Xcode's -suppress-warnings.
       - name: Build Release
         run: |
           xcodebuild build \
             -project Bittern.xcodeproj -scheme Bittern -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            CODE_SIGNING_ALLOWED=NO
 
       # Xcode can hang while symbolicating a failed test, so the step has its
       # own timeout rather than relying on xcodebuild to exit.
@@ -61,7 +63,7 @@ jobs:
             -project Bittern.xcodeproj -scheme Bittern -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -resultBundlePath build/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Upload test results
         if: failure()

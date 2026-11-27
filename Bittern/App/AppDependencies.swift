@@ -47,9 +47,13 @@ struct AppDependencies {
                 currentDate: currentDate
             ),
             logoSource: .remote(
-                LogoImageLoader { name, url in
-                    try await logoClient.image(for: name, at: url)
-                }
+                LogoImageLoader(
+                    cached: { logoClient.cachedImage(for: $0) },
+                    warmFromDisk: { await logoClient.warmFromDisk(urls: $0) },
+                    image: { name, url in
+                        try await logoClient.image(for: name, at: url)
+                    }
+                )
             )
         )
     }

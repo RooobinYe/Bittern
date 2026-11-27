@@ -188,17 +188,20 @@ struct DashboardViewModelTests {
 
     private func viewModel(
         credentials: SnapTradeCredentials?,
-        cached: PortfolioSnapshot? = nil
+        cached: PortfolioSnapshot? = nil,
+        warmCachedLogos: @escaping @Sendable (PortfolioSnapshot) async -> Void = { _ in }
     ) -> DashboardViewModel {
         viewModel(
             store: CredentialsStore(storage: InMemoryCredentialsStorage(credentials)),
-            cached: cached
+            cached: cached,
+            warmCachedLogos: warmCachedLogos
         )
     }
 
     private func viewModel(
         store: CredentialsStore,
-        cached: PortfolioSnapshot? = nil
+        cached: PortfolioSnapshot? = nil,
+        warmCachedLogos: @escaping @Sendable (PortfolioSnapshot) async -> Void = { _ in }
     ) -> DashboardViewModel {
         let saved = saved
         let clock = clock
@@ -211,6 +214,7 @@ struct DashboardViewModelTests {
             saveCachedSnapshot: { saved.append($0) },
             deleteCachedSnapshot: { saved.delete() },
             networkMonitor: network,
+            warmCachedLogos: warmCachedLogos,
             sleep: { try await clock.sleep(for: $0) },
             now: { clock.now }
         )
@@ -1068,6 +1072,24 @@ struct DashboardViewModelTests {
 
         #expect(model.snapshot?.holdings.map(\.symbol) == ["NEW"])
         #expect(saved.all.map { $0.holdings.map(\.symbol) } == [["NEW"]])
+    }
+
+    @Test func launchWarmsCachedLogosBeforeShowingStaleSnapshot() async {
+        let cached = complete(at: 1_000)
+        let warmed = SavedSnapshots()
+        let model = viewModel(
+            credentials: credentials,
+            cached: cached,
+            warmCachedLogos: { snapshot in
+                warmed.append(snapshot)
+            }
+        )
+        network.set(online: false)
+
+        await model.bootstrap()
+
+        #expect(warmed.all.map { $0.holdings.map(\.symbol) } == [["AAPL"]])
+        #expect(model.priceStatus == .stale(since: cached.lastUpdated))
     }
 }
 

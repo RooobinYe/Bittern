@@ -17,17 +17,20 @@ nonisolated struct LogoClient: Sendable {
 
     private let session: URLSession
     private let serverStore: TradingViewServerStore
+    private let diskCache: LogoDiskCache
     private let cache: ImageCache
     private let userAgent: String
 
     @MainActor
     init(
         session: URLSession = .shared,
-        serverStore: TradingViewServerStore = TradingViewServerStore()
+        serverStore: TradingViewServerStore = TradingViewServerStore(),
+        diskCache: LogoDiskCache = .live
     ) {
         self.init(
             session: session,
             serverStore: serverStore,
+            diskCache: diskCache,
             userAgent: Self.defaultUserAgent()
         )
     }
@@ -35,12 +38,44 @@ nonisolated struct LogoClient: Sendable {
     init(
         session: URLSession = .shared,
         serverStore: TradingViewServerStore = TradingViewServerStore(),
+        diskCache: LogoDiskCache = .disabled,
         userAgent: String
     ) {
         self.session = session
         self.serverStore = serverStore
+        self.diskCache = diskCache
         self.cache = ImageCache()
         self.userAgent = userAgent
+    }
+
+    func cachedImage(for url: URL) -> UIImage? {
+        cache[url]
+    }
+
+    /// Loads any already-persisted logo bitmaps into the memory cache without
+    /// touching the network.
+    func warmFromDisk(urls: [URL]) async {
+        guard diskCache.directoryURL != nil else { return }
+        var seen: Set<URL> = []
+        let pending = urls.filter { seen.insert($0).inserted && cache[$0] == nil }
+        guard !pending.isEmpty else { return }
+
+        let diskCache = self.diskCache
+        let loaded = await Task.detached(priority: .userInitiated) {
+            var images: [(URL, UIImage)] = []
+            images.reserveCapacity(pending.count)
+            for url in pending {
+                if Task.isCancelled { break }
+                if let image = diskCache.load(for: url) {
+                    images.append((url, image))
+                }
+            }
+            return images
+        }.value
+
+        for (url, image) in loaded where cache[url] == nil {
+            cache[url] = image
+        }
     }
 
     func image(for name: String, at url: URL) async throws -> UIImage {
@@ -48,9 +83,25 @@ nonisolated struct LogoClient: Sendable {
             return cached
         }
 
+        if diskCache.directoryURL != nil {
+            let diskCache = self.diskCache
+            if let diskImage = await Task.detached(priority: .userInitiated, operation: {
+                diskCache.load(for: url)
+            }).value {
+                cache[url] = diskImage
+                return diskImage
+            }
+        }
+
         let requestURL = serverStore.server.logoRequestURL(for: url) ?? url
         let image = try await fetchImage(for: name, at: requestURL)
         cache[url] = image
+        if diskCache.directoryURL != nil {
+            let diskCache = self.diskCache
+            await Task.detached(priority: .utility) {
+                diskCache.save(image, for: url)
+            }.value
+        }
         return image
     }
 
@@ -129,6 +180,7 @@ nonisolated struct LogoClient: Sendable {
     }
 
     private static func decodeImage(data: Data, mimeType: String, url: URL) -> UIImage? {
+        let image: UIImage?
         if mimeType.lowercased().contains("svg") || url.pathExtension.lowercased() == "svg" {
             guard let svg = SVG(data: data),
                   svg.size.width > 0, svg.size.height > 0,
@@ -142,9 +194,11 @@ nonisolated struct LogoClient: Sendable {
                 height: max((svg.size.height / longest * maximumRasterSize).rounded(), 1)
             )
             // Always pass an explicit scale so SwiftDraw never reads UIScreen.main.scale via DispatchQueue.main.sync.
-            return svg.rasterize(size: targetSize, scale: 1)
+            image = svg.rasterize(size: targetSize, scale: 1)
+        } else {
+            image = UIImage(data: data)
         }
-        return UIImage(data: data)
+        return image.map { $0.preparingForDisplay() ?? $0 }
     }
 
     @MainActor
