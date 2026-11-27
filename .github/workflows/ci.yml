@@ -2,8 +2,12 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
 
 permissions:
   contents: read
@@ -13,12 +17,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and test
-    runs-on: macos-26
-    timeout-minutes: 60
+  build-release:
+    name: Build Release
+    runs-on: xcode-27
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Select the newest Xcode
         run: |
@@ -26,49 +30,62 @@ jobs:
           sudo xcode-select -s "$xcode"
           xcodebuild -version
 
-      # The newest iOS runtime, since older ones can be below the deployment
-      # target and xcodebuild then finds no matching destination.
-      - name: Pick an iPhone simulator
-        run: |
-          runtime="$(xcrun simctl list runtimes available -j \
-            | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')"
-          echo "Runtime: $runtime"
-          udid="$(xcrun simctl list devices available -j \
-            | jq -r --arg runtime "$runtime" '[.devices[$runtime][]? | select(.name | startswith("iPhone"))] | first | .udid')"
-          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
-            echo "No iPhone simulator for $runtime"
-            xcrun simctl list devices available
-            exit 1
-          fi
-          xcrun simctl list devices available | grep "$udid"
-          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+      - name: Cache Swift packages
+        uses: actions/cache@v6
+        with:
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Bittern.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
       # Release is where the optimizer surfaces its own warnings; both
       # configurations must stay warning-free. SWIFT_TREAT_WARNINGS_AS_ERRORS
       # is configured on the Bittern and BitternTests targets rather than the
       # command line so remote SPM packages keep Xcode's -suppress-warnings.
+      # Build arm64 only and skip dSYM and index generation since this job only
+      # verifies compilation.
       - name: Build Release
         run: |
           xcodebuild build \
             -project Bittern.xcodeproj -scheme Bittern -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      # Xcode can hang while symbolicating a failed test, so the step has its
-      # own timeout rather than relying on xcodebuild to exit.
-      - name: Test Debug
-        timeout-minutes: 30
+  build-debug-tests:
+    name: Build Debug (with tests)
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select the newest Xcode
         run: |
-          xcodebuild test \
-            -project Bittern.xcodeproj -scheme Bittern -configuration Debug \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-            -resultBundlePath build/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
 
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Cache Swift packages
+        uses: actions/cache@v6
         with:
-          name: Tests.xcresult
-          path: build/Tests.xcresult
-          if-no-files-found: ignore
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Bittern.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      # Compile both Bittern and BitternTests in Debug without booting an iOS
+      # simulator (cold-booting iOS 27.2 takes 5+ minutes on the 3-core runner);
+      # unit tests run locally on Mac in ~20s.
+      - name: Build Debug for testing
+        run: |
+          xcodebuild build-for-testing \
+            -project Bittern.xcodeproj -scheme Bittern -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ENABLE_PREVIEWS=NO \
+            CODE_SIGNING_ALLOWED=NO
