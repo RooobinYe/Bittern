@@ -27,8 +27,7 @@ struct DashboardSkeleton: View {
             List {
                 Section {
                     SkeletonAllocation(performanceMode: performanceMode)
-                        .padding(.vertical, 8)
-                        .listRowInsets(.horizontal, 0)
+                        .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                 }
