@@ -48,9 +48,7 @@ enum LogoSource: Sendable {
 
     func warmCachedLogos(for snapshot: PortfolioSnapshot) async {
         guard case .remote(let loader) = self else { return }
-        let urls = snapshot.holdings.compactMap(\.logoURL)
-            + snapshot.accounts.compactMap(\.providerLogoURL)
-        await loader.warmFromDisk(urls)
+        await loader.warmFromDisk(snapshot.holdings.compactMap(\.logoURL))
     }
 }
 

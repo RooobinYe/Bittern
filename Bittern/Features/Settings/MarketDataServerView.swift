@@ -200,9 +200,14 @@ struct MarketDataServerView: View {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Connected in \(Self.seconds(check.duration))")
-                    Text("BTC \(PortfolioFormat.price(check.price, currencyCode: check.currencyCode ?? "USD")) · \(check.isRealTime ? "Real-time" : "Delayed")")
+                    Text("BTC \(PortfolioFormat.price(check.price, currencyCode: check.currencyCode ?? "USD")) · \(check.isRealTime ? "Real-time" : "Delayed")\(check.logosAvailable ? " · Logos ready" : "")")
                         .font(.subheadline)
                         .foregroundStyle(BitternTheme.secondaryInk)
+                    if !check.logosAvailable {
+                        Text(check.server.isTradingView ? "Symbol logos couldn’t be reached." : "Symbol logos unavailable at /symbol-logo/.")
+                            .font(.subheadline)
+                            .foregroundStyle(BitternTheme.warning)
+                    }
                 }
             } icon: {
                 Image(systemName: "checkmark.circle.fill")

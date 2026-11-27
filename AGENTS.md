@@ -17,4 +17,3 @@
 - 测试替换了 Keychain 和缓存文件，不要在测试里用默认的 `CredentialsStore` 或 `PortfolioCache`
 - 仓库是公开的，凭据只放在不入库的 `Bittern Local` scheme 里
 - 截图或演示用 Debug 构建并设环境变量 `BITTERN_DEMO=1` 启动：显示示例组合，不读 Keychain、缓存和网络（`simctl launch` 时写成 `SIMCTL_CHILD_BITTERN_DEMO=1`）
-- 改动代码前在独立分支和 git worktree 中进行，不在主工作区 `main` 直接修改（优先用当前工具内置的 worktree 机制，否则默认建在 `.worktrees/<topic>`；纯问答或调研不建）

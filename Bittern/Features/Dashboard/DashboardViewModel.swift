@@ -323,14 +323,13 @@ final class DashboardViewModel {
         } ?? .withoutCache
         revealSkeleton(skeleton, launch: launch)
 
-        async let logoWarmup: Void = {
-            if let cached {
+        if let cached {
+            Task { [warmCachedLogos] in
                 await warmCachedLogos(cached)
             }
-        }()
+        }
 
         await waitForNetworkStatus()
-        await logoWarmup
         guard launch == launchID else { return }
 
         if let cached {

@@ -18,10 +18,12 @@ struct TradingViewClient {
     static let chartTimeout: Duration = .seconds(10)
 
     typealias SocketFactory = @Sendable (TradingViewServer) async throws -> any TradingViewSocket
+    typealias LogoRouteCheck = @Sendable (TradingViewServer, Duration) async -> Bool
 
     let currentDate: @Sendable () -> Date
     let serverStore: TradingViewServerStore
     let makeSocket: SocketFactory
+    let checkLogoRoute: LogoRouteCheck
     let connection: TradingViewConnection
     let quoteFeed: TradingViewQuoteFeed
 
@@ -30,11 +32,13 @@ struct TradingViewClient {
     init(
         serverStore: TradingViewServerStore,
         makeSocket: @escaping SocketFactory,
+        checkLogoRoute: @escaping LogoRouteCheck = { _, _ in true },
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.currentDate = currentDate
         self.serverStore = serverStore
         self.makeSocket = makeSocket
+        self.checkLogoRoute = checkLogoRoute
         connection = TradingViewConnection(makeSocket: { try await makeSocket(serverStore.server) })
         quoteFeed = TradingViewQuoteFeed(connection: connection)
     }
@@ -49,6 +53,9 @@ struct TradingViewClient {
             makeSocket: { server in
                 guard let url = server.socketURL else { throw URLError(.badURL) }
                 return URLSessionTradingViewSocket(session: session, url: url)
+            },
+            checkLogoRoute: { server, timeout in
+                await Self.checkLogoRoute(on: server, using: session, timeout: timeout)
             },
             currentDate: currentDate
         )
@@ -73,8 +80,9 @@ struct TradingViewClient {
     }
 
     /// Whether `server` answers like TradingView: a connection of its own
-    /// that has to deliver a live Bitcoin quote within `timeout`. The
-    /// connection in use is left alone.
+    /// that has to deliver a live Bitcoin quote within `timeout`, plus a
+    /// concurrent `HEAD` probe for symbol logos. The connection in use is left
+    /// alone.
     func check(_ server: TradingViewServer, timeout: Duration = .seconds(10)) async throws -> TradingViewServerCheck {
         let symbol = "CRYPTO:BTCUSD"
         let connection = TradingViewConnection(makeSocket: { [makeSocket] in try await makeSocket(server) })
@@ -83,6 +91,7 @@ struct TradingViewClient {
         let startedAt = clock.now
         defer { Task { await connection.disconnect() } }
 
+        async let logosAvailable = checkLogoRoute(server, timeout)
         let states = try await feed.quotes(for: [symbol], timeout: timeout)
         let duration = clock.now - startedAt
         switch states[symbol] {
@@ -96,12 +105,51 @@ struct TradingViewClient {
                 symbol: symbol,
                 price: price,
                 currencyCode: fields["currency_code"]?.string,
-                isRealTime: fields["update_mode"]?.string == "streaming"
+                isRealTime: fields["update_mode"]?.string == "streaming",
+                logosAvailable: await logosAvailable
             )
         case .failed(let reason):
             throw TradingViewError.invalidSymbol(symbol: symbol, reason: reason)
         case .pending, nil:
             throw TradingViewError.timedOut("a Bitcoin quote")
+        }
+    }
+
+    nonisolated static func checkLogoRoute(
+        on server: TradingViewServer,
+        using session: URLSession,
+        timeout: Duration = .seconds(10)
+    ) async -> Bool {
+        guard let canonicalURL = TradingViewServer.canonicalLogoURL(forLogoID: "crypto/XTVCBTC") else {
+            return false
+        }
+        let targetURL = server.logoRequestURL(for: canonicalURL) ?? canonicalURL
+        let components = timeout.components
+        let timeoutSeconds = max(
+            Double(components.seconds) + Double(components.attoseconds) / 1e18,
+            1
+        )
+
+        var request = URLRequest(
+            url: targetURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: timeoutSeconds
+        )
+        request.httpMethod = "HEAD"
+        request.setValue("image/svg+xml,image/*;q=0.8", forHTTPHeaderField: "Accept")
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  let mimeType = httpResponse.mimeType,
+                  mimeType.lowercased().hasPrefix("image/")
+            else {
+                return false
+            }
+            return true
+        } catch {
+            return false
         }
     }
 

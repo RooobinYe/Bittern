@@ -116,6 +116,21 @@ struct MarketDataServerSwitchTests {
             try await server.client(at: marketTime(day: 6, hour: 11)).check(custom)
         }
     }
+
+    @Test func aCheckReportsLogoRouteAvailabilityWithoutFailingTheCheck() async throws {
+        let server = FakeTradingViewServer(quotes: [
+            "CRYPTO:BTCUSD": FakeMarket.cryptoQuote(price: 75_000, previousClose: 74_000)
+        ])
+        let client = server.client(at: marketTime(day: 6, hour: 11))
+
+        let ready = try await client.check(custom)
+        #expect(ready.logosAvailable)
+
+        server.setLogoRouteAvailable(false)
+        let missingLogos = try await client.check(custom)
+        #expect(missingLogos.price == 75_000)
+        #expect(!missingLogos.logosAvailable)
+    }
 }
 
 @Suite

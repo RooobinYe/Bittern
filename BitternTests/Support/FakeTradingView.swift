@@ -17,6 +17,7 @@ nonisolated final class FakeTradingViewServer: @unchecked Sendable {
     private var sent: [TradingViewMessage] = []
     private var sentHeartbeats: [String] = []
     private var refusesConnections = false
+    private var logoRouteAvailable = true
     private var connectedHosts: [String] = []
     /// Where the client under test keeps its chosen server; private to
     /// this server, so tests don't share it.
@@ -40,7 +41,12 @@ nonisolated final class FakeTradingViewServer: @unchecked Sendable {
     }
 
     @MainActor func client(at date: Date) -> TradingViewClient {
-        TradingViewClient(serverStore: serverStore, makeSocket: makeSocket, currentDate: { date })
+        TradingViewClient(
+            serverStore: serverStore,
+            makeSocket: makeSocket,
+            checkLogoRoute: { [self] _, _ in lock.withLock { logoRouteAvailable } },
+            currentDate: { date }
+        )
     }
 
     var socketCount: Int { lock.withLock { sockets.count } }
@@ -76,6 +82,10 @@ nonisolated final class FakeTradingViewServer: @unchecked Sendable {
 
     func setRefusesConnections(_ refuses: Bool) {
         lock.withLock { refusesConnections = refuses }
+    }
+
+    func setLogoRouteAvailable(_ available: Bool) {
+        lock.withLock { logoRouteAvailable = available }
     }
 
     func pushHeartbeat(_ number: Int) {

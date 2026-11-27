@@ -130,4 +130,5 @@ nonisolated struct TradingViewServerCheck: Equatable, Sendable {
     let currencyCode: String?
     /// TradingView streams the quote as it trades, rather than delayed.
     let isRealTime: Bool
+    var logosAvailable: Bool = true
 }

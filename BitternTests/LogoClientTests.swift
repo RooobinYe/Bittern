@@ -182,7 +182,48 @@ extension NetworkTests {
             #expect(warmed.cachedImage(for: missing) == nil)
             #expect(LogoStubURLProtocol.requestedURLs.isEmpty)
         }
+
+        @Test func logoRouteCheckSendsHeadToCustomServerAndValidatesImageResponse() async throws {
+            let server = try #require(TradingViewServer("proxy.example.com"))
+            let expectedURL = try #require(URL(string: "https://proxy.example.com/symbol-logo/crypto/XTVCBTC.svg"))
+            let recordedMethods = RecordedMethods()
+            let session = LogoStubURLProtocol.session { request in
+                recordedMethods.append(request.httpMethod)
+                return (200, "image/svg+xml", Data())
+            }
+
+            let ok = await TradingViewClient.checkLogoRoute(on: server, using: session)
+
+            #expect(ok)
+            #expect(LogoStubURLProtocol.requestedURLs == [expectedURL])
+            #expect(recordedMethods.all == ["HEAD"])
+        }
+
+        @Test(arguments: [
+            (403, "application/json"),
+            (404, "application/json"),
+            (405, "application/json"),
+            (200, "text/html")
+        ])
+        func logoRouteCheckReturnsFalseOnFailureOrNonImage(status: Int, contentType: String) async throws {
+            let server = try #require(TradingViewServer("proxy.example.com"))
+            let session = LogoStubURLProtocol.session { _ in
+                (status, contentType, Data())
+            }
+
+            let ok = await TradingViewClient.checkLogoRoute(on: server, using: session)
+
+            #expect(!ok)
+        }
     }
+}
+
+private nonisolated final class RecordedMethods: @unchecked Sendable {
+    private let lock = NSLock()
+    private var methods: [String?] = []
+
+    func append(_ method: String?) { lock.withLock { methods.append(method) } }
+    var all: [String?] { lock.withLock { methods } }
 }
 
 private nonisolated final class LogoStubURLProtocol: URLProtocol, @unchecked Sendable {
