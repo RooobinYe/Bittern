@@ -102,48 +102,26 @@ struct DashboardShareSnapshot: Sendable {
     }
 }
 
-/// A deliberate document header for the exported portfolio. It is not a
-/// hand-built replacement for the system navigation bar.
-private struct PortfolioExportHeader: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.largeTitle.bold())
-            .foregroundStyle(BitternTheme.ink)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 private struct PortfolioShareScreenshotContent: View {
     let snapshot: DashboardShareSnapshot
     let width: CGFloat
 
     var body: some View {
-        VStack(spacing: 0) {
-            PortfolioExportHeader(title: snapshot.title)
-                // In one column, the title starts where the total does.
-                .frame(maxWidth: snapshot.layoutMode == .single
-                    ? DashboardLayoutMetrics.maximumChartSide - 32
-                    : DashboardLayoutMetrics.maximumContentWidth)
-                .padding(.horizontal)
-                .padding(.top, 16)
-                .padding(.bottom, 18)
-                .background(BitternTheme.background)
-
-            DashboardVisualContent(
-                portfolio: snapshot.portfolio,
-                sortedHoldings: snapshot.sortedHoldings,
-                performanceMode: snapshot.performanceMode,
-                sortOption: snapshot.sortOption,
-                minimumMarketValue: snapshot.minimumMarketValue,
-                hiddenHoldingCount: snapshot.hiddenHoldingCount,
-                isPrivacyEnabled: snapshot.isPrivacyEnabled,
-                layoutMode: snapshot.layoutMode,
-                controls: nil
-            )
-            .environment(\.priceStatus, snapshot.priceStatus)
-        }
+        DashboardVisualContent(
+            portfolio: snapshot.portfolio,
+            scopeTitle: snapshot.title,
+            sortedHoldings: snapshot.sortedHoldings,
+            performanceMode: snapshot.performanceMode,
+            sortOption: snapshot.sortOption,
+            minimumMarketValue: snapshot.minimumMarketValue,
+            hiddenHoldingCount: snapshot.hiddenHoldingCount,
+            isPrivacyEnabled: snapshot.isPrivacyEnabled,
+            layoutMode: snapshot.layoutMode,
+            controls: nil
+        )
+        .environment(\.priceStatus, snapshot.priceStatus)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
         .frame(width: width, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
         .background(BitternTheme.background)

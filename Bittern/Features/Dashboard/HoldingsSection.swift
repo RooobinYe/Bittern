@@ -28,7 +28,6 @@ struct HoldingsHeader: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 4)
     }
 
     private var titles: some View {
@@ -40,7 +39,6 @@ struct HoldingsHeader: View {
 
     @ViewBuilder
     private var optionsMenu: some View {
-        let label = HoldingsOptionsLabel(title: sortTitle)
         if let controls {
             // Closures rather than the function values themselves: Swift 6.2
             // crashes converting a main-actor function value to the setter's
@@ -70,12 +68,17 @@ struct HoldingsHeader: View {
                 }
                 .pickerStyle(.inline)
             } label: {
-                label
+                HoldingsOptionsLabel(title: sortTitle, isInteractive: true)
+                    .padding(.vertical, 12)
+                    .contentShape(.rect)
             }
+            // Expand the touch target to ~44 pt without inflating the header's
+            // visual height or pushing the first row down.
+            .padding(.vertical, -12)
             .accessibilityLabel("Holding options")
             .accessibilityValue(sortTitle)
         } else {
-            label
+            HoldingsOptionsLabel(title: sortTitle, isInteractive: false)
         }
     }
 
@@ -96,19 +99,21 @@ struct HoldingsHeader: View {
 
 private struct HoldingsOptionsLabel: View {
     let title: String
+    /// Interactive menu on the live dashboard vs static label in the export.
+    var isInteractive = true
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text(title)
                 .font(.subheadline)
 
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption)
-                .accessibilityHidden(true)
+            if isInteractive {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
         }
         .foregroundStyle(BitternTheme.secondaryInk)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
     }
 }
 

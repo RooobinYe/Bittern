@@ -40,6 +40,7 @@ final class AllocationLensMotion {
 
 struct PortfolioAllocationSection: View {
     let snapshot: PortfolioSnapshot
+    var scopeTitle: String? = nil
     let performanceMode: PerformanceMode
     let isPrivacyEnabled: Bool
     let fillsAvailableSpace: Bool
@@ -55,8 +56,9 @@ struct PortfolioAllocationSection: View {
         let slices = AllocationSlice.slices(of: snapshot)
 
         VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 16) {
                 PerformanceSummary(
+                    scopeTitle: scopeTitle,
                     total: totalMarketValueText,
                     change: performanceText,
                     changeColor: BitternTheme.performanceColor(performanceAmount),
@@ -83,8 +85,9 @@ struct PortfolioAllocationSection: View {
                 AllocationLegend(slices: slices)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+        .padding(.top, 8)
+        .padding(.bottom, fillsAvailableSpace ? 8 : 0)
         .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
         .frame(
             maxWidth: .infinity,
@@ -346,6 +349,7 @@ struct LiftedAllocationLens: View {
 /// and all time. The same choice is in the holdings menu. The mode's name
 /// stays as it is in every state: "Today" names the return, not the date.
 private struct PerformanceSummary: View {
+    let scopeTitle: String?
     let total: String
     let change: String
     let changeColor: Color
@@ -356,6 +360,14 @@ private struct PerformanceSummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let scopeTitle {
+                Text(scopeTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(BitternTheme.secondaryInk)
+                    .lineLimit(1)
+                    .padding(.bottom, 2)
+            }
+
             Text(total)
                 .font(.keyFigure(.largeTitle, weight: .bold))
                 .foregroundStyle(priceStatus.keyFigureColor(BitternTheme.ink))
@@ -368,14 +380,21 @@ private struct PerformanceSummary: View {
                     withAnimation(.snappy) { select(mode.next) }
                 } label: {
                     returnLabel
+                        .padding(.vertical, 12)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                // Expand the touch target without adding phantom height under
+                // the return line.
+                .padding(.vertical, -12)
+                .padding(.top, 4)
                 .accessibilityLabel("Return")
                 .accessibilityValue("\(mode.title), \(priceStatus.accessibilityLabel(for: change))")
                 .accessibilityHint("Switches between today and all time")
                 .sensoryFeedback(.selection, trigger: mode)
             } else {
                 returnLabel
+                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -397,8 +416,6 @@ private struct PerformanceSummary: View {
                 .foregroundStyle(BitternTheme.secondaryInk)
                 .lineLimit(1)
         }
-        .frame(minHeight: 44)
-        .contentShape(.rect)
     }
 }
 
