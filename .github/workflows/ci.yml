@@ -68,32 +68,6 @@ jobs:
           sudo xcode-select -s "$xcode"
           xcodebuild -version
 
-      # The newest iOS runtime, since older ones can be below the deployment
-      # target and xcodebuild then finds no matching destination. Kick off
-      # booting immediately so it overlaps with compiling the test bundle.
-      - name: Pick and boot an iPhone simulator
-        run: |
-          runtime="$(xcrun simctl list runtimes available -j \
-            | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')"
-          echo "Runtime: $runtime"
-          udid="$(xcrun simctl list devices available -j \
-            | jq -r --arg runtime "$runtime" '
-              [.devices[$runtime][]? | select(.name | startswith("iPhone"))]
-              | (map(select(.name == "iPhone 18 Pro")) + map(select(.state == "Booted")) + .)
-              | first | .udid')"
-          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
-            echo "No iPhone simulator for $runtime"
-            xcrun simctl list devices available
-            exit 1
-          fi
-          xcrun simctl list devices available | grep "$udid"
-          state="$(xcrun simctl list devices available -j \
-            | jq -r --arg runtime "$runtime" --arg udid "$udid" '.devices[$runtime][]? | select(.udid == $udid) | .state')"
-          if [ "$state" != "Booted" ]; then
-            nohup xcrun simctl boot "$udid" </dev/null >/dev/null 2>&1 &
-          fi
-          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-
       - name: Cache Swift packages
         uses: actions/cache@v6
         with:
@@ -102,8 +76,8 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-
 
-      # Build against the generic simulator destination so xcodebuild does not
-      # block on CoreSimulator while the chosen device is booting in parallel.
+      # Build before booting any simulator so swiftc and actool do not contend
+      # with CoreSimulator on a 3-core / 7 GB runner.
       - name: Build Debug for testing
         run: |
           xcodebuild build-for-testing \
@@ -116,10 +90,28 @@ jobs:
             ENABLE_PREVIEWS=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Wait for simulator boot
+      # Pick iPhone 18 Pro from the newest iOS runtime (filtering across all
+      # iOS runtimes since specialized runtimes like iPhone Duo share the same
+      # OS version number).
+      - name: Pick and boot an iPhone simulator
         timeout-minutes: 15
         run: |
-          xcrun simctl bootstatus "$SIMULATOR_UDID" -b -d
+          udid="$(xcrun simctl list -j | jq -r '
+            ([.runtimes[] | select(.isAvailable and .platform == "iOS")]
+              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
+            | [ $runtimes[] as $r
+                | .devices[$r.identifier][]?
+                | select(.isAvailable and (.name | startswith("iPhone"))) ]
+            | (map(select(.name == "iPhone 18 Pro")) + map(select(.state == "Booted")) + .)
+            | first | .udid')"
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "No available iPhone simulator found"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          xcrun simctl list devices available | grep "$udid"
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$udid" -b
 
       # Xcode can hang while symbolicating a failed test, so the step has its
       # own timeout rather than relying on xcodebuild to exit.
