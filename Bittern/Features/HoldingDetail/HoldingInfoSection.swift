@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// The position as a list section: value, cost, quantity, share of the
+/// The position as a grouped card: value, cost, quantity, share of the
 /// portfolio and how the return adds up.
 struct HoldingInfoSection: View {
     let holding: PortfolioHolding
@@ -60,40 +60,76 @@ struct HoldingInfoSection: View {
     }
 
     var body: some View {
-        Section {
-            LabeledContent("Market Value") {
-                Text(marketValueText)
-                    .font(.keyFigure(.body))
-            }
-
-            LabeledContent("Average Cost") {
-                Text(averagePriceText)
-                    .monospacedDigit()
-            }
-
-            LabeledContent(holding.quantityUnit.title) {
-                Text(isPrivacyEnabled ? "••••" : formattedQuantity)
-                    .monospacedDigit()
-            }
-
-            LabeledContent("Share of Portfolio") {
-                Text(snapshot.allocation(of: holding).map { PortfolioFormat.percent($0) } ?? PortfolioFormat.missing)
-                    .monospacedDigit()
-            }
-
-            if let returnEquation {
-                HoldingReturnEquationRow(
-                    equation: returnEquation,
-                    currencyCode: holding.currencyCode,
-                    isPrivacyEnabled: isPrivacyEnabled
-                )
-            }
-        } header: {
+        VStack(alignment: .leading, spacing: 10) {
             Text("My Holdings")
                 .font(.title3.bold())
                 .foregroundStyle(BitternTheme.ink)
-                .textCase(nil)
+                .padding(.horizontal, 20)
+                .accessibilityAddTraits(.isHeader)
+
+            VStack(spacing: 0) {
+                row {
+                    LabeledContent("Market Value") {
+                        Text(marketValueText)
+                            .font(.keyFigure(.body))
+                    }
+                }
+
+                rowDivider
+
+                row {
+                    LabeledContent("Average Cost") {
+                        Text(averagePriceText)
+                            .monospacedDigit()
+                    }
+                }
+
+                rowDivider
+
+                row {
+                    LabeledContent(holding.quantityUnit.title) {
+                        Text(isPrivacyEnabled ? "••••" : formattedQuantity)
+                            .monospacedDigit()
+                    }
+                }
+
+                rowDivider
+
+                row {
+                    LabeledContent("Share of Portfolio") {
+                        Text(snapshot.allocation(of: holding).map { PortfolioFormat.percent($0) } ?? PortfolioFormat.missing)
+                            .monospacedDigit()
+                    }
+                }
+
+                if let returnEquation {
+                    rowDivider
+
+                    row {
+                        HoldingReturnEquationRow(
+                            equation: returnEquation,
+                            currencyCode: holding.currencyCode,
+                            isPrivacyEnabled: isPrivacyEnabled
+                        )
+                    }
+                }
+            }
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: .rect(cornerRadius: 26, style: .continuous)
+            )
         }
+    }
+
+    private func row<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 15)
+    }
+
+    private var rowDivider: some View {
+        Divider()
+            .padding(.horizontal, 20)
     }
 
     private var marketValueText: String {
