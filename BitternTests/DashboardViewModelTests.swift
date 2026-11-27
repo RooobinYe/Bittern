@@ -313,7 +313,17 @@ struct DashboardViewModelTests {
         #expect(model.snapshot == nil)
 
         await advance(by: LivePriceRefresh.skeletonDelay)
-        #expect(model.loadState.skeleton == LaunchSkeleton(rowCount: 2, isRowCountKnown: true))
+        #expect(
+            model.loadState.skeleton == LaunchSkeleton(
+                rowCount: 2,
+                isRowCountKnown: true,
+                legendChips: [
+                    LaunchSkeleton.LegendChip(symbol: "AAPL", percent: "50%"),
+                    LaunchSkeleton.LegendChip(symbol: "MSFT", percent: "50%")
+                ],
+                hasMultipleProviders: false
+            )
+        )
 
         repository.answer(with: repriced(cached, to: 120))
         await settle { repository.heldCalls == [.load] }
@@ -344,6 +354,7 @@ struct DashboardViewModelTests {
 
         #expect(model.loadState.skeleton == LaunchSkeleton.withoutCache)
         #expect(!LaunchSkeleton.withoutCache.isRowCountKnown)
+        #expect(!LaunchSkeleton.withoutCache.hasMultipleProviders)
 
         repository.answer(with: complete())
         await launch.value
@@ -351,6 +362,50 @@ struct DashboardViewModelTests {
         #expect(model.snapshot?.holdings.map(\.symbol) == ["AAPL"])
         #expect(repository.calls == [.load])
         #expect(saved.all.count == 1)
+    }
+
+    @Test func launchSkeletonMatchesCachedSlicesAndProviders() async {
+        let brokerage = makeAccount(id: "acc-1")
+        let exchange = makeAccount(id: "acc-2")
+        // Total visible value = 1_000: AAPL (60%), MSFT (30%), NVDA (4%), TSLA (3%), SOL (3%).
+        // Holdings under 5% collapse into one "Other" chip -> 3 legend chips, 5 rows;
+        // DOGE ($0.50) falls below the $1 threshold and is excluded from both.
+        let cached = PortfolioSnapshot.make(
+            accounts: [brokerage, exchange],
+            holdings: [
+                makeHolding(symbol: "AAPL", accountID: brokerage.id, quantity: 6, currentPrice: 100),
+                makeHolding(symbol: "MSFT", accountID: brokerage.id, quantity: 3, currentPrice: 100),
+                makeHolding(symbol: "NVDA", accountID: exchange.id, quantity: 4, currentPrice: 10),
+                makeHolding(symbol: "TSLA", accountID: exchange.id, quantity: 3, currentPrice: 10),
+                makeHolding(symbol: "SOL", accountID: exchange.id, quantity: 3, currentPrice: 10),
+                makeHolding(symbol: "DOGE", accountID: exchange.id, quantity: 1, currentPrice: 0.5)
+            ],
+            lastUpdated: Date(timeIntervalSince1970: 1_000)
+        )
+        repository.holdsCalls = true
+        let model = viewModel(credentials: credentials, cached: cached)
+
+        let launch = Task { await model.bootstrap() }
+        await settle { repository.heldCalls == [.refresh] }
+        await advance(by: LivePriceRefresh.skeletonDelay)
+
+        #expect(
+            model.loadState.skeleton == LaunchSkeleton(
+                rowCount: 5,
+                isRowCountKnown: true,
+                legendChips: [
+                    LaunchSkeleton.LegendChip(symbol: "AAPL", percent: "60%"),
+                    LaunchSkeleton.LegendChip(symbol: "MSFT", percent: "30%"),
+                    LaunchSkeleton.LegendChip(symbol: "Other", percent: "10%")
+                ],
+                hasMultipleProviders: true
+            )
+        )
+
+        repository.answer(with: cached)
+        await settle { repository.heldCalls == [.load] }
+        repository.answer(with: cached)
+        await launch.value
     }
 
     @Test func cachedDataIsRecomputedByCurrentRules() async {

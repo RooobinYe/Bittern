@@ -29,12 +29,73 @@ enum PortfolioLoadState {
 
 /// The dashboard's shape while launch waits for data.
 struct LaunchSkeleton: Equatable {
+    /// Hidden label text matching one legend chip's size, so each row wraps
+    /// identically to the loaded allocation legend at every text size.
+    struct LegendChip: Equatable {
+        let symbol: String
+        let percent: String
+    }
+
     let rowCount: Int
     /// The row count comes from the cache. Without one it is a guess, so
     /// the list fades out rather than ending.
     let isRowCountKnown: Bool
+    /// The legend chips' shapes, from the cache or typical ones without one.
+    let legendChips: [LegendChip]
+    /// Whether the cached portfolio spans more than one brokerage, so the
+    /// account switcher holds its place in the toolbar.
+    let hasMultipleProviders: Bool
 
-    static let withoutCache = LaunchSkeleton(rowCount: 8, isRowCountKnown: false)
+    static let defaultLegendChips: [LegendChip] = [
+        LegendChip(symbol: "AAAA", percent: "00%"),
+        LegendChip(symbol: "AAAA", percent: "00%"),
+        LegendChip(symbol: "AAA", percent: "0%"),
+        LegendChip(symbol: "AAA", percent: "0%"),
+        LegendChip(symbol: "Aaaaa", percent: "00%")
+    ]
+
+    static let withoutCache = LaunchSkeleton(
+        rowCount: 8,
+        isRowCountKnown: false,
+        legendChips: defaultLegendChips,
+        hasMultipleProviders: false
+    )
+
+    init(
+        rowCount: Int,
+        isRowCountKnown: Bool,
+        legendChips: [LegendChip] = LaunchSkeleton.defaultLegendChips,
+        hasMultipleProviders: Bool = false
+    ) {
+        self.rowCount = rowCount
+        self.isRowCountKnown = isRowCountKnown
+        self.legendChips = legendChips
+        self.hasMultipleProviders = hasMultipleProviders
+    }
+
+    static func from(_ snapshot: PortfolioSnapshot, minimumMarketValue: Double) -> LaunchSkeleton {
+        let filtered = snapshot.filtered(minimumMarketValue: minimumMarketValue)
+        let legendChips: [LegendChip] = if filtered.totalMarketValue == nil {
+            []
+        } else {
+            PortfolioAllocation.slices(of: filtered.holdings).map { slice in
+                let symbol = switch slice.kind {
+                case .holding(let holding): holding.symbol
+                case .other: "Other"
+                }
+                return LegendChip(
+                    symbol: symbol,
+                    percent: PortfolioFormat.percent(slice.share, fractionDigits: 0)
+                )
+            }
+        }
+        return LaunchSkeleton(
+            rowCount: filtered.holdings.count,
+            isRowCountKnown: true,
+            legendChips: legendChips,
+            hasMultipleProviders: snapshot.accounts.providerNames.count > 1
+        )
+    }
 }
 
 struct PortfolioLoadFailure: Equatable {
@@ -316,10 +377,7 @@ final class DashboardViewModel {
         guard launch == launchID else { return }
 
         let skeleton = cached.map {
-            LaunchSkeleton(
-                rowCount: $0.filtered(minimumMarketValue: minPriceThreshold).holdings.count,
-                isRowCountKnown: true
-            )
+            LaunchSkeleton.from($0, minimumMarketValue: minPriceThreshold)
         } ?? .withoutCache
         revealSkeleton(skeleton, launch: launch)
 

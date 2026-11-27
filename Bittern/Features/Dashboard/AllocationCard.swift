@@ -422,13 +422,27 @@ private struct PerformanceSummary: View {
 
 // MARK: - Legend
 
+enum AllocationLegendMetrics {
+    static let spacing: CGFloat = 8
+    static let lineSpacing: CGFloat = 10
+    static let chipSpacing: CGFloat = 6
+    static let iconSize: CGFloat = 22
+    static let dotSize: CGFloat = 8
+    static let chipLeadingPadding: CGFloat = 4
+    static let chipTrailingPadding: CGFloat = 10
+    static let chipVerticalPaddingTotal: CGFloat = 8
+}
+
 /// One chip per band: its logo, symbol, share and band color.
 private struct AllocationLegend: View {
     let slices: [AllocationSlice]
 
     var body: some View {
         GlassEffectContainer {
-            CenteredFlowLayout(spacing: 8, lineSpacing: 10) {
+            CenteredFlowLayout(
+                spacing: AllocationLegendMetrics.spacing,
+                lineSpacing: AllocationLegendMetrics.lineSpacing
+            ) {
                 ForEach(slices) { slice in
                     LegendChip(slice: slice)
                 }
@@ -444,11 +458,11 @@ private struct AllocationLegend: View {
 private struct LegendChip: View {
     let slice: AllocationSlice
 
-    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 22
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = AllocationLegendMetrics.iconSize
     @Environment(\.self) private var environment
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AllocationLegendMetrics.chipSpacing) {
             icon
 
             Text(slice.symbol)
@@ -461,12 +475,12 @@ private struct LegendChip: View {
 
             Circle()
                 .fill(slice.bandColor)
-                .frame(width: 8, height: 8)
+                .frame(width: AllocationLegendMetrics.dotSize, height: AllocationLegendMetrics.dotSize)
         }
         .lineLimit(1)
-        .padding(.leading, 4)
-        .padding(.trailing, 10)
-        .frame(minHeight: iconSize + 8)
+        .padding(.leading, AllocationLegendMetrics.chipLeadingPadding)
+        .padding(.trailing, AllocationLegendMetrics.chipTrailingPadding)
+        .frame(minHeight: iconSize + AllocationLegendMetrics.chipVerticalPaddingTotal)
         .glassEffect(.clear, in: .capsule)
     }
 
