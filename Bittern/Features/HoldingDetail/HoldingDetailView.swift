@@ -55,23 +55,23 @@ struct HoldingDetailView: View {
 
             switch arrangement {
             case .single:
-                list {
-                    Section {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
                         header
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(.horizontal, 4)
-                    }
+                            .padding(.horizontal, 20)
 
-                    Section {
                         chart(plotHeight: .standard, showsRangeSelector: true)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(.horizontal, 4)
-                    }
+                            .padding(.horizontal, 20)
 
-                    info
+                        info
+                            .padding(.horizontal, 16)
+                    }
+                    .frame(maxWidth: Self.maximumContentWidth)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
                 }
-                .frame(maxWidth: Self.maximumContentWidth)
-                .frame(maxWidth: .infinity)
+                .softNavigationBarEdge()
 
             // The price and its chart lead, My Holdings beside them on the
             // first screen; above a fold, the price and chart, with the
@@ -80,17 +80,16 @@ struct HoldingDetailView: View {
                 PaneSplit(arrangement: arrangement) {
                     VStack(alignment: .leading, spacing: 16) {
                         header
-                            .padding(.horizontal, 4)
                         chart(plotHeight: .fill, showsRangeSelector: !arrangement.isRows)
                     }
-                    .padding(.leading, 24)
-                    .padding(.trailing, arrangement.isRows ? 24 : 0)
+                    .padding(.leading, 20)
+                    .padding(.trailing, arrangement.isRows ? 20 : 0)
                     .padding(.top, 8)
                     .padding(.bottom, arrangement.isRows ? 0 : 16)
                 } second: {
-                    list {
-                        if arrangement.isRows {
-                            Section {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if arrangement.isRows {
                                 ChartRangeSelector(
                                     ranges: model.availableRanges,
                                     title: { $0.title },
@@ -98,13 +97,17 @@ struct HoldingDetailView: View {
                                 ) {
                                     model.selectedPoint = nil
                                 }
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(.horizontal, 4)
+                                .padding(.horizontal, 4)
                             }
-                        }
 
-                        info
+                            info
+                        }
+                        .padding(.leading, arrangement.isRows ? 16 : 0)
+                        .padding(.trailing, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
                     }
+                    .softNavigationBarEdge()
                 }
             }
         }
@@ -132,16 +135,6 @@ struct HoldingDetailView: View {
                 await model.load(range, for: holding, using: repository, isOnline: true)
             }
         }
-    }
-
-    private func list<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        List {
-            content()
-        }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(.compact)
-        .scrollContentBackground(.hidden)
-        .softNavigationBarEdge()
     }
 
     private var header: some View {
@@ -200,7 +193,7 @@ struct HoldingDetailView: View {
         minimumLeadingWidth: 360,
         minimumTrailingWidth: 280,
         preferredWidth: .trailing(330),
-        // An inset list keeps no margin on an edge inside the screen.
+        // Neither pane adds a margin on the edge between them.
         columnSpacing: 20,
         minimumColumnsHeight: 360,
         columnsOnlyWhenWide: true,
