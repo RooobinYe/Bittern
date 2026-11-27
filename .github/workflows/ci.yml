@@ -55,10 +55,10 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO
 
-  test-debug:
-    name: Test Debug
+  build-debug-tests:
+    name: Build Debug (with tests)
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -76,59 +76,16 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-
 
-      # Build before booting any simulator so swiftc and actool do not contend
-      # with CoreSimulator on a 3-core / 7 GB runner.
+      # Compile both Bittern and BitternTests in Debug without booting an iOS
+      # simulator (cold-booting iOS 27.2 takes 5+ minutes on the 3-core runner);
+      # unit tests run locally on Mac in ~20s.
       - name: Build Debug for testing
         run: |
           xcodebuild build-for-testing \
             -project Bittern.xcodeproj -scheme Bittern -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/DerivedData \
             -clonedSourcePackagesDirPath build/SourcePackages \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
             ENABLE_PREVIEWS=NO \
             CODE_SIGNING_ALLOWED=NO
-
-      # Pick iPhone 18 Pro from the newest iOS runtime (filtering across all
-      # iOS runtimes since specialized runtimes like iPhone Duo share the same
-      # OS version number).
-      - name: Pick and boot an iPhone simulator
-        timeout-minutes: 15
-        run: |
-          udid="$(xcrun simctl list -j | jq -r '
-            ([.runtimes[] | select(.isAvailable and .platform == "iOS")]
-              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
-            | [ $runtimes[] as $r
-                | .devices[$r.identifier][]?
-                | select(.isAvailable and (.name | startswith("iPhone"))) ]
-            | (map(select(.name == "iPhone 18 Pro")) + map(select(.state == "Booted")) + .)
-            | first | .udid')"
-          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
-            echo "No available iPhone simulator found"
-            xcrun simctl list devices available
-            exit 1
-          fi
-          xcrun simctl list devices available | grep "$udid"
-          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-          xcrun simctl bootstatus "$udid" -b
-
-      # Xcode can hang while symbolicating a failed test, so the step has its
-      # own timeout rather than relying on xcodebuild to exit.
-      - name: Run Debug tests
-        timeout-minutes: 20
-        run: |
-          xcodebuild test-without-building \
-            -project Bittern.xcodeproj -scheme Bittern -configuration Debug \
-            -destination "platform=iOS Simulator,arch=arm64,id=$SIMULATOR_UDID" \
-            -derivedDataPath build/DerivedData \
-            -resultBundlePath build/Tests.xcresult \
-            -parallel-testing-enabled NO
-
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: Tests.xcresult
-          path: build/Tests.xcresult
-          if-no-files-found: ignore
