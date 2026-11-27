@@ -242,8 +242,7 @@ struct DashboardVisualContent: View {
                     }
 
                     allocation(fillsAvailableSpace: false)
-                        .padding(.vertical, 8)
-                        .listRowInsets(.horizontal, 0)
+                        .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                 }
@@ -369,7 +368,6 @@ struct DashboardVisualContent: View {
     private var exportHoldings: some View {
         VStack(spacing: 0) {
             header(controls: nil)
-                .padding(.bottom, 8)
 
             if sortedHoldings.isEmpty {
                 EmptyHoldingsView(hiddenNote: hiddenNote)
