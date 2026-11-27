@@ -247,7 +247,8 @@ nonisolated enum FakeMarket {
         extendedPrice: Double? = nil,
         extendedTime: Date? = nil,
         overnightPrice: Double? = nil,
-        overnightTime: Date? = nil
+        overnightTime: Date? = nil,
+        logoID: String? = "apple"
     ) -> [String: JSONValue] {
         [
             "lp": .number(price),
@@ -262,18 +263,24 @@ nonisolated enum FakeMarket {
             "rtc_time": extendedTime.map { .number($0.timeIntervalSince1970) } ?? .null,
             "ntc": overnightPrice.map(JSONValue.number) ?? .null,
             "ntc_time": overnightTime.map { .number($0.timeIntervalSince1970) } ?? .null,
-            "first_bar_time_1d": .number(454_896_000)
+            "first_bar_time_1d": .number(454_896_000),
+            "logoid": logoID.map(JSONValue.string) ?? .null
         ]
     }
 
-    static func cryptoQuote(price: Double, previousClose: Double) -> [String: JSONValue] {
+    static func cryptoQuote(
+        price: Double,
+        previousClose: Double,
+        baseCurrencyLogoID: String? = "crypto/XTVCBTC"
+    ) -> [String: JSONValue] {
         [
             "lp": .number(price),
             "lp_time": .number(marketTime(day: 8, hour: 11).timeIntervalSince1970),
             "prev_close_price": .number(previousClose),
             "currency_code": .string("USD"),
             "timezone": .string("Etc/UTC"),
-            "subsessions": cryptoSubsessions
+            "subsessions": cryptoSubsessions,
+            "base-currency-logoid": baseCurrencyLogoID.map(JSONValue.string) ?? .null
         ]
     }
 

@@ -81,6 +81,7 @@ extension TradingViewClient {
         let price = fields["lp"]?.number.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         let previousClose = fields["prev_close_price"]?.number.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         let priceTime = fields["lp_time"]?.number.map { Date(timeIntervalSince1970: $0) }
+        let logoURL = logoURL(from: fields)
         if let mode = fields["update_mode"]?.string, mode != "streaming" {
             AppLog.marketData.warning("Quote symbol=\(symbol) updateMode=\(mode, privacy: .public)")
         }
@@ -104,7 +105,8 @@ extension TradingViewClient {
                     regularMarketPreviousClose: previousClose,
                     preMarket: nil,
                     postMarket: nil,
-                    regularMarketTime: priceTime
+                    regularMarketTime: priceTime,
+                    logoURL: logoURL
                 ),
                 true
             )
@@ -130,10 +132,21 @@ extension TradingViewClient {
                 postMarket: extendedHours.quote?.extendedHoursSession == .postMarket ? extendedHours.quote : nil,
                 regularMarketTime: priceTime.map(calendar.regularTradeTime(for:)),
                 marketSession: marketSession,
-                overnight: extendedHours.quote?.extendedHoursSession == .overnight ? extendedHours.quote : nil
+                overnight: extendedHours.quote?.extendedHoursSession == .overnight ? extendedHours.quote : nil,
+                logoURL: logoURL
             ),
             extendedHours.didFail
         )
+    }
+
+    private func logoURL(from fields: [String: JSONValue]) -> URL? {
+        for key in ["logoid", "base-currency-logoid"] {
+            if let logoID = fields[key]?.string,
+               let url = TradingViewServer.canonicalLogoURL(forLogoID: logoID) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// The quote of the pre-market, post-market or overnight session in

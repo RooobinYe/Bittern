@@ -223,7 +223,7 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         }
     }
 
-    /// The same position with freshly quoted price fields.
+    /// The same position with freshly quoted price fields and logo.
     func repriced(
         currentPrice: Double?,
         previousClose: Double?,
@@ -231,7 +231,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
         postMarketChange: HoldingExtendedHoursChange?,
         overnightChange: HoldingExtendedHoursChange?,
         marketSession: HoldingMarketSession?,
-        regularPriceTime: Date?
+        regularPriceTime: Date?,
+        logoURL: URL?
     ) -> PortfolioHolding {
         PortfolioHolding(
             id: id,
@@ -266,7 +267,8 @@ struct PortfolioHolding: Identifiable, Hashable, Codable, Sendable {
             postMarketChange: priced.postMarketChange,
             overnightChange: priced.overnightChange,
             marketSession: priced.marketSession,
-            regularPriceTime: priced.regularPriceTime
+            regularPriceTime: priced.regularPriceTime,
+            logoURL: priced.logoURL
         )
     }
 }

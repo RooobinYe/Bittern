@@ -244,7 +244,8 @@ struct DashboardViewModelTests {
                     postMarketChange: nil,
                     overnightChange: nil,
                     marketSession: $0.marketSession,
-                    regularPriceTime: clock.now
+                    regularPriceTime: clock.now,
+                    logoURL: $0.logoURL
                 )
             },
             lastUpdated: clock.now

@@ -11,6 +11,7 @@ func makeHolding(
     currencyCode: String = "USD",
     dividendsReceived: Double? = 0,
     instrumentKind: PortfolioInstrumentKind? = .stock,
+    logoURL: URL? = nil,
     marketSession: HoldingMarketSession? = nil,
     regularPriceTime: Date? = nil
 ) -> PortfolioHolding {
@@ -20,7 +21,7 @@ func makeHolding(
         symbol: symbol,
         name: symbol,
         instrumentKind: instrumentKind,
-        logoURL: nil,
+        logoURL: logoURL,
         accountName: "Account",
         quantity: quantity,
         quantityDisplay: nil,
@@ -58,8 +59,8 @@ func makeAccount(id: String = "a1", currencyCode: String = "USD") -> PortfolioAc
     )
 }
 
-/// The live repository with SnapTrade and Brandfetch on `session` and
-/// market data from `marketData`.
+/// The live repository with SnapTrade on `session` and market data from
+/// `marketData`.
 func makeLiveRepository(
     session: URLSession,
     marketData: FakeTradingViewServer,
@@ -70,7 +71,6 @@ func makeLiveRepository(
             SnapTradeClient(credentials: credentials, session: session, currentDate: currentDate)
         },
         marketData: marketData.client(at: currentDate()),
-        brandfetch: BrandfetchClient(session: session),
         currentDate: currentDate
     )
 }

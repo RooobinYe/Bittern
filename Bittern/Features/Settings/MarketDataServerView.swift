@@ -188,7 +188,7 @@ struct MarketDataServerView: View {
         if model.draftServer == nil {
             return "Enter a host such as data.example.com, without a path."
         }
-        return "Leave empty to connect to TradingView directly. Your own server must forward wss://<host>/socket.io/websocket to TradingView. Saving tests it first."
+        return "Leave empty to connect to TradingView directly. Your own server must forward wss://<host>/socket.io/websocket to TradingView and /symbol-logo/* to s3-symbol-logo.tradingview.com. Saving tests it first."
     }
 
     @ViewBuilder
@@ -243,7 +243,7 @@ struct MarketDataServerSection: View {
         } header: {
             Text("Market Data")
         } footer: {
-            Text("Prices and charts stream from TradingView, directly or through your own server.")
+            Text("Prices, charts and symbol logos come from TradingView, directly or through your own server.")
         }
     }
 }

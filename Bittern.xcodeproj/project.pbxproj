@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B10000012FE0000100000001 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B10000022FE0000100000001 /* SwiftDraw */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A1B2C3D42FE0000100000007 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B10000012FE0000100000001 /* SwiftDraw in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +95,7 @@
 			);
 			name = Bittern;
 			packageProductDependencies = (
+				B10000022FE0000100000001 /* SwiftDraw */,
 			);
 			productName = Bittern;
 			productReference = DC3D18F72FD3D533008F1CD0 /* Bittern.app */;
@@ -146,6 +152,9 @@
 			);
 			mainGroup = DC3D18EE2FD3D533008F1CD0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B10000032FE0000100000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DC3D18F82FD3D533008F1CD0 /* Products */;
 			projectDirPath = "";
@@ -452,6 +461,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B10000032FE0000100000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/SwiftDraw.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.30.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B10000022FE0000100000001 /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B10000032FE0000100000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DC3D18EF2FD3D533008F1CD0 /* Project object */;
 }

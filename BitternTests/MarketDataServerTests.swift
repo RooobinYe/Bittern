@@ -35,6 +35,33 @@ struct TradingViewServerTests {
         #expect(store.server == .tradingView)
         #expect(defaults.object(forKey: AppSettingKey.marketDataServer) == nil)
     }
+
+    @Test(arguments: [
+        ("apple", "https://s3-symbol-logo.tradingview.com/apple.svg"),
+        ("  vanguard  ", "https://s3-symbol-logo.tradingview.com/vanguard.svg"),
+        ("crypto/XTVCBTC", "https://s3-symbol-logo.tradingview.com/crypto/XTVCBTC.svg"),
+        ("spdr-sandp500-etf-tr", "https://s3-symbol-logo.tradingview.com/spdr-sandp500-etf-tr.svg")
+    ])
+    func canonicalLogoURLBuildsTradingViewSVG(logoID: String, expected: String) {
+        #expect(TradingViewServer.canonicalLogoURL(forLogoID: logoID)?.absoluteString == expected)
+    }
+
+    @Test(arguments: ["", "   ", "..", "../secret", "crypto/../apple", "/apple", "apple/", "a//b", "apple?x=1", "apple#hash"])
+    func invalidLogoIDIsRejected(logoID: String) {
+        #expect(TradingViewServer.canonicalLogoURL(forLogoID: logoID) == nil)
+    }
+
+    @Test func logoRequestURLRewritesOnlyTradingViewCDNForCustomServer() throws {
+        let apple = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
+        let btc = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/crypto/XTVCBTC.svg"))
+        let snapTrade = try #require(URL(string: "https://snaptrade.example.com/broker.png"))
+        let custom = try #require(TradingViewServer("proxy.example.com"))
+
+        #expect(TradingViewServer.tradingView.logoRequestURL(for: apple) == nil)
+        #expect(custom.logoRequestURL(for: apple)?.absoluteString == "https://proxy.example.com/symbol-logo/apple.svg")
+        #expect(custom.logoRequestURL(for: btc)?.absoluteString == "https://proxy.example.com/symbol-logo/crypto/XTVCBTC.svg")
+        #expect(custom.logoRequestURL(for: snapTrade) == nil)
+    }
 }
 
 @Suite

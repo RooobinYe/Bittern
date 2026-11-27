@@ -81,6 +81,7 @@ extension NetworkTests {
             #expect(holding.currentPrice == 110)
             #expect(holding.previousClose == 105)
             #expect(holding.dividendsReceived == 5)
+            #expect(holding.logoURL == URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
             #expect(result.snapshot.totalMarketValue == 1_100)
             #expect(result.snapshot.lastUpdated == now)
             #expect(result.partialFailure == PortfolioLoadPartialFailure())
@@ -220,6 +221,36 @@ extension NetworkTests {
             #expect(result.snapshot.totalMarketValue == nil)
             // Mixed isn't a failed price, so the update time still advances.
             #expect(result.snapshot.lastUpdated == now)
+        }
+
+        @Test func priceRefreshUpdatesAcceptedLogoURLAndPreservesExistingOnMissingOrMismatch() async throws {
+            let legacyAppleURL = try #require(URL(string: "https://cdn.brandfetch.io/ticker/AAPL/icon.png"))
+            let existingMSFTURL = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/microsoft.svg"))
+            let existingVODURL = try #require(URL(string: "https://s3-symbol-logo.tradingview.com/vodafone.svg"))
+
+            let repository = repository(
+                positions: [],
+                quotes: [
+                    "AAPL": quote(),
+                    "VOD": FakeMarket.stockQuote(price: 7_250, currency: "GBp", logoID: "other")
+                ]
+            )
+            let snapshot = PortfolioSnapshot.make(
+                accounts: [makeAccount()],
+                holdings: [
+                    makeHolding(symbol: "AAPL", logoURL: legacyAppleURL),
+                    makeHolding(symbol: "MSFT", logoURL: existingMSFTURL),
+                    makeHolding(symbol: "VOD", currencyCode: "GBP", logoURL: existingVODURL)
+                ],
+                lastUpdated: Date(timeIntervalSince1970: 1_000)
+            )
+
+            let result = try await repository.refreshPrices(for: snapshot)
+            let bySymbol = Dictionary(uniqueKeysWithValues: result.snapshot.holdings.map { ($0.symbol, $0) })
+
+            #expect(bySymbol["AAPL"]?.logoURL == URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
+            #expect(bySymbol["MSFT"]?.logoURL == existingMSFTURL)
+            #expect(bySymbol["VOD"]?.logoURL == existingVODURL)
         }
     }
 }

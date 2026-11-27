@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// Everything the features need from SnapTrade, TradingView and Brandfetch. Views
+/// Everything the features need from SnapTrade and TradingView. Views
 /// and models talk to this instead of creating clients.
 protocol PortfolioRepository {
     func loadPortfolio(credentials: SnapTradeCredentials) async throws -> PortfolioLoadResult
