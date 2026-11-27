@@ -17,33 +17,19 @@ struct DashboardSkeleton: View {
     let layoutMode: PaneArrangement
     let controls: DashboardControls
 
-    @State private var listWidth: CGFloat = 0
-
     /// The same places as the loaded dashboard, so nothing moves when the
     /// data comes.
     var body: some View {
         switch layoutMode {
         case .single:
-            List {
-                Section {
+            ScrollView {
+                VStack(spacing: DashboardLayoutMetrics.sectionSpacing) {
                     SkeletonAllocation(performanceMode: performanceMode)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                    holdingsSection
                 }
-
-                holdingsSection
-            }
-            .listStyle(.plain)
-            .contentMargins(
-                .horizontal,
-                DashboardLayoutMetrics.singleColumnMargin(in: listWidth),
-                for: .scrollContent
-            )
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                listWidth = width
+                .padding(.bottom, 14)
+                .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+                .frame(maxWidth: .infinity)
             }
             .softNavigationBarEdge()
 
@@ -51,14 +37,16 @@ struct DashboardSkeleton: View {
             PaneSplit(arrangement: layoutMode) {
                 SkeletonAllocation(
                     performanceMode: performanceMode,
+                    fillsAvailableSpace: true,
                     legendBesideCard: layoutMode.isRows
                 )
                 .frame(maxHeight: .infinity, alignment: layoutMode.isRows ? .top : .center)
             } second: {
-                List {
+                ScrollView {
                     holdingsSection
+                        .padding(.top, 8)
+                        .padding(.bottom, 14)
                 }
-                .listStyle(.plain)
                 .softNavigationBarEdge()
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
@@ -67,24 +55,25 @@ struct DashboardSkeleton: View {
     }
 
     private var holdingsSection: some View {
-        Section {
+        VStack(spacing: 0) {
             HoldingsHeader(
                 performanceMode: performanceMode,
                 sortOption: sortOption,
                 controls: controls
             )
-            .listRowSeparator(.hidden)
-            .listRowInsets(.horizontal, 16)
-            .listRowInsets(.bottom, 0)
+            .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
 
             ForEach(0..<skeleton.rowCount, id: \.self) { index in
                 SkeletonHoldingRow(index: index)
+                    .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+                    .padding(.vertical, DashboardLayoutMetrics.holdingRowVerticalPadding)
                     .opacity(fade(at: index))
-                    .listRowInsets(.horizontal, 16)
-                    .listRowSeparator(
-                        index == skeleton.rowCount - 1 ? .hidden : .automatic,
-                        edges: .bottom
-                    )
+
+                if index < skeleton.rowCount - 1 {
+                    Divider()
+                        .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+                        .opacity(fade(at: index))
+                }
             }
             .accessibilityHidden(true)
         }
@@ -108,6 +97,7 @@ struct DashboardSkeleton: View {
 /// the legend, as blocks.
 private struct SkeletonAllocation: View {
     let performanceMode: PerformanceMode
+    var fillsAvailableSpace = false
     var legendBesideCard = false
 
     /// The legend's chips, as wide as typical ones.
@@ -115,7 +105,7 @@ private struct SkeletonAllocation: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Hidden figures hold the real lines' heights, so
                     // nothing moves when the data comes.
@@ -143,7 +133,7 @@ private struct SkeletonAllocation: View {
                             .foregroundStyle(BitternTheme.secondaryInk)
                             .lineLimit(1)
                     }
-                    .frame(minHeight: 44)
+                    .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -163,8 +153,9 @@ private struct SkeletonAllocation: View {
                 legend
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+        .padding(.top, 8)
+        .padding(.bottom, fillsAvailableSpace ? 8 : 0)
         .frame(maxWidth: legendBesideCard ? nil : DashboardLayoutMetrics.maximumChartSide)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)

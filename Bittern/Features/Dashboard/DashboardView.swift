@@ -28,15 +28,7 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(BitternTheme.background)
             .errorToast(message: $viewModel.errorMessage)
-            .navigationTitle(viewModel.selectedProviderName ?? "Portfolio")
-            // A title menu only attaches to an inline title.
             .navigationBarTitleDisplayMode(.inline)
-            .modifier(
-                AccountTitleMenu(
-                    providerNames: viewModel.snapshot?.accounts.providerNames ?? [],
-                    selectedProviderName: $viewModel.selectedProviderName
-                )
-            )
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { newSize in
@@ -44,6 +36,13 @@ struct DashboardView: View {
                 viewportSize = newSize
             }
             .toolbar {
+                if providerNames.count > 1 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        accountFilterMenu
+                            .tint(viewModel.selectedProviderName == nil ? nil : BitternTheme.accent)
+                    }
+                }
+
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.18)) {
@@ -86,6 +85,41 @@ struct DashboardView: View {
             }
 #endif
         }
+    }
+
+    private var providerNames: [String] {
+        viewModel.snapshot?.accounts.providerNames ?? []
+    }
+
+    /// Filters the portfolio between all accounts and a single provider.
+    private var accountFilterMenu: some View {
+        Menu {
+            Picker("Account", selection: animatedProviderSelection) {
+                Text("All Accounts")
+                    .tag(String?.none)
+
+                Divider()
+
+                ForEach(providerNames, id: \.self) { providerName in
+                    Text(providerName)
+                        .tag(Optional(providerName))
+                }
+            }
+        } label: {
+            Label("Filter Accounts", systemImage: "building.columns")
+        }
+        .accessibilityValue(viewModel.selectedProviderName ?? "All Accounts")
+    }
+
+    private var animatedProviderSelection: Binding<String?> {
+        Binding(
+            get: { viewModel.selectedProviderName },
+            set: { newValue in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    viewModel.selectedProviderName = newValue
+                }
+            }
+        )
     }
 
     private var portfolioShareItem: PortfolioShareItem? {
@@ -163,42 +197,6 @@ struct DashboardView: View {
         try? data.write(to: screenshotURL, options: [.atomic])
     }
 #endif
-}
-
-/// Tapping the title switches between all accounts and a single provider.
-/// With one provider or none there is nothing to switch between.
-private struct AccountTitleMenu: ViewModifier {
-    let providerNames: [String]
-    @Binding var selectedProviderName: String?
-
-    func body(content: Content) -> some View {
-        if providerNames.count > 1 {
-            content.toolbarTitleMenu {
-                Picker("Account", selection: animatedSelection) {
-                    Label("All Accounts", systemImage: "square.stack")
-                        .tag(String?.none)
-
-                    ForEach(providerNames, id: \.self) { providerName in
-                        Text(providerName)
-                            .tag(Optional(providerName))
-                    }
-                }
-            }
-        } else {
-            content
-        }
-    }
-
-    private var animatedSelection: Binding<String?> {
-        Binding(
-            get: { selectedProviderName },
-            set: { newValue in
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    selectedProviderName = newValue
-                }
-            }
-        )
-    }
 }
 
 #if DEBUG

@@ -26,6 +26,12 @@ enum DashboardLayoutMetrics {
     static let maximumChartSide: CGFloat = 500
     static let maximumContentWidth: CGFloat = 1_280
     static let maximumExportWidth: CGFloat = maximumContentWidth + 48
+    static let horizontalInset: CGFloat = 16
+    /// Gap between the allocation section and the holdings section.
+    static let sectionSpacing: CGFloat = 24
+    /// Top and bottom padding on each holding row; also sets the header-to-first-row
+    /// distance so the title sits tightly on its rows.
+    static let holdingRowVerticalPadding: CGFloat = 12
 
     static let panes = PaneRequirements(
         minimumLeadingWidth: minimumChartColumnWidth,
@@ -38,11 +44,6 @@ enum DashboardLayoutMetrics {
 
     static func layoutMode(in size: CGSize, fold: FoldDivision? = nil) -> PaneArrangement {
         panes.arrangement(in: size, fold: fold)
-    }
-
-    /// The side margins that keep one column at the allocation's width.
-    static func singleColumnMargin(in width: CGFloat) -> CGFloat {
-        max(0, (width - maximumChartSide) / 2)
     }
 }
 
@@ -114,6 +115,7 @@ struct DashboardContent: View {
             PaneGeometryReader { size, fold in
                 DashboardVisualContent(
                     portfolio: viewModel.displaySnapshot ?? snapshot,
+                    scopeTitle: viewModel.selectedProviderName,
                     sortedHoldings: viewModel.sortedHoldings,
                     performanceMode: viewModel.performanceMode,
                     sortOption: viewModel.sortOption,
@@ -175,11 +177,13 @@ struct AttentionBanner: View {
 }
 
 /// The single visual source for both the live dashboard and its exported image.
-/// The live dashboard is a system list; the export lays the same rows out in
-/// stacks, with no controls, and renders every row. The responsive layout
-/// mode always comes from the viewport that initiated the share.
+/// Both render the exact same stacks and spacing; the live dashboard wraps the
+/// layout in a `ScrollView` and makes holding rows navigable.
 struct DashboardVisualContent: View {
     let portfolio: PortfolioSnapshot
+    /// Shown above the total when filtered to a single brokerage, and in the
+    /// exported image where there is no tab bar to name the view.
+    var scopeTitle: String? = nil
     let sortedHoldings: [PortfolioHolding]
     let performanceMode: PerformanceMode
     let sortOption: HoldingSortOption
@@ -192,7 +196,6 @@ struct DashboardVisualContent: View {
 
     @State private var marketTime = Date()
     @State private var lensMotion = AllocationLensMotion()
-    @State private var listWidth: CGFloat = 0
 
     /// The bands' colors, so a holding without a logo matches its band.
     private var holdingColorLookup: [String: Color] {
@@ -232,33 +235,9 @@ struct DashboardVisualContent: View {
     @ViewBuilder
     private var content: some View {
         switch (layoutMode, controls) {
-        // One column as wide as the allocation, so the holdings start where
-        // it does; the list still scrolls from edge to edge.
         case (.single, let controls?):
-            List {
-                Section {
-                    if let attention = controls.attention {
-                        attentionRow(attention, controls: controls)
-                    }
-
-                    allocation(fillsAvailableSpace: false)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-
-                holdingsSection(controls: controls)
-            }
-            .listStyle(.plain)
-            .contentMargins(
-                .horizontal,
-                DashboardLayoutMetrics.singleColumnMargin(in: listWidth),
-                for: .scrollContent
-            )
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                listWidth = width
+            ScrollView {
+                singleColumnContent(controls: controls)
             }
             .softNavigationBarEdge()
 
@@ -268,55 +247,64 @@ struct DashboardVisualContent: View {
             PaneSplit(arrangement: layoutMode) {
                 allocation(fillsAvailableSpace: true)
             } second: {
-                List {
-                    if let attention = controls.attention {
-                        attentionRow(attention, controls: controls)
-                    }
+                ScrollView {
+                    VStack(spacing: DashboardLayoutMetrics.sectionSpacing) {
+                        if let attention = controls.attention {
+                            attentionBanner(attention, controls: controls)
+                        }
 
-                    holdingsSection(controls: controls)
+                        holdingsSection(controls: controls)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
                 }
-                .listStyle(.plain)
                 .softNavigationBarEdge()
             }
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .frame(maxWidth: .infinity)
 
-        // The export's insets mirror the live list's: the allocation brings
-        // its own, the holdings sit 16 in from each side. The image is laid
-        // out from the viewport alone, so it is never split at a fold.
+        // The export uses the exact same stacks without scroll containers or
+        // interactive controls, and is never split at a fold.
         case (.columns, nil):
             PaneSplit(arrangement: layoutMode) {
                 allocation(fillsAvailableSpace: false)
             } second: {
-                exportHoldings
-                    .padding(.horizontal)
+                holdingsSection(controls: nil)
+                    .padding(.top, 8)
             }
             .padding(.bottom, 14)
             .frame(maxWidth: DashboardLayoutMetrics.maximumContentWidth)
             .frame(maxWidth: .infinity)
 
         case (_, nil):
-            VStack(spacing: 24) {
-                allocation(fillsAvailableSpace: false)
-                exportHoldings
-                    .padding(.horizontal)
-            }
-            .padding(.bottom, 14)
-            .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
-            .frame(maxWidth: .infinity)
+            singleColumnContent(controls: nil)
         }
     }
 
-    private func attentionRow(_ attention: PortfolioAttention, controls: DashboardControls) -> some View {
+    private func singleColumnContent(controls: DashboardControls?) -> some View {
+        VStack(spacing: DashboardLayoutMetrics.sectionSpacing) {
+            if let controls, let attention = controls.attention {
+                attentionBanner(attention, controls: controls)
+            }
+
+            allocation(fillsAvailableSpace: false)
+            holdingsSection(controls: controls)
+        }
+        .padding(.bottom, 14)
+        .frame(maxWidth: DashboardLayoutMetrics.maximumChartSide)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func attentionBanner(_ attention: PortfolioAttention, controls: DashboardControls) -> some View {
         AttentionBanner(attention: attention, openSettings: controls.openSettings)
-            .listRowInsets(.horizontal, 16)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
+            .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+            .padding(.top, 8)
     }
 
     private func allocation(fillsAvailableSpace: Bool) -> some View {
         PortfolioAllocationSection(
             snapshot: portfolio,
+            scopeTitle: scopeTitle,
             performanceMode: performanceMode,
             isPrivacyEnabled: isPrivacyEnabled,
             fillsAvailableSpace: fillsAvailableSpace,
@@ -327,61 +315,45 @@ struct DashboardVisualContent: View {
         )
     }
 
-    private func header(controls: DashboardControls?) -> HoldingsHeader {
-        HoldingsHeader(
-            performanceMode: performanceMode,
-            sortOption: sortOption,
-            controls: controls
-        )
-    }
-
-    /// The header is the section's first row rather than its header: a plain
-    /// list pins headers over the rows scrolling under them.
-    private func holdingsSection(controls: DashboardControls) -> some View {
-        Section {
-            header(controls: controls)
-                .listRowSeparator(.hidden)
-                .listRowInsets(.horizontal, 16)
-                .listRowInsets(.bottom, 0)
+    private func holdingsSection(controls: DashboardControls?) -> some View {
+        VStack(spacing: 0) {
+            HoldingsHeader(
+                performanceMode: performanceMode,
+                sortOption: sortOption,
+                controls: controls
+            )
+            .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
 
             if sortedHoldings.isEmpty {
                 EmptyHoldingsView(hiddenNote: hiddenNote)
-                    .listRowSeparator(.hidden)
+                    .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+                    .padding(.top, 24)
             } else {
                 ForEach(sortedHoldings) { holding in
-                    NavigationLink(value: HoldingRoute(holdingID: holding.id)) {
-                        row(for: holding)
+                    holdingRow(for: holding, interactive: controls != nil)
+
+                    if holding.id != sortedHoldings.last?.id {
+                        Divider()
+                            .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
                     }
-                    .navigationLinkIndicatorVisibility(.hidden)
-                    .listRowInsets(.horizontal, 16)
-                    // A line under the last row divides it from nothing.
-                    .listRowSeparator(
-                        holding.id == sortedHoldings.last?.id ? .hidden : .automatic,
-                        edges: .bottom
-                    )
                 }
             }
         }
     }
 
-    /// The export's version of the holdings section.
-    private var exportHoldings: some View {
-        VStack(spacing: 0) {
-            header(controls: nil)
+    @ViewBuilder
+    private func holdingRow(for holding: PortfolioHolding, interactive: Bool) -> some View {
+        let content = row(for: holding)
+            .padding(.horizontal, DashboardLayoutMetrics.horizontalInset)
+            .padding(.vertical, DashboardLayoutMetrics.holdingRowVerticalPadding)
 
-            if sortedHoldings.isEmpty {
-                EmptyHoldingsView(hiddenNote: hiddenNote)
-                    .padding(.top, 24)
-            } else {
-                ForEach(sortedHoldings) { holding in
-                    row(for: holding)
-                        .padding(.vertical, 12)
-
-                    if holding.id != sortedHoldings.last?.id {
-                        Divider()
-                    }
-                }
+        if interactive {
+            NavigationLink(value: HoldingRoute(holdingID: holding.id)) {
+                content
             }
+            .buttonStyle(HoldingRowButtonStyle())
+        } else {
+            content
         }
     }
 
@@ -404,5 +376,18 @@ struct DashboardVisualContent: View {
         let minimum = PortfolioFormat.price(minimumMarketValue, currencyCode: portfolio.currencyCode)
         let holdings = hiddenHoldingCount == 1 ? "1 holding" : "\(hiddenHoldingCount) holdings"
         return "\(holdings) under \(minimum) hidden"
+    }
+}
+
+/// Native press highlight for navigable holding rows inside a `ScrollView`.
+private struct HoldingRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed
+                    ? Color(uiColor: .systemFill)
+                    : Color.clear
+            )
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
