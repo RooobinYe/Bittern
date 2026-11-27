@@ -308,7 +308,8 @@ struct LivePricingTests {
             postMarketChange: nil,
             overnightChange: nil,
             marketSession: nil,
-            regularPriceTime: now
+            regularPriceTime: now,
+            logoURL: snapshot.holdings[0].logoURL
         )
 
         let merged = snapshot.merging(prices: [btc], pricedAt: now)
@@ -326,7 +327,8 @@ struct LivePricingTests {
             postMarketChange: nil,
             overnightChange: nil,
             marketSession: nil,
-            regularPriceTime: nil
+            regularPriceTime: nil,
+            logoURL: btc.logoURL
         )
         let incomplete = snapshot.merging(prices: [unpriced], pricedAt: nil)
         #expect(incomplete.lastUpdated == earlier)

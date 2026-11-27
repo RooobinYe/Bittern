@@ -6,8 +6,7 @@
 import Foundation
 import OSLog
 
-/// The portfolio from SnapTrade, priced by TradingView, with logos from
-/// Brandfetch.
+/// The portfolio from SnapTrade, priced and given symbol logos by TradingView.
 /// Every client comes from outside, so tests and the app decide what it talks
 /// to.
 struct LivePortfolioRepository: PortfolioRepository {
@@ -17,18 +16,15 @@ struct LivePortfolioRepository: PortfolioRepository {
 
     let makeSnapTradeClient: SnapTradeClientFactory
     let marketData: TradingViewClient
-    let brandfetch: BrandfetchClient
     let currentDate: @Sendable () -> Date
 
     init(
         makeSnapTradeClient: @escaping SnapTradeClientFactory,
         marketData: TradingViewClient,
-        brandfetch: BrandfetchClient,
         currentDate: @escaping @Sendable () -> Date
     ) {
         self.makeSnapTradeClient = makeSnapTradeClient
         self.marketData = marketData
-        self.brandfetch = brandfetch
         self.currentDate = currentDate
     }
 
@@ -68,9 +64,8 @@ struct LivePortfolioRepository: PortfolioRepository {
                 quantity: position.units,
                 mismatches: &mismatches
             )
-            let logoURL = brandfetch.logoURL(for: symbol, kind: position.instrumentKind)
             AppLog.portfolio.debug(
-                "Logo resolution symbol=\(symbol) resolvedKind=\(position.instrumentKind?.rawValue ?? "nil", privacy: .public) configured=\(brandfetch.isConfigured, privacy: .public) url=\(brandfetch.redactedDescription(for: logoURL))"
+                "Logo resolution symbol=\(symbol) resolvedKind=\(position.instrumentKind?.rawValue ?? "nil", privacy: .public) hasLogo=\(priced.logoURL != nil, privacy: .public)"
             )
 
             return PortfolioHolding(
@@ -79,7 +74,7 @@ struct LivePortfolioRepository: PortfolioRepository {
                 symbol: symbol,
                 name: position.dto.resolvedName ?? symbol,
                 instrumentKind: position.instrumentKind,
-                logoURL: logoURL,
+                logoURL: priced.logoURL,
                 accountName: account.name,
                 quantity: position.units,
                 quantityDisplay: position.dto.unitsDisplay,
@@ -138,15 +133,17 @@ struct LivePortfolioRepository: PortfolioRepository {
         var mismatches: [PortfolioCurrencyMismatch] = []
         let holdings = snapshot.holdings.map { holding -> PortfolioHolding in
             let symbol = normalized(holding.symbol)
+            let quote = quotes[symbol]
             let priced = pricedValues(
-                quote: quotes[symbol],
+                quote: quote,
                 symbol: symbol,
                 currencyCode: holding.currencyCode,
                 quantity: holding.quantity,
                 mismatches: &mismatches
             )
+            let hasAcceptedQuote = quote?.currency == holding.currencyCode
             AppLog.portfolio.debug(
-                "Price refresh holding symbol=\(symbol) quoteFound=\(quotes[symbol] != nil, privacy: .public) oldPrice=\(AppLog.optional(holding.currentPrice)) newPrice=\(AppLog.optional(priced.currentPrice))"
+                "Price refresh holding symbol=\(symbol) quoteFound=\(quote != nil, privacy: .public) oldPrice=\(AppLog.optional(holding.currentPrice)) newPrice=\(AppLog.optional(priced.currentPrice))"
             )
             return holding.repriced(
                 currentPrice: priced.currentPrice,
@@ -157,7 +154,8 @@ struct LivePortfolioRepository: PortfolioRepository {
                 // A quote without a trading day leaves the last known one,
                 // which still says when the holding trades.
                 marketSession: priced.marketSession ?? holding.marketSession,
-                regularPriceTime: priced.regularPriceTime
+                regularPriceTime: priced.regularPriceTime,
+                logoURL: hasAcceptedQuote ? priced.logoURL : holding.logoURL
             )
         }
 
@@ -252,7 +250,8 @@ struct LivePortfolioRepository: PortfolioRepository {
             postMarketChange: extendedHoursChange(quote: quote.postMarket, quantity: quantity),
             overnightChange: extendedHoursChange(quote: quote.overnight, quantity: quantity),
             marketSession: quote.marketSession,
-            regularPriceTime: quote.regularMarketTime
+            regularPriceTime: quote.regularMarketTime,
+            logoURL: quote.logoURL
         )
     }
 
@@ -286,6 +285,7 @@ private struct PricedValues {
     let overnightChange: HoldingExtendedHoursChange?
     let marketSession: HoldingMarketSession?
     let regularPriceTime: Date?
+    let logoURL: URL?
 
     static let none = PricedValues(
         currentPrice: nil,
@@ -294,6 +294,7 @@ private struct PricedValues {
         postMarketChange: nil,
         overnightChange: nil,
         marketSession: nil,
-        regularPriceTime: nil
+        regularPriceTime: nil,
+        logoURL: nil
     )
 }

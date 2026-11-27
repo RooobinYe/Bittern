@@ -31,7 +31,10 @@ struct ContentView: View {
                 loadCachedSnapshot: dependencies.loadCachedSnapshot,
                 saveCachedSnapshot: dependencies.saveCachedSnapshot,
                 deleteCachedSnapshot: dependencies.deleteCachedSnapshot,
-                networkMonitor: dependencies.networkMonitor
+                networkMonitor: dependencies.networkMonitor,
+                warmCachedLogos: { snapshot in
+                    await dependencies.logoSource.warmCachedLogos(for: snapshot)
+                }
             ),
             repository: dependencies.repository,
             logoSource: dependencies.logoSource

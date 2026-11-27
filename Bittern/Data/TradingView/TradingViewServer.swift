@@ -11,6 +11,8 @@ import Foundation
 
 nonisolated struct TradingViewServer: Equatable, Sendable {
     static let tradingView = TradingViewServer(validatedHost: "data.tradingview.com")
+    static let logoCDNHost = "s3-symbol-logo.tradingview.com"
+    static let logoRelayPathPrefix = "/symbol-logo"
 
     /// The host, with a port when it isn't the default.
     let host: String
@@ -50,6 +52,51 @@ nonisolated struct TradingViewServer: Equatable, Sendable {
     var socketURL: URL? {
         URL(string: "wss://\(host)/socket.io/websocket?from=chart%2F&type=chart")
     }
+
+    /// Canonical TradingView CDN URL for a quote's `logoid` or
+    /// `base-currency-logoid` (such as `"apple"` or `"crypto/XTVCBTC"`).
+    static func canonicalLogoURL(forLogoID rawID: String) -> URL? {
+        let trimmed = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let segments = trimmed.split(separator: "/", omittingEmptySubsequences: false)
+        guard !segments.isEmpty else { return nil }
+
+        for segment in segments {
+            guard !segment.isEmpty,
+                  segment != ".",
+                  segment != "..",
+                  segment.unicodeScalars.allSatisfy({ scalar in
+                      (scalar.value >= 65 && scalar.value <= 90)
+                          || (scalar.value >= 97 && scalar.value <= 122)
+                          || (scalar.value >= 48 && scalar.value <= 57)
+                          || scalar == "."
+                          || scalar == "_"
+                          || scalar == "-"
+                  })
+            else {
+                return nil
+            }
+        }
+
+        return URL(string: "https://\(logoCDNHost)/\(segments.joined(separator: "/")).svg")
+    }
+
+    /// Rewrites a canonical TradingView logo URL to go through this custom
+    /// relay server, or nil when connecting to TradingView directly or when
+    /// `canonicalURL` is not a TradingView logo URL.
+    func logoRequestURL(for canonicalURL: URL) -> URL? {
+        guard !isTradingView,
+              canonicalURL.scheme?.lowercased() == "https",
+              canonicalURL.host?.lowercased() == Self.logoCDNHost
+        else {
+            return nil
+        }
+
+        let path = canonicalURL.path
+        guard path.hasPrefix("/"), path.count > 1 else { return nil }
+        return URL(string: "https://\(host)\(Self.logoRelayPathPrefix)\(path)")
+    }
 }
 
 /// The server the user chose, kept in UserDefaults. Nothing kept means
@@ -83,4 +130,5 @@ nonisolated struct TradingViewServerCheck: Equatable, Sendable {
     let currencyCode: String?
     /// TradingView streams the quote as it trades, rather than delayed.
     let isRealTime: Bool
+    var logosAvailable: Bool = true
 }

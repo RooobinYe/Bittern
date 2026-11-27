@@ -188,7 +188,7 @@ struct MarketDataServerView: View {
         if model.draftServer == nil {
             return "Enter a host such as data.example.com, without a path."
         }
-        return "Leave empty to connect to TradingView directly. Your own server must forward wss://<host>/socket.io/websocket to TradingView. Saving tests it first."
+        return "Leave empty to connect to TradingView directly. Your own server must forward wss://<host>/socket.io/websocket to TradingView and /symbol-logo/* to s3-symbol-logo.tradingview.com. Saving tests it first."
     }
 
     @ViewBuilder
@@ -200,9 +200,14 @@ struct MarketDataServerView: View {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Connected in \(Self.seconds(check.duration))")
-                    Text("BTC \(PortfolioFormat.price(check.price, currencyCode: check.currencyCode ?? "USD")) · \(check.isRealTime ? "Real-time" : "Delayed")")
+                    Text("BTC \(PortfolioFormat.price(check.price, currencyCode: check.currencyCode ?? "USD")) · \(check.isRealTime ? "Real-time" : "Delayed")\(check.logosAvailable ? " · Logos ready" : "")")
                         .font(.subheadline)
                         .foregroundStyle(BitternTheme.secondaryInk)
+                    if !check.logosAvailable {
+                        Text(check.server.isTradingView ? "Symbol logos couldn’t be reached." : "Symbol logos unavailable at /symbol-logo/.")
+                            .font(.subheadline)
+                            .foregroundStyle(BitternTheme.warning)
+                    }
                 }
             } icon: {
                 Image(systemName: "checkmark.circle.fill")
@@ -243,7 +248,7 @@ struct MarketDataServerSection: View {
         } header: {
             Text("Market Data")
         } footer: {
-            Text("Prices and charts stream from TradingView, directly or through your own server.")
+            Text("Prices, charts and symbol logos come from TradingView, directly or through your own server.")
         }
     }
 }

@@ -179,6 +179,7 @@ struct TradingViewQuoteTests {
         #expect(apple.regularMarketPrice == 110)
         #expect(apple.regularMarketPreviousClose == 105)
         #expect(apple.currency == "USD")
+        #expect(apple.logoURL == URL(string: "https://s3-symbol-logo.tradingview.com/apple.svg"))
         // Sunday: the trading day is still Friday's, and the close it
         // stamps at 19:59 belongs to the regular session.
         #expect(apple.marketSession?.regularStart == marketTime(day: 6, hour: 9, minute: 30))
@@ -187,11 +188,28 @@ struct TradingViewQuoteTests {
 
         let bitcoin = try #require(batch.quotes["BTC"])
         #expect(bitcoin.regularMarketPrice == 75_000)
+        #expect(bitcoin.logoURL == URL(string: "https://s3-symbol-logo.tradingview.com/crypto/XTVCBTC.svg"))
         #expect(bitcoin.marketSession == nil)
         #expect(!batch.didFailExtendedHours)
 
         let added = server.messages(named: "quote_add_symbols").flatMap { $0.params.dropFirst().compactMap(\.string) }
         #expect(Set(added) == ["AAPL", "CRYPTO:BTCUSD"])
+    }
+
+    @Test func missingOrBlankLogoIDYieldsNilLogoURL() async throws {
+        let server = FakeTradingViewServer(quotes: [
+            "AAPL": FakeMarket.stockQuote(logoID: nil),
+            "MSFT": FakeMarket.stockQuote(logoID: "   ")
+        ])
+        let client = server.client(at: marketTime(day: 6, hour: 11))
+
+        let batch = try await client.quotes(for: [
+            MarketQuoteRequest(symbol: "AAPL", instrumentKind: .stock),
+            MarketQuoteRequest(symbol: "MSFT", instrumentKind: .stock)
+        ])
+
+        #expect(batch.quotes["AAPL"]?.logoURL == nil)
+        #expect(batch.quotes["MSFT"]?.logoURL == nil)
     }
 
     @Test func aRejectedSymbolIsLeftOutAndAllRejectedFails() async throws {

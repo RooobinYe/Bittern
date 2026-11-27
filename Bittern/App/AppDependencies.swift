@@ -25,7 +25,8 @@ struct AppDependencies {
 
         let session = URLSession.shared
         let currentDate: @Sendable () -> Date = { Date() }
-        let brandfetch = BrandfetchClient(session: session)
+        let serverStore = TradingViewServerStore()
+        let logoClient = LogoClient(session: session, serverStore: serverStore)
 
         let credentialsStore = CredentialsStore()
         #if DEBUG
@@ -38,14 +39,21 @@ struct AppDependencies {
                 makeSnapTradeClient: { credentials in
                     SnapTradeClient(credentials: credentials, session: session, currentDate: currentDate)
                 },
-                marketData: TradingViewClient(session: session, currentDate: currentDate),
-                brandfetch: brandfetch,
+                marketData: TradingViewClient(
+                    session: session,
+                    serverStore: serverStore,
+                    currentDate: currentDate
+                ),
                 currentDate: currentDate
             ),
             logoSource: .remote(
-                LogoImageLoader { name, url in
-                    try await brandfetch.image(for: name, at: url)
-                }
+                LogoImageLoader(
+                    cached: { logoClient.cachedImage(for: $0) },
+                    warmFromDisk: { await logoClient.warmFromDisk(urls: $0) },
+                    image: { name, url in
+                        try await logoClient.image(for: name, at: url)
+                    }
+                )
             )
         )
     }

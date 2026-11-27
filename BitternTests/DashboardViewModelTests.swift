@@ -188,17 +188,20 @@ struct DashboardViewModelTests {
 
     private func viewModel(
         credentials: SnapTradeCredentials?,
-        cached: PortfolioSnapshot? = nil
+        cached: PortfolioSnapshot? = nil,
+        warmCachedLogos: @escaping @Sendable (PortfolioSnapshot) async -> Void = { _ in }
     ) -> DashboardViewModel {
         viewModel(
             store: CredentialsStore(storage: InMemoryCredentialsStorage(credentials)),
-            cached: cached
+            cached: cached,
+            warmCachedLogos: warmCachedLogos
         )
     }
 
     private func viewModel(
         store: CredentialsStore,
-        cached: PortfolioSnapshot? = nil
+        cached: PortfolioSnapshot? = nil,
+        warmCachedLogos: @escaping @Sendable (PortfolioSnapshot) async -> Void = { _ in }
     ) -> DashboardViewModel {
         let saved = saved
         let clock = clock
@@ -211,6 +214,7 @@ struct DashboardViewModelTests {
             saveCachedSnapshot: { saved.append($0) },
             deleteCachedSnapshot: { saved.delete() },
             networkMonitor: network,
+            warmCachedLogos: warmCachedLogos,
             sleep: { try await clock.sleep(for: $0) },
             now: { clock.now }
         )
@@ -244,7 +248,8 @@ struct DashboardViewModelTests {
                     postMarketChange: nil,
                     overnightChange: nil,
                     marketSession: $0.marketSession,
-                    regularPriceTime: clock.now
+                    regularPriceTime: clock.now,
+                    logoURL: $0.logoURL
                 )
             },
             lastUpdated: clock.now
@@ -1067,6 +1072,60 @@ struct DashboardViewModelTests {
 
         #expect(model.snapshot?.holdings.map(\.symbol) == ["NEW"])
         #expect(saved.all.map { $0.holdings.map(\.symbol) } == [["NEW"]])
+    }
+
+    @Test func launchWarmsCachedLogosWithoutBlockingLaunch() async {
+        let cached = complete(at: 1_000)
+        let warmed = SavedSnapshots()
+        let gate = AsyncGate()
+        let model = viewModel(
+            credentials: credentials,
+            cached: cached,
+            warmCachedLogos: { snapshot in
+                await gate.wait()
+                warmed.append(snapshot)
+            }
+        )
+        network.set(online: false)
+
+        await model.bootstrap()
+
+        // Launch finishes immediately without waiting for disk warmup.
+        #expect(model.priceStatus == .stale(since: cached.lastUpdated))
+        #expect(warmed.all.isEmpty)
+
+        gate.open()
+        await settle { !warmed.all.isEmpty }
+        #expect(warmed.all.map { $0.holdings.map(\.symbol) } == [["AAPL"]])
+    }
+}
+
+private nonisolated final class AsyncGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func open() {
+        let pending = lock.withLock {
+            isOpen = true
+            let copy = waiters
+            waiters.removeAll()
+            return copy
+        }
+        pending.forEach { $0.resume() }
     }
 }
 

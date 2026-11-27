@@ -2,6 +2,7 @@
 
 - 编译：`xcodebuild -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
 - 测试：`xcodebuild test -project Bittern.xcodeproj -scheme Bittern -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' CODE_SIGNING_ALLOWED=NO`
+- 模拟器看真实持仓：不要加 `CODE_SIGNING_ALLOWED=NO`（否则模拟器缺 entitlements 导致 Keychain 报 `-34018`），构建安装后运行 `bash scripts/use-real-holdings.sh [设备名]`
 
 # 约定
 

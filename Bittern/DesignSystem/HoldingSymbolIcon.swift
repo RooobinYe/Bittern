@@ -26,19 +26,16 @@ struct HoldingSymbolIcon: View {
     }
 
     var body: some View {
-        ZStack {
-            Circle().fill(color)
-            fallback
-
-            LogoImage(name: symbol, url: logoURL) { image in
-                image
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .background(Color.white)
-            } placeholder: {
-                Color.clear
+        LogoImage(name: symbol, url: logoURL) { image in
+            image
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: size, height: size)
+        } placeholder: {
+            ZStack {
+                Circle().fill(color)
+                fallback
             }
         }
         .frame(width: size, height: size)

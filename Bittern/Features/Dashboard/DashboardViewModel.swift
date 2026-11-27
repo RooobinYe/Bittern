@@ -81,6 +81,7 @@ final class DashboardViewModel {
     private let saveCachedSnapshot: @Sendable (PortfolioSnapshot) -> Void
     private let deleteCachedSnapshot: @Sendable () throws -> Void
     private let networkMonitor: any NetworkMonitor
+    private let warmCachedLogos: @Sendable (PortfolioSnapshot) async -> Void
     private let sleep: @Sendable (Duration) async throws -> Void
     private let now: @Sendable () -> Date
 
@@ -173,6 +174,7 @@ final class DashboardViewModel {
         saveCachedSnapshot: @escaping @Sendable (PortfolioSnapshot) -> Void,
         deleteCachedSnapshot: @escaping @Sendable () throws -> Void,
         networkMonitor: any NetworkMonitor,
+        warmCachedLogos: @escaping @Sendable (PortfolioSnapshot) async -> Void = { _ in },
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -183,6 +185,7 @@ final class DashboardViewModel {
         self.saveCachedSnapshot = saveCachedSnapshot
         self.deleteCachedSnapshot = deleteCachedSnapshot
         self.networkMonitor = networkMonitor
+        self.warmCachedLogos = warmCachedLogos
         self.sleep = sleep
         self.now = now
 
@@ -319,6 +322,12 @@ final class DashboardViewModel {
             )
         } ?? .withoutCache
         revealSkeleton(skeleton, launch: launch)
+
+        if let cached {
+            Task { [warmCachedLogos] in
+                await warmCachedLogos(cached)
+            }
+        }
 
         await waitForNetworkStatus()
         guard launch == launchID else { return }

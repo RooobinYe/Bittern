@@ -28,6 +28,8 @@ struct MarketQuote: Sendable {
     var marketSession: HoldingMarketSession? = nil
     /// The overnight quote, while the overnight session is under way.
     var overnight: ExtendedHoursQuote? = nil
+    /// Canonical TradingView logo URL resolved from the quote's metadata.
+    var logoURL: URL? = nil
 }
 
 enum ExtendedHoursSession: Equatable, Sendable {
