@@ -277,3 +277,14 @@ struct PortfolioFormatTests {
         #expect(PortfolioFormat.notUpdatedSince(lastYear, relativeTo: now, calendar: calendar, locale: uk).contains("2025"))
     }
 }
+
+@Suite
+struct LoupeGlassEffectTests {
+    @Test func resolvesLoupeVariantAndCreatesEffect() {
+        let variant = LoupeGlassEffect.loupeVariant
+        #expect(variant != nil)
+        if let variant {
+            #expect(LoupeGlassEffect.make(variant: variant) != nil)
+        }
+    }
+}

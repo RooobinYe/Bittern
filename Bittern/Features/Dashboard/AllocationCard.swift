@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 enum AllocationCardMetrics {
     /// The card's width over its height.
@@ -36,6 +37,10 @@ final class AllocationLensMotion {
     /// the lens springs back carries the lens along with the card, and a
     /// scroll at rest redraws nothing.
     var cardFrame: CGRect = .zero
+}
+
+extension EnvironmentValues {
+    @Entry var allocationLensMotion: AllocationLensMotion? = nil
 }
 
 struct PortfolioAllocationSection: View {
@@ -191,7 +196,7 @@ private struct AllocationLensCard: View {
                     .allocationAccessibility(slices)
 
                 if motion?.isLifted != true {
-                    AllocationLensGlass(radius: radius)
+                    AllocationLensGlass(radius: radius, usesLoupeGlass: motion != nil)
                         .position(middle)
                 }
 
@@ -282,6 +287,10 @@ struct AllocationLensGlass: View {
     /// The shadow's strength. A placeholder card under the lens is pale, so
     /// a lighter shadow keeps the lens from looking heavier than the card.
     var shadowOpacity: Double = 0.28
+    /// Live screens use UIKit's private loupe glass variant for crystal-clear
+    /// transparency without backdrop haze. Exported images (`ImageRenderer`)
+    /// cannot rasterise `UIViewRepresentable`, so they keep pure SwiftUI glass.
+    var usesLoupeGlass = true
 
     var body: some View {
         ZStack {
@@ -291,15 +300,97 @@ struct AllocationLensGlass: View {
                 .blur(radius: 8)
                 .offset(y: 3)
 
-            Color.clear
-                .frame(width: radius * 2, height: radius * 2)
-                .glassEffect(.clear, in: .circle)
+            if usesLoupeGlass, let variant = LoupeGlassEffect.loupeVariant {
+                LoupeGlassView(variant: variant)
+                    .frame(width: radius * 2, height: radius * 2)
+            } else {
+                Color.clear
+                    .frame(width: radius * 2, height: radius * 2)
+                    .glassEffect(.clear, in: .circle)
+            }
 
             AllocationLensRim()
                 .frame(width: radius * 2, height: radius * 2)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Wraps UIKit's `UIVisualEffectView` with the system's internal `.loupe`
+/// glass variant. Public `.glassEffect(.clear)` always adds backdrop blur and
+/// a light veil; the loupe variant keeps the interior sharp while preserving
+/// native edge refraction.
+///
+/// Uses non-public `_UIViewGlass` selectors discovered dynamically at runtime
+/// with automatic fallback to public `.glassEffect(.clear)` — intended for
+/// personal/open-source builds, not App Store or TestFlight submission.
+private struct LoupeGlassView: UIViewRepresentable {
+    let variant: Int
+
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let effect = LoupeGlassEffect.make(variant: variant) ?? UIGlassEffect(style: .clear)
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
+        uiView.cornerConfiguration = .capsule()
+    }
+}
+
+enum LoupeGlassEffect {
+    private static let allocSelector = NSSelectorFromString("alloc")
+    private static let initVariantSelector = NSSelectorFromString("initWithVariant:")
+    private static let effectWithGlassSelector = NSSelectorFromString("effectWithGlass:")
+
+    /// Resolved once per launch so an iOS update that reorders internal enum
+    /// raw values never picks the wrong glass material (and falls back to
+    /// public `.clear` if the private API disappears).
+    static let loupeVariant: Int? = resolveLoupeVariant()
+
+    static func make(variant: Int) -> UIGlassEffect? {
+        guard
+            UIGlassEffect.responds(to: effectWithGlassSelector),
+            let glass = makeViewGlass(variant: variant)
+        else {
+            return nil
+        }
+
+        return UIGlassEffect.perform(effectWithGlassSelector, with: glass)?
+            .takeUnretainedValue() as? UIGlassEffect
+    }
+
+    private static func resolveLoupeVariant() -> Int? {
+        guard UIGlassEffect.responds(to: effectWithGlassSelector) else { return nil }
+        for candidate in 0..<32 {
+            guard let glass = makeViewGlass(variant: candidate) else { return nil }
+            if glass.description.contains("Configuration(loupe)") {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static func makeViewGlass(variant: Int) -> NSObject? {
+        guard
+            let glassClass = NSClassFromString("_UIViewGlass") as? NSObject.Type,
+            glassClass.instancesRespond(to: initVariantSelector),
+            let initMethod = class_getInstanceMethod(glassClass, initVariantSelector),
+            let allocated = glassClass.perform(allocSelector)
+        else {
+            return nil
+        }
+
+        typealias InitVariantFn = @convention(c) (UnsafeMutableRawPointer, Selector, Int) -> UnsafeMutableRawPointer?
+        let initIMP = unsafeBitCast(method_getImplementation(initMethod), to: InitVariantFn.self)
+        guard let rawGlass = initIMP(allocated.toOpaque(), initVariantSelector, variant) else {
+            return nil
+        }
+
+        return Unmanaged<AnyObject>.fromOpaque(rawGlass).takeRetainedValue() as? NSObject
     }
 }
 
@@ -341,6 +432,8 @@ struct LiftedAllocationLens: View {
                     .offset(motion.translation)
                     .position(x: card.midX - page.minX, y: card.midY - page.minY)
             }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 }

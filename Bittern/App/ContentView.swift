@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var viewModel: DashboardViewModel
     @State private var selectedTab = AppTab.portfolio
     @State private var isShowingSettings = false
+    @State private var lensMotion = AllocationLensMotion()
     private let repository: any PortfolioRepository
     private let logoSource: LogoSource
     @Environment(\.scenePhase) private var scenePhase
@@ -78,11 +79,20 @@ struct ContentView: View {
         // Scrolling down shrinks the bar to the current tab in the corner,
         // so the holdings get the full height; scrolling up brings it back.
         .tabBarMinimizeBehavior(.onScrollDown)
+        // Above the tab bar and navigation bar, so the dragged lens floats over both.
+        .overlay { LiftedAllocationLens(motion: lensMotion) }
+        .onChange(of: selectedTab) { _, newTab in
+            if newTab != .portfolio {
+                lensMotion.translation = .zero
+                lensMotion.isLifted = false
+            }
+        }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(credentialsStore: credentialsStore, viewModel: viewModel)
         }
         .environment(\.portfolioRepository, repository)
         .environment(\.logoSource, logoSource)
+        .environment(\.allocationLensMotion, lensMotion)
         .task {
             await viewModel.bootstrap()
         }
