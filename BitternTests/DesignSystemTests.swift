@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Bittern
@@ -275,5 +276,40 @@ struct PortfolioFormatTests {
         let thisYear = PortfolioFormat.notUpdatedSince(earlier, relativeTo: now, calendar: calendar, locale: uk)
         #expect(thisYear.contains("3 Nov") && thisYear.contains("16:05") && !thisYear.contains("2026"))
         #expect(PortfolioFormat.notUpdatedSince(lastYear, relativeTo: now, calendar: calendar, locale: uk).contains("2025"))
+    }
+}
+
+@Suite
+struct LoupeGlassEffectTests {
+    @Test func resolvesLoupeVariantAndCreatesEffect() {
+        let variant = LoupeGlassEffect.loupeVariant
+        #expect(variant != nil)
+        if let variant {
+            #expect(LoupeGlassEffect.make(variant: variant) != nil)
+        }
+    }
+
+    @Test func rejectsMismatchedMethodSignature() throws {
+        let method = try #require(
+            class_getInstanceMethod(NSString.self, NSSelectorFromString("characterAtIndex:"))
+        )
+        // `characterAtIndex:` returns `unichar` (`S`), not an object (`@`).
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "@", argumentTypes: ["Q"]))
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: ["q"]))
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: []))
+        #expect(LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: ["Q"]))
+    }
+
+    @Test func lensMotionResetClearsLiftedState() {
+        let motion = AllocationLensMotion()
+        motion.translation = CGSize(width: 40, height: 120)
+        motion.isLifted = true
+        motion.isReturning = true
+
+        motion.reset()
+
+        #expect(motion.translation == .zero)
+        #expect(!motion.isLifted)
+        #expect(!motion.isReturning)
     }
 }

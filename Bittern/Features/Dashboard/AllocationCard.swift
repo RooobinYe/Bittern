@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 enum AllocationCardMetrics {
     /// The card's width over its height.
@@ -30,12 +31,30 @@ final class AllocationLensMotion {
     var translation: CGSize = .zero
     /// True from the moment the lens is picked up until it has sprung back.
     var isLifted = false
+    /// True while a spring animation started by gesture end/cancel is settling.
+    var isReturning = false
     /// The card on screen. Global, not a space named on the page: inside a
     /// list, a named space is measured from below the bars. It changes
     /// with every scroll. Only the lifted lens reads it, so a scroll while
     /// the lens springs back carries the lens along with the card, and a
     /// scroll at rest redraws nothing.
     var cardFrame: CGRect = .zero
+
+    /// Drops any active drag immediately, e.g. when navigating away from the
+    /// portfolio page or switching tabs.
+    func reset() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            translation = .zero
+            isLifted = false
+            isReturning = false
+        }
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var allocationLensMotion: AllocationLensMotion? = nil
 }
 
 struct PortfolioAllocationSection: View {
@@ -178,6 +197,10 @@ private struct AllocationLensCard: View {
     let slices: [AllocationSlice]
     let motion: AllocationLensMotion?
 
+    /// Tracks active drag ownership; resets automatically even when SwiftUI
+    /// cancels the gesture without firing `onEnded`.
+    @GestureState private var isDragging = false
+
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
@@ -191,7 +214,7 @@ private struct AllocationLensCard: View {
                     .allocationAccessibility(slices)
 
                 if motion?.isLifted != true {
-                    AllocationLensGlass(radius: radius)
+                    AllocationLensGlass(radius: radius, usesLoupeGlass: motion != nil)
                         .position(middle)
                 }
 
@@ -210,6 +233,14 @@ private struct AllocationLensCard: View {
             proxy.frame(in: .global)
         } action: { frame in
             motion?.cardFrame = frame
+        }
+        .onChange(of: isDragging) { _, dragging in
+            if !dragging, let motion, motion.isLifted, !motion.isReturning {
+                springBack(motion, velocity: .zero)
+            }
+        }
+        .onDisappear {
+            motion?.reset()
         }
     }
 
@@ -230,36 +261,46 @@ private struct AllocationLensCard: View {
 
     private func lensDrag(_ motion: AllocationLensMotion) -> some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($isDragging) { _, dragging, _ in
+                dragging = true
+            }
             .onChanged { value in
                 // Follow the finger at once, even mid-spring.
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
+                    motion.isReturning = false
                     motion.isLifted = true
                     motion.translation = value.translation
                 }
             }
             .onEnded { value in
-                // The spring starts at the finger's speed, so a flung lens
-                // carries on a little before it swings back.
-                let spring = Animation.interpolatingSpring(
-                    duration: 0.5,
-                    bounce: 0.3,
-                    initialVelocity: Self.returnVelocity(value.velocity, from: motion.translation)
-                )
-                // Put the lens back on the card only once the spring has
-                // settled. A bouncy spring is logically complete while it is
-                // still swinging past the middle, and the card's lens, drawn
-                // at the exact middle, would take over with a jump.
-                withAnimation(spring, completionCriteria: .removed) {
-                    motion.translation = .zero
-                } completion: {
-                    // Another drag may have picked it up meanwhile.
-                    if motion.translation == .zero {
-                        motion.isLifted = false
-                    }
-                }
+                springBack(motion, velocity: value.velocity)
             }
+    }
+
+    private func springBack(_ motion: AllocationLensMotion, velocity: CGSize) {
+        motion.isReturning = true
+        // The spring starts at the finger's speed, so a flung lens
+        // carries on a little before it swings back.
+        let spring = Animation.interpolatingSpring(
+            duration: 0.5,
+            bounce: 0.3,
+            initialVelocity: Self.returnVelocity(velocity, from: motion.translation)
+        )
+        // Put the lens back on the card only once the spring has
+        // settled. A bouncy spring is logically complete while it is
+        // still swinging past the middle, and the card's lens, drawn
+        // at the exact middle, would take over with a jump.
+        withAnimation(spring, completionCriteria: .removed) {
+            motion.translation = .zero
+        } completion: {
+            // Another drag may have picked it up meanwhile.
+            if motion.translation == .zero {
+                motion.isLifted = false
+                motion.isReturning = false
+            }
+        }
     }
 
     /// The finger's velocity as the spring takes it: the share of the way
@@ -282,6 +323,10 @@ struct AllocationLensGlass: View {
     /// The shadow's strength. A placeholder card under the lens is pale, so
     /// a lighter shadow keeps the lens from looking heavier than the card.
     var shadowOpacity: Double = 0.28
+    /// Live screens use UIKit's private loupe glass variant for crystal-clear
+    /// transparency without backdrop haze. Exported images (`ImageRenderer`)
+    /// cannot rasterise `UIViewRepresentable`, so they keep pure SwiftUI glass.
+    var usesLoupeGlass = true
 
     var body: some View {
         ZStack {
@@ -291,15 +336,128 @@ struct AllocationLensGlass: View {
                 .blur(radius: 8)
                 .offset(y: 3)
 
-            Color.clear
-                .frame(width: radius * 2, height: radius * 2)
-                .glassEffect(.clear, in: .circle)
+            if usesLoupeGlass, let variant = LoupeGlassEffect.loupeVariant {
+                LoupeGlassView(variant: variant)
+                    .frame(width: radius * 2, height: radius * 2)
+            } else {
+                Color.clear
+                    .frame(width: radius * 2, height: radius * 2)
+                    .glassEffect(.clear, in: .circle)
+            }
 
             AllocationLensRim()
                 .frame(width: radius * 2, height: radius * 2)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Wraps UIKit's `UIVisualEffectView` with the system's internal `.loupe`
+/// glass variant. Public `.glassEffect(.clear)` always adds backdrop blur and
+/// a light veil; the loupe variant keeps the interior sharp while preserving
+/// native edge refraction.
+///
+/// Uses non-public `_UIViewGlass` selectors discovered dynamically at runtime
+/// with automatic fallback to public `.glassEffect(.clear)` — intended for
+/// personal/open-source builds, not App Store or TestFlight submission.
+private struct LoupeGlassView: UIViewRepresentable {
+    let variant: Int
+
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let effect = LoupeGlassEffect.make(variant: variant) ?? UIGlassEffect(style: .clear)
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
+        uiView.cornerConfiguration = .capsule()
+    }
+}
+
+enum LoupeGlassEffect {
+    private static let allocSelector = NSSelectorFromString("alloc")
+    private static let initVariantSelector = NSSelectorFromString("initWithVariant:")
+    private static let effectWithGlassSelector = NSSelectorFromString("effectWithGlass:")
+
+    /// Resolved once per launch so an iOS update that reorders internal enum
+    /// raw values never picks the wrong glass material (and falls back to
+    /// public `.clear` if the private API disappears or changes signature).
+    static let loupeVariant: Int? = resolveLoupeVariant()
+
+    static func make(variant: Int) -> UIGlassEffect? {
+        guard
+            hasExpectedEffectFactorySignature(),
+            let glass = makeViewGlass(variant: variant)
+        else {
+            return nil
+        }
+
+        return UIGlassEffect.perform(effectWithGlassSelector, with: glass)?
+            .takeUnretainedValue() as? UIGlassEffect
+    }
+
+    static func matchesMethodSignature(
+        _ method: Method,
+        returnType: String,
+        argumentTypes: [String]
+    ) -> Bool {
+        let expectedCount = UInt32(argumentTypes.count + 2)
+        guard method_getNumberOfArguments(method) == expectedCount else { return false }
+
+        let rawReturn = method_copyReturnType(method)
+        defer { free(rawReturn) }
+        guard String(cString: rawReturn) == returnType else { return false }
+
+        for (offset, expectedType) in argumentTypes.enumerated() {
+            guard let rawArgument = method_copyArgumentType(method, UInt32(offset + 2)) else {
+                return false
+            }
+            defer { free(rawArgument) }
+            guard String(cString: rawArgument) == expectedType else { return false }
+        }
+
+        return true
+    }
+
+    private static func hasExpectedEffectFactorySignature() -> Bool {
+        guard let effectMethod = class_getClassMethod(UIGlassEffect.self, effectWithGlassSelector) else {
+            return false
+        }
+        return matchesMethodSignature(effectMethod, returnType: "@", argumentTypes: ["@"])
+    }
+
+    private static func resolveLoupeVariant() -> Int? {
+        guard hasExpectedEffectFactorySignature() else { return nil }
+        for candidate in 0..<32 {
+            guard let glass = makeViewGlass(variant: candidate) else { return nil }
+            if glass.description.contains("Configuration(loupe)") {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static func makeViewGlass(variant: Int) -> NSObject? {
+        guard
+            let glassClass = NSClassFromString("_UIViewGlass") as? NSObject.Type,
+            let initMethod = class_getInstanceMethod(glassClass, initVariantSelector),
+            // `initWithVariant:` takes `NSInteger` (`q` on 64-bit) and returns `id` (`@`).
+            matchesMethodSignature(initMethod, returnType: "@", argumentTypes: ["q"]),
+            let allocated = glassClass.perform(allocSelector)
+        else {
+            return nil
+        }
+
+        typealias InitVariantFn = @convention(c) (UnsafeMutableRawPointer, Selector, Int) -> UnsafeMutableRawPointer?
+        let initIMP = unsafeBitCast(method_getImplementation(initMethod), to: InitVariantFn.self)
+        guard let rawGlass = initIMP(allocated.toOpaque(), initVariantSelector, variant) else {
+            return nil
+        }
+
+        return Unmanaged<AnyObject>.fromOpaque(rawGlass).takeRetainedValue() as? NSObject
     }
 }
 
@@ -341,6 +499,8 @@ struct LiftedAllocationLens: View {
                     .offset(motion.translation)
                     .position(x: card.midX - page.minX, y: card.midY - page.minY)
             }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 }

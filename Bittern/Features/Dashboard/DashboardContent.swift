@@ -196,7 +196,12 @@ struct DashboardVisualContent: View {
     let controls: DashboardControls?
 
     @State private var marketTime = Date()
-    @State private var lensMotion = AllocationLensMotion()
+    @Environment(\.allocationLensMotion) private var sharedLensMotion
+    @State private var fallbackLensMotion = AllocationLensMotion()
+
+    private var lensMotion: AllocationLensMotion {
+        sharedLensMotion ?? fallbackLensMotion
+    }
 
     /// The bands' colors, so a holding without a logo matches its band.
     private var holdingColorLookup: [String: Color] {
@@ -217,8 +222,12 @@ struct DashboardVisualContent: View {
 
     var body: some View {
         content
-            // Above the list, so the lifted lens can go anywhere on the page.
-            .overlay { LiftedAllocationLens(motion: lensMotion) }
+            // Fallback when DashboardVisualContent is hosted outside ContentView.
+            .overlay {
+                if sharedLensMotion == nil {
+                    LiftedAllocationLens(motion: fallbackLensMotion)
+                }
+            }
             .onChange(of: portfolio.lastUpdated) { _, _ in
                 marketTime = Date()
             }
