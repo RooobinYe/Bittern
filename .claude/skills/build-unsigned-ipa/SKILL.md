@@ -1,6 +1,6 @@
 ---
 name: build-unsigned-ipa
-description: Build an unsigned IPA from the Bittern Xcode project. Use this skill whenever the user asks to build, compile, export, or package an IPA, make an unsigned app, install on device without signing, or mentions exporting the app. Always trigger on keywords like "编译", "打包", "IPA", "导出", "build", "export", "package", "unsigned".
+description: Build, archive and package Bittern into an unsigned IPA for sideloading.
 ---
 
 # Build Unsigned IPA
