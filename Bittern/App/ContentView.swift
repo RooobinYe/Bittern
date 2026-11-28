@@ -83,8 +83,12 @@ struct ContentView: View {
         .overlay { LiftedAllocationLens(motion: lensMotion) }
         .onChange(of: selectedTab) { _, newTab in
             if newTab != .portfolio {
-                lensMotion.translation = .zero
-                lensMotion.isLifted = false
+                lensMotion.reset()
+            }
+        }
+        .onChange(of: isShowingSettings) { _, showing in
+            if showing {
+                lensMotion.reset()
             }
         }
         .sheet(isPresented: $isShowingSettings) {
@@ -99,10 +103,13 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:
+                lensMotion.reset()
                 viewModel.sceneDidEnterBackground()
             case .active:
                 viewModel.sceneDidBecomeActive()
-            default:
+            case .inactive:
+                lensMotion.reset()
+            @unknown default:
                 break
             }
         }

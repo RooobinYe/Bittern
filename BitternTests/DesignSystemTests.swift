@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Bittern
@@ -286,5 +287,29 @@ struct LoupeGlassEffectTests {
         if let variant {
             #expect(LoupeGlassEffect.make(variant: variant) != nil)
         }
+    }
+
+    @Test func rejectsMismatchedMethodSignature() throws {
+        let method = try #require(
+            class_getInstanceMethod(NSString.self, NSSelectorFromString("characterAtIndex:"))
+        )
+        // `characterAtIndex:` returns `unichar` (`S`), not an object (`@`).
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "@", argumentTypes: ["Q"]))
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: ["q"]))
+        #expect(!LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: []))
+        #expect(LoupeGlassEffect.matchesMethodSignature(method, returnType: "S", argumentTypes: ["Q"]))
+    }
+
+    @Test func lensMotionResetClearsLiftedState() {
+        let motion = AllocationLensMotion()
+        motion.translation = CGSize(width: 40, height: 120)
+        motion.isLifted = true
+        motion.isReturning = true
+
+        motion.reset()
+
+        #expect(motion.translation == .zero)
+        #expect(!motion.isLifted)
+        #expect(!motion.isReturning)
     }
 }
